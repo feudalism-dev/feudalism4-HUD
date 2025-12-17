@@ -10,8 +10,8 @@
 // Replace this URL with your deployed Google Apps Script Web App URL
 string GAS_URL = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
 
-// Replace with your Firebase Hosting URL for the MOAP interface
-string MOAP_BASE_URL = "https://your-project.web.app";
+// Firebase Hosting URL for the MOAP interface
+string MOAP_BASE_URL = "https://feudalism4-rpg.web.app";
 
 // MOAP Face (which face of the prim displays the web content)
 integer MOAP_FACE = 0;
