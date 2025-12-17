@@ -11,7 +11,8 @@
 string MOAP_BASE_URL = "https://feudalism4-rpg.web.app";
 
 // MOAP Face (which face of the prim displays the web content)
-integer MOAP_FACE = 0;
+// Face 4 is the standard front face used for HUDs
+integer MOAP_FACE = 4;
 
 // MOAP dimensions (match your UI design)
 integer MOAP_WIDTH = 1024;

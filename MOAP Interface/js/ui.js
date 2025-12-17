@@ -191,21 +191,34 @@ const UI = {
     // =========================== SPECIES GALLERY ========================
     
     /**
-     * Render species selection gallery
+     * Render species selection gallery with images
      * @param {Array} species - Array of species templates
      * @param {string} selectedId - Currently selected species ID
      */
     renderSpeciesGallery(species, selectedId = null) {
         if (!this.elements.speciesGallery) return;
         
-        this.elements.speciesGallery.innerHTML = species.map(sp => `
-            <div class="gallery-card ${sp.id === selectedId ? 'selected' : ''}" 
-                 data-species-id="${sp.id}"
-                 title="${sp.description || ''}">
-                <div class="card-icon">${this.speciesIcons[sp.id] || '👤'}</div>
-                <div class="card-name">${sp.name}</div>
-            </div>
-        `).join('');
+        this.elements.speciesGallery.innerHTML = species.map(sp => {
+            const icon = sp.icon || this.speciesIcons[sp.id] || '👤';
+            const hasImage = sp.image ? true : false;
+            
+            return `
+                <div class="gallery-card ${sp.id === selectedId ? 'selected' : ''}" 
+                     data-species-id="${sp.id}"
+                     title="${sp.description || ''}">
+                    ${hasImage ? `
+                        <div class="card-image">
+                            <img src="images/${sp.image}" alt="${sp.name}" 
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <span class="card-icon-fallback" style="display:none;">${icon}</span>
+                        </div>
+                    ` : `
+                        <div class="card-icon">${icon}</div>
+                    `}
+                    <div class="card-name">${sp.name}</div>
+                </div>
+            `;
+        }).join('');
         
         // Bind click events
         this.elements.speciesGallery.querySelectorAll('.gallery-card').forEach(card => {
@@ -233,7 +246,7 @@ const UI = {
     // =========================== CAREER GALLERY =========================
     
     /**
-     * Render career/class gallery
+     * Render career/class gallery with images
      * @param {Array} classes - Array of class templates
      * @param {string} currentClassId - Currently selected class ID
      * @param {object} character - Character data for prerequisite checking
@@ -244,12 +257,22 @@ const UI = {
         this.elements.careerGallery.innerHTML = classes.map(cls => {
             const isSelected = cls.id === currentClassId;
             const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+            const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
+            const hasImage = cls.image ? true : false;
             
             return `
                 <div class="gallery-card career-card ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''}" 
                      data-class-id="${cls.id}"
                      title="${cls.description || ''}">
-                    <div class="card-icon">${this.classIcons[cls.id] || this.classIcons.default}</div>
+                    ${hasImage ? `
+                        <div class="card-image">
+                            <img src="images/${cls.image}" alt="${cls.name}" 
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <span class="card-icon-fallback" style="display:none;">${icon}</span>
+                        </div>
+                    ` : `
+                        <div class="card-icon">${icon}</div>
+                    `}
                     <div class="card-name">${cls.name}</div>
                     <div class="card-desc">${cls.xp_cost ? cls.xp_cost + ' XP' : 'Free'}</div>
                 </div>
