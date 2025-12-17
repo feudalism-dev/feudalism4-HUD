@@ -44,13 +44,15 @@ const API = {
             
             console.log('API Request:', action, payload);
             
+            // GAS requires special handling for CORS
+            // Use Content-Type: text/plain to avoid preflight
             const response = await fetch(this.GAS_URL, {
                 method: 'POST',
-                mode: 'cors',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'text/plain;charset=utf-8',
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                redirect: 'follow'
             });
             
             if (!response.ok) {

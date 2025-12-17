@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Templates - fully public read (no auth needed)
+    match /species/{docId} {
+      allow read: if true;
+      allow write: if false;  // Lock down for now
+    }
+    
+    match /classes/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    match /vocations/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Users - anyone can read/write for now (test mode)
+    match /users/{docId} {
+      allow read, write: if true;
+    }
+    
+    // Characters - anyone can read/write for now (test mode)
+    match /characters/{docId} {
+      allow read, write: if true;
+    }
+    
+    // Everything else - open for testing
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
+

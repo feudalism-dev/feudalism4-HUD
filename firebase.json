@@ -1,4 +1,8 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "Firebase/firestore.indexes.json"
+  },
   "hosting": {
     "public": "MOAP Interface",
     "ignore": [

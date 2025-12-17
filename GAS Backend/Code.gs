@@ -4,11 +4,14 @@
 // Main entry point for all HTTP requests from LSL and MOAP
 // ============================================================================
 
-// Firebase configuration - Replace with your project details
-const FIREBASE_URL = 'https://YOUR-PROJECT-ID.firebaseio.com';
-const FIREBASE_SECRET = 'YOUR-DATABASE-SECRET'; // For legacy REST API, or use Service Account
+// =========================== CONFIGURATION ==================================
+// IMPORTANT: Create a Google Sheet and paste its ID here!
+// The ID is the long string in the URL: docs.google.com/spreadsheets/d/THIS_PART/edit
+const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
 
-// Alternative: Use Firestore REST API
+// Firebase configuration (optional - for future Firestore migration)
+const FIREBASE_URL = 'https://YOUR-PROJECT-ID.firebaseio.com';
+const FIREBASE_SECRET = 'YOUR-DATABASE-SECRET';
 const FIRESTORE_PROJECT_ID = 'YOUR-PROJECT-ID';
 
 // =========================== HTTP HANDLERS ==================================
@@ -68,15 +71,15 @@ function doPost(e) {
         response = requireAuth(uuid, token, () => deleteCharacter(uuid));
         break;
         
-      // Template operations
+      // Template operations (public - no auth required for reading)
       case 'templates.species':
-        response = requireAuth(uuid, token, () => getSpeciesTemplates());
+        response = getSpeciesTemplates();
         break;
       case 'templates.classes':
-        response = requireAuth(uuid, token, () => getClassTemplates());
+        response = getClassTemplates();
         break;
       case 'templates.vocations':
-        response = requireAuth(uuid, token, () => getVocationTemplates());
+        response = getVocationTemplates();
         break;
         
       // Game mechanics
@@ -180,18 +183,23 @@ function requireAdmin(uuid, token, requiredRole, callback) {
 // =========================== DATABASE HELPERS ===============================
 
 /**
- * Get data from spreadsheet-based storage (simple approach)
- * You can replace this with Firestore API calls for production
+ * Get data from spreadsheet-based storage
+ * Uses the SPREADSHEET_ID constant defined at the top of this file
  */
 function getSpreadsheet() {
-  // Create or get the data spreadsheet
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) {
-    // Create new spreadsheet for data storage
-    const newSS = SpreadsheetApp.create('Feudalism 4 Database');
-    return newSS;
+  // Use the configured spreadsheet ID
+  if (SPREADSHEET_ID && SPREADSHEET_ID !== 'YOUR_SPREADSHEET_ID_HERE') {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
   }
-  return ss;
+  
+  // Fallback: try to get active spreadsheet (works when running from spreadsheet)
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) {
+    return ss;
+  }
+  
+  // If no spreadsheet configured, throw helpful error
+  throw new Error('No spreadsheet configured! Please set SPREADSHEET_ID in Code.gs');
 }
 
 /**
