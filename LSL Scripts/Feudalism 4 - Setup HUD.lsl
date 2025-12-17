@@ -7,8 +7,8 @@
 // ============================================================================
 
 // =========================== CONFIGURATION ==================================
-// Replace this URL with your deployed Google Apps Script Web App URL
-string GAS_URL = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
+// Google Apps Script Web App URL
+string GAS_URL = "https://script.google.com/macros/s/AKfycbxKDnCMgxIrquXtE5_YZnDcEUVitUAE92lJ-ZRc1mxyj9ilEcUND_kei7KK35VD0Amr/exec";
 
 // Firebase Hosting URL for the MOAP interface
 string MOAP_BASE_URL = "https://feudalism4-rpg.web.app";

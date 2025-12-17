@@ -5,8 +5,8 @@
 // ============================================================================
 
 const API = {
-    // Configuration - Set these when deploying
-    GAS_URL: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+    // Google Apps Script Web App URL
+    GAS_URL: 'https://script.google.com/macros/s/AKfycbxKDnCMgxIrquXtE5_YZnDcEUVitUAE92lJ-ZRc1mxyj9ilEcUND_kei7KK35VD0Amr/exec',
     
     // Session data (populated from URL params)
     uuid: null,
