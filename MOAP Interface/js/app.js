@@ -18,6 +18,15 @@ const App = {
         isNewCharacter: false
     },
     
+    // LSL integration state
+    lsl: {
+        uuid: null,
+        username: null,
+        displayName: null,
+        channel: null,
+        connected: false
+    },
+    
     /**
      * Initialize the application
      */
@@ -25,8 +34,18 @@ const App = {
         console.log('Feudalism 4 HUD initializing...');
         
         // Initialize modules
-        API.init();
+        await API.init();
         UI.init();
+        
+        // Store LSL data for quick access
+        this.lsl.uuid = API.uuid;
+        this.lsl.username = API.username;
+        this.lsl.displayName = API.displayName;
+        this.lsl.channel = API.hudChannel;
+        this.lsl.connected = !!API.uuid;
+        
+        // Update header with player name
+        this.updatePlayerInfo();
         
         // Update UI based on role
         UI.updateRoleUI(API.role);
@@ -40,7 +59,25 @@ const App = {
         // Start heartbeat
         this.startHeartbeat();
         
-        console.log('Feudalism 4 HUD ready');
+        console.log('Feudalism 4 HUD ready for:', this.lsl.displayName);
+    },
+    
+    /**
+     * Update player info display in header
+     */
+    updatePlayerInfo() {
+        const headerInfo = document.querySelector('.header-info');
+        if (headerInfo && this.lsl.displayName) {
+            // Add player name display
+            let playerName = headerInfo.querySelector('.player-name');
+            if (!playerName) {
+                playerName = document.createElement('span');
+                playerName.className = 'player-name';
+                headerInfo.insertBefore(playerName, headerInfo.firstChild);
+            }
+            playerName.textContent = this.lsl.displayName;
+            playerName.title = `UUID: ${this.lsl.uuid}\nChannel: ${this.lsl.channel}`;
+        }
     },
     
     /**
@@ -297,6 +334,9 @@ const App = {
                 <label for="roll-difficulty">Difficulty (DC)</label>
                 <input type="number" id="roll-difficulty" value="10" min="1" max="100">
             </div>
+            <div class="form-group">
+                <label><input type="checkbox" id="roll-announce" checked> Announce in local chat</label>
+            </div>
             <button class="action-btn primary" id="btn-execute-roll">🎲 Roll!</button>
             <div id="roll-result" style="margin-top: 16px;"></div>
         `;
@@ -307,24 +347,47 @@ const App = {
         document.getElementById('btn-execute-roll')?.addEventListener('click', async () => {
             const stat = document.getElementById('roll-stat').value;
             const difficulty = parseInt(document.getElementById('roll-difficulty').value) || 10;
+            const shouldAnnounce = document.getElementById('roll-announce').checked;
             
             try {
                 const result = await API.rollTest(stat, difficulty);
                 const data = result.data;
                 
-                document.getElementById('roll-result').innerHTML = `
+                // Format dice string for display
+                const diceStr = `${data.stat_value}d20${data.explosions > 0 ? `+${data.explosions}💥` : ''}`;
+                
+                // Build result display
+                let resultHtml = `
                     <div class="roll-result-box" style="background: var(--bg-dark); padding: 16px; border-radius: 8px;">
+                        <p><strong>Stat:</strong> ${stat.charAt(0).toUpperCase() + stat.slice(1)} (${data.stat_value}d20)</p>
                         <p><strong>Rolls:</strong> [${data.all_rolls.join(', ')}]</p>
                         <p><strong>Base Total:</strong> ${data.roll_total}</p>
-                        ${data.vocation_bonus > 0 ? `<p><strong>Vocation (${data.vocation_name}):</strong> +${data.vocation_bonus}</p>` : ''}
+                        ${data.vocation_bonus > 0 ? `<p><strong>Vocation:</strong> +${data.vocation_bonus}</p>` : ''}
                         <p><strong>Final Result:</strong> ${data.final_result} vs DC ${data.difficulty}</p>
                         <p style="font-size: 1.5rem; color: ${data.success ? 'var(--success)' : 'var(--error)'}">
                             ${data.success ? '✓ SUCCESS' : '✗ FAILURE'} (${data.margin >= 0 ? '+' : ''}${data.margin})
                         </p>
                         ${data.explosions > 0 ? `<p>💥 ${data.explosions} explosion${data.explosions > 1 ? 's' : ''}!</p>` : ''}
-                        ${data.peasants_prayer ? `<p>🙏 Peasant's Prayer!</p>` : ''}
                     </div>
                 `;
+                
+                // Add LSL announcement info
+                if (shouldAnnounce) {
+                    const announcement = `⚔️ ${App.lsl.displayName} rolls ${stat}: [${diceStr}] = ${data.final_result} vs DC ${difficulty} ${data.success ? '✅ SUCCESS!' : '❌ FAILURE'}`;
+                    const lslCmd = API.queueRollAnnouncement(stat, diceStr, difficulty, data.final_result, data.success);
+                    
+                    resultHtml += `
+                        <div style="margin-top: 12px; padding: 12px; background: var(--bg-darker); border-radius: 4px; font-size: 0.9rem;">
+                            <p style="color: var(--text-muted); margin-bottom: 8px;">📢 Chat Announcement:</p>
+                            <p style="font-family: monospace; word-break: break-all;">${announcement}</p>
+                            <button class="action-btn" onclick="navigator.clipboard.writeText('${announcement.replace(/'/g, "\\'")}'); UI.showToast('Copied!', 'success', 1000);" style="margin-top: 8px;">
+                                📋 Copy to Clipboard
+                            </button>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('roll-result').innerHTML = resultHtml;
             } catch (error) {
                 UI.showToast('Roll failed: ' + error.message, 'error');
             }

@@ -1,22 +1,19 @@
 // ============================================================================
 // Feudalism 4 - Setup HUD (MOAP Thin Client)
 // ============================================================================
-// Version: 4.0.0
-// Description: Single-prim MOAP HUD that communicates with Firebase/GAS backend
+// Version: 4.0.1
+// Description: Single-prim MOAP HUD that displays Firebase-powered web UI
 // No Experience permissions required - works anywhere on the grid
 // ============================================================================
 
 // =========================== CONFIGURATION ==================================
-// Google Apps Script Web App URL
-string GAS_URL = "https://script.google.com/macros/s/AKfycbxKDnCMgxIrquXtE5_YZnDcEUVitUAE92lJ-ZRc1mxyj9ilEcUND_kei7KK35VD0Amr/exec";
-
 // Firebase Hosting URL for the MOAP interface
 string MOAP_BASE_URL = "https://feudalism4-rpg.web.app";
 
 // MOAP Face (which face of the prim displays the web content)
 integer MOAP_FACE = 0;
 
-// MOAP dimensions
+// MOAP dimensions (match your UI design)
 integer MOAP_WIDTH = 1024;
 integer MOAP_HEIGHT = 768;
 
@@ -24,80 +21,18 @@ integer MOAP_HEIGHT = 768;
 key ownerKey;
 string ownerUUID;
 string ownerUsername;
+string ownerDisplayName;
 key objectKey;
-
-// Session management
-string sessionToken = "";
-integer isAuthenticated = FALSE;
-string userRole = "player";
-integer hasCharacter = FALSE;
-
-// HTTP request tracking
-key httpAuthRequest;
-key httpDataRequest;
-key httpActionRequest;
 
 // Communication channels
 integer hudChannel;
 integer listenHandle;
-
-// Retry logic
-integer authRetries = 0;
-integer MAX_AUTH_RETRIES = 3;
 
 // =========================== UTILITY FUNCTIONS ==============================
 
 // Generate a unique channel based on owner UUID for HUD communication
 integer generateChannel(key id) {
     return -1 - (integer)("0x" + llGetSubString((string)id, 0, 6));
-}
-
-// Build JSON request payload
-string buildRequest(string action, string data) {
-    string payload = "{";
-    payload += "\"action\":\"" + action + "\",";
-    payload += "\"uuid\":\"" + ownerUUID + "\",";
-    payload += "\"username\":\"" + ownerUsername + "\",";
-    payload += "\"object_key\":\"" + (string)objectKey + "\"";
-    
-    if (sessionToken != "") {
-        payload += ",\"token\":\"" + sessionToken + "\"";
-    }
-    
-    if (data != "") {
-        payload += ",\"data\":" + data;
-    }
-    
-    payload += "}";
-    return payload;
-}
-
-// Parse JSON value (simple parser for known response format)
-string getJSONValue(string json, string key) {
-    integer keyStart = llSubStringIndex(json, "\"" + key + "\"");
-    if (keyStart == -1) return "";
-    
-    integer colonPos = llSubStringIndex(llGetSubString(json, keyStart, -1), ":");
-    if (colonPos == -1) return "";
-    
-    string remainder = llGetSubString(json, keyStart + colonPos + 1, -1);
-    remainder = llStringTrim(remainder, STRING_TRIM);
-    
-    // Check if value is a string (starts with ")
-    if (llGetSubString(remainder, 0, 0) == "\"") {
-        integer endQuote = llSubStringIndex(llGetSubString(remainder, 1, -1), "\"");
-        return llGetSubString(remainder, 1, endQuote);
-    }
-    // Check for boolean/number (ends at comma, }, or end)
-    else {
-        integer endPos = llSubStringIndex(remainder, ",");
-        integer endPos2 = llSubStringIndex(remainder, "}");
-        if (endPos == -1 || (endPos2 != -1 && endPos2 < endPos)) {
-            endPos = endPos2;
-        }
-        if (endPos == -1) endPos = llStringLength(remainder);
-        return llStringTrim(llGetSubString(remainder, 0, endPos - 1), STRING_TRIM);
-    }
 }
 
 // Set MOAP URL on the HUD face
@@ -107,6 +42,7 @@ setMOAPUrl(string url) {
         PRIM_MEDIA_HOME_URL, url,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
         PRIM_MEDIA_AUTO_SCALE, TRUE,
+        PRIM_MEDIA_AUTO_ZOOM, TRUE,
         PRIM_MEDIA_WIDTH_PIXELS, MOAP_WIDTH,
         PRIM_MEDIA_HEIGHT_PIXELS, MOAP_HEIGHT,
         PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
@@ -124,208 +60,48 @@ notify(string message) {
     llOwnerSay("[Feudalism 4] " + message);
 }
 
-// Send HTTP request to GAS backend
-key sendRequest(string action, string data) {
-    string payload = buildRequest(action, data);
-    
-    return llHTTPRequest(GAS_URL, [
-        HTTP_METHOD, "POST",
-        HTTP_MIMETYPE, "application/json",
-        HTTP_BODY_MAXLENGTH, 16384,
-        HTTP_VERIFY_CERT, TRUE
-    ], payload);
+// Announce message to local chat (for dice rolls, combat, etc.)
+announce(string message) {
+    llSay(0, message);
 }
 
-// =========================== INITIALIZATION =================================
+// =========================== MAIN STATE =====================================
 default {
     state_entry() {
         // Initialize owner information
         ownerKey = llGetOwner();
         ownerUUID = (string)ownerKey;
         ownerUsername = llGetUsername(ownerKey);
+        ownerDisplayName = llGetDisplayName(ownerKey);
         objectKey = llGetKey();
         
-        // Generate unique communication channel
+        // Generate unique communication channel based on avatar UUID
         hudChannel = generateChannel(ownerKey);
         
-        // Reset session state
-        sessionToken = "";
-        isAuthenticated = FALSE;
-        userRole = "player";
-        hasCharacter = FALSE;
-        authRetries = 0;
+        notify("Initializing HUD...");
         
-        notify("Initializing... Please wait.");
-        
-        // Show loading screen via MOAP
-        string loadingUrl = MOAP_BASE_URL + "/loading.html";
-        setMOAPUrl(loadingUrl);
-        
-        // Attempt authentication
-        state authenticating;
-    }
-    
-    on_rez(integer start_param) {
-        llResetScript();
-    }
-    
-    changed(integer change) {
-        if (change & CHANGED_OWNER) {
-            llResetScript();
-        }
-    }
-}
-
-// =========================== AUTHENTICATION STATE ===========================
-state authenticating {
-    state_entry() {
-        notify("Connecting to server...");
-        
-        // Send authentication request
-        httpAuthRequest = sendRequest("auth.login", "");
-        
-        // Set timeout for auth response
-        llSetTimerEvent(30.0);
-    }
-    
-    http_response(key request_id, integer status, list metadata, string body) {
-        if (request_id == httpAuthRequest) {
-            llSetTimerEvent(0.0); // Cancel timeout
-            
-            if (status == 200) {
-                // Parse response
-                string success = getJSONValue(body, "success");
-                
-                if (success == "true") {
-                    // Extract session data
-                    sessionToken = getJSONValue(body, "token");
-                    userRole = getJSONValue(body, "role");
-                    string hasChar = getJSONValue(body, "has_character");
-                    hasCharacter = (hasChar == "true");
-                    
-                    isAuthenticated = TRUE;
-                    authRetries = 0;
-                    
-                    notify("Connected! Role: " + userRole);
-                    
-                    state idle;
-                }
-                else {
-                    string error = getJSONValue(body, "error");
-                    notify("Authentication failed: " + error);
-                    handleAuthFailure();
-                }
-            }
-            else {
-                notify("Server error (HTTP " + (string)status + "). Retrying...");
-                handleAuthFailure();
-            }
-        }
-    }
-    
-    timer() {
-        llSetTimerEvent(0.0);
-        notify("Connection timeout. Retrying...");
-        handleAuthFailure();
-    }
-    
-    on_rez(integer start_param) {
-        llResetScript();
-    }
-    
-    changed(integer change) {
-        if (change & CHANGED_OWNER) {
-            llResetScript();
-        }
-        if (change & (CHANGED_REGION | CHANGED_TELEPORT)) {
-            // Re-authenticate after teleport
-            llResetScript();
-        }
-    }
-    
-    attach(key id) {
-        if (id == NULL_KEY) {
-            // Detaching - invalidate session
-            if (sessionToken != "") {
-                sendRequest("auth.logout", "");
-            }
-        }
-    }
-}
-
-// Handle authentication failure with retry logic
-handleAuthFailure() {
-    authRetries++;
-    if (authRetries < MAX_AUTH_RETRIES) {
-        notify("Retry attempt " + (string)authRetries + "/" + (string)MAX_AUTH_RETRIES);
-        llSleep(2.0);
-        httpAuthRequest = sendRequest("auth.login", "");
-        llSetTimerEvent(30.0);
-    }
-    else {
-        notify("Unable to connect to server. Please try again later.");
-        notify("Make sure you have configured the GAS_URL correctly.");
-        // Show error page
-        setMOAPUrl(MOAP_BASE_URL + "/error.html?msg=connection_failed");
-        state offline;
-    }
-}
-
-// =========================== OFFLINE STATE ==================================
-state offline {
-    state_entry() {
-        notify("Operating in offline mode. Touch HUD to retry connection.");
-    }
-    
-    touch_start(integer num) {
-        if (llDetectedKey(0) == ownerKey) {
-            notify("Attempting to reconnect...");
-            llResetScript();
-        }
-    }
-    
-    on_rez(integer start_param) {
-        llResetScript();
-    }
-    
-    changed(integer change) {
-        if (change & CHANGED_OWNER) {
-            llResetScript();
-        }
-    }
-}
-
-// =========================== IDLE STATE (MAIN) ==============================
-state idle {
-    state_entry() {
-        // Build MOAP URL with session parameters
+        // Build MOAP URL with avatar parameters
+        // The web app will use Firebase Anonymous Auth tied to this UUID
         string hudUrl = MOAP_BASE_URL + "/hud.html";
         hudUrl += "?uuid=" + llEscapeURL(ownerUUID);
-        hudUrl += "&token=" + llEscapeURL(sessionToken);
-        hudUrl += "&role=" + llEscapeURL(userRole);
-        hudUrl += "&has_char=" + (string)hasCharacter;
+        hudUrl += "&username=" + llEscapeURL(ownerUsername);
+        hudUrl += "&displayname=" + llEscapeURL(ownerDisplayName);
         hudUrl += "&channel=" + (string)hudChannel;
+        hudUrl += "&t=" + (string)llGetUnixTime(); // Cache buster
         
         setMOAPUrl(hudUrl);
         
         // Set up listener for MOAP callbacks
         listenHandle = llListen(hudChannel, "", NULL_KEY, "");
         
-        notify("Ready! Click the HUD to interact.");
-        
-        // Heartbeat timer to keep session alive
-        llSetTimerEvent(300.0); // 5 minute heartbeat
+        notify("Ready! Interface loaded.");
     }
     
-    state_exit() {
-        llListenRemove(listenHandle);
-        llSetTimerEvent(0.0);
-    }
-    
+    // Handle touch events
     touch_start(integer num) {
         key toucher = llDetectedKey(0);
         if (toucher != ownerKey) {
-            llRegionSayTo(toucher, 0, "This HUD belongs to " + llGetDisplayName(ownerKey) + ".");
+            llRegionSayTo(toucher, 0, "This HUD belongs to " + ownerDisplayName + ".");
             return;
         }
         
@@ -334,97 +110,162 @@ state idle {
         
         // Handle special button touches (if HUD has physical buttons)
         if (linkName == "btn_refresh") {
-            notify("Refreshing...");
-            state idle; // Re-enter to refresh MOAP
+            notify("Refreshing interface...");
+            llResetScript();
         }
-        else if (linkName == "btn_logout") {
-            notify("Logging out...");
-            sendRequest("auth.logout", "");
-            sessionToken = "";
-            isAuthenticated = FALSE;
+        else if (linkName == "btn_minimize") {
             clearMOAP();
-            notify("Logged out. Touch to reconnect.");
-            state offline;
+            notify("HUD minimized. Touch to restore.");
+            state minimized;
         }
     }
     
-    // Listen for commands from MOAP via llDialog or external scripts
+    // Listen for commands from MOAP or world objects
+    // Commands use pipe-delimited format: COMMAND|param1|param2|...
     listen(integer channel, string name, key id, string message) {
-        if (channel == hudChannel) {
-            // Parse command from MOAP or world objects
-            list parts = llParseString2List(message, ["|"], []);
-            string cmd = llList2String(parts, 0);
+        if (channel != hudChannel) return;
+        
+        list parts = llParseString2List(message, ["|"], []);
+        string cmd = llList2String(parts, 0);
+        
+        // NOTIFY|message - Show notification to owner
+        if (cmd == "NOTIFY") {
+            string msg = llList2String(parts, 1);
+            notify(msg);
+        }
+        // ANNOUNCE|message - Say in local chat
+        else if (cmd == "ANNOUNCE") {
+            string msg = llList2String(parts, 1);
+            announce(msg);
+        }
+        // ROLL|stat|dice|target|result|success - Announce dice roll result
+        else if (cmd == "ROLL") {
+            string stat = llList2String(parts, 1);
+            string dice = llList2String(parts, 2);
+            string target = llList2String(parts, 3);
+            string result = llList2String(parts, 4);
+            string success = llList2String(parts, 5);
             
-            if (cmd == "REFRESH") {
-                state idle; // Re-enter to refresh
+            string announcement = "⚔️ " + ownerDisplayName + " rolls " + stat + ": ";
+            announcement += "[" + dice + "] = " + result + " vs DC " + target;
+            
+            if (success == "true") {
+                announcement += " ✅ SUCCESS!";
+            } else {
+                announcement += " ❌ FAILURE";
             }
-            else if (cmd == "LOGOUT") {
-                sendRequest("auth.logout", "");
-                sessionToken = "";
-                llResetScript();
+            announce(announcement);
+        }
+        // COMBAT|action|target|damage|effect - Announce combat action
+        else if (cmd == "COMBAT") {
+            string action = llList2String(parts, 1);
+            string target = llList2String(parts, 2);
+            string damage = llList2String(parts, 3);
+            string effect = llList2String(parts, 4);
+            
+            string announcement = "⚔️ " + ownerDisplayName + " uses " + action;
+            if (target != "") {
+                announcement += " on " + target;
             }
-            else if (cmd == "NOTIFY") {
-                // MOAP requested a notification
-                string msg = llList2String(parts, 1);
-                notify(msg);
+            if (damage != "") {
+                announcement += " dealing " + damage + " damage";
             }
-            else if (cmd == "ROLL") {
-                // Request a dice roll from server
-                string stat = llList2String(parts, 1);
-                string difficulty = llList2String(parts, 2);
-                httpActionRequest = sendRequest("roll.test", 
-                    "{\"stat\":\"" + stat + "\",\"difficulty\":" + difficulty + "}");
+            if (effect != "") {
+                announcement += " [" + effect + "]";
             }
-            else if (cmd == "SAVE") {
-                // Character save request
-                string charData = llList2String(parts, 1);
-                httpActionRequest = sendRequest("character.update", charData);
+            announce(announcement);
+        }
+        // EMOTE|action - Say as emote
+        else if (cmd == "EMOTE") {
+            string action = llList2String(parts, 1);
+            llSay(0, "/me " + action);
+        }
+        // REFRESH - Reload the MOAP interface
+        else if (cmd == "REFRESH") {
+            notify("Refreshing interface...");
+            llResetScript();
+        }
+        // STATUS|message - Update HUD hover text (optional)
+        else if (cmd == "STATUS") {
+            string status = llList2String(parts, 1);
+            llSetText(status, <1.0, 1.0, 1.0>, 0.8);
+        }
+        // CLEARSTATUS - Remove hover text
+        else if (cmd == "CLEARSTATUS") {
+            llSetText("", ZERO_VECTOR, 0.0);
+        }
+        // REQUEST|action|data - Request that needs LSL capabilities
+        else if (cmd == "REQUEST") {
+            string action = llList2String(parts, 1);
+            
+            if (action == "region_info") {
+                // Send region info back to MOAP via channel
+                string region = llGetRegionName();
+                vector pos = llGetPos();
+                llRegionSay(hudChannel, "REGION|" + region + "|" + (string)pos);
+            }
+            else if (action == "nearby_players") {
+                // Scan for nearby avatars
+                llSensor("", NULL_KEY, AGENT, 96.0, PI);
             }
         }
     }
     
-    http_response(key request_id, integer status, list metadata, string body) {
-        if (request_id == httpActionRequest) {
-            if (status == 200) {
-                string success = getJSONValue(body, "success");
-                string action = getJSONValue(body, "action");
-                
-                if (success == "true") {
-                    // Handle successful responses
-                    if (action == "roll.test") {
-                        // Extract roll results
-                        string result = getJSONValue(body, "final_result");
-                        string rollSuccess = getJSONValue(body, "success");
-                        string margin = getJSONValue(body, "margin");
-                        
-                        // Announce roll result
-                        string announcement = llGetDisplayName(ownerKey) + " rolled: " + result;
-                        if (rollSuccess == "true") {
-                            announcement += " (SUCCESS by " + margin + ")";
-                        } else {
-                            announcement += " (FAILURE by " + margin + ")";
-                        }
-                        llSay(0, announcement);
-                    }
-                    else if (action == "character.update") {
-                        notify("Character saved successfully!");
-                    }
-                }
-                else {
-                    string error = getJSONValue(body, "error");
-                    notify("Error: " + error);
-                }
+    // Sensor callback for nearby player detection
+    sensor(integer num) {
+        list players = [];
+        integer i;
+        for (i = 0; i < num && i < 10; i++) { // Max 10 players
+            key av = llDetectedKey(i);
+            if (av != ownerKey) {
+                players += [llDetectedName(i) + ":" + (string)av];
             }
-            else {
-                notify("Server communication error. Please try again.");
-            }
+        }
+        string response = "PLAYERS|" + llDumpList2String(players, ",");
+        llRegionSay(hudChannel, response);
+    }
+    
+    no_sensor() {
+        llRegionSay(hudChannel, "PLAYERS|");
+    }
+    
+    // Handle script reset and ownership changes
+    on_rez(integer start_param) {
+        llResetScript();
+    }
+    
+    changed(integer change) {
+        if (change & CHANGED_OWNER) {
+            llResetScript();
+        }
+        if (change & (CHANGED_REGION | CHANGED_TELEPORT)) {
+            // Refresh after teleport
+            notify("Region changed. Refreshing interface...");
+            llResetScript();
         }
     }
     
-    // Session heartbeat
-    timer() {
-        // Send heartbeat to keep session alive
-        httpDataRequest = sendRequest("auth.heartbeat", "");
+    // Clean up on detach
+    attach(key id) {
+        if (id == NULL_KEY) {
+            clearMOAP();
+        }
+    }
+}
+
+// =========================== MINIMIZED STATE ================================
+state minimized {
+    state_entry() {
+        clearMOAP();
+        llSetText("Feudalism 4\n[Touch to Open]", <0.8, 0.6, 0.2>, 0.8);
+    }
+    
+    touch_start(integer num) {
+        key toucher = llDetectedKey(0);
+        if (toucher == ownerKey) {
+            llSetText("", ZERO_VECTOR, 0.0);
+            state default;
+        }
     }
     
     on_rez(integer start_param) {
@@ -435,64 +276,63 @@ state idle {
         if (change & CHANGED_OWNER) {
             llResetScript();
         }
-        if (change & (CHANGED_REGION | CHANGED_TELEPORT)) {
-            // Session persists across teleports since it's server-side
-            // Just refresh the MOAP
-            notify("Region changed. Refreshing interface...");
-            state idle; // Re-enter to refresh
-        }
-    }
-    
-    attach(key id) {
-        if (id == NULL_KEY) {
-            // Detaching - notify server
-            if (sessionToken != "") {
-                sendRequest("auth.logout", "");
-            }
-            clearMOAP();
-        }
-        else {
-            // Re-attaching - refresh
-            state idle;
-        }
     }
 }
-
-// =========================== ADMIN STATE ====================================
-// This state could be used for admin-specific functionality
-// For now, admin features are handled in the MOAP interface
-// based on the userRole variable passed in the URL
 
 // =========================== NOTES ==========================================
 /*
 SETUP INSTRUCTIONS:
 
-1. Deploy your Google Apps Script as a Web App and copy the URL to GAS_URL above.
+1. Create a single prim and shape it as desired for your HUD.
 
-2. Host your MOAP interface files on Firebase Hosting and update MOAP_BASE_URL.
+2. Add this script to the prim.
 
-3. Create a single prim HUD and add this script to it.
-
-4. The MOAP face (MOAP_FACE) should be the face players will see.
+3. The MOAP face (MOAP_FACE) should be the face players will see.
    For a standard box, face 0 is typically the front face.
+   Adjust MOAP_FACE if needed for your prim shape.
 
-5. Optional: Add additional prims linked to the HUD for physical buttons.
-   Name them "btn_refresh", "btn_logout", etc. to trigger actions.
+4. Attach the prim as a HUD (e.g., bottom right).
 
-COMMUNICATION FLOW:
+5. Optional: Add linked prims for physical buttons.
+   Name them "btn_refresh", "btn_minimize", etc.
 
-LSL → GAS:  HTTP POST requests with JSON payload
-GAS → LSL:  HTTP response with JSON payload
-MOAP → LSL: Chat messages on hudChannel (via world object or external)
-MOAP → GAS: Direct fetch() calls from JavaScript
-LSL → MOAP: URL parameters when setting MOAP URL
+COMMUNICATION PROTOCOL:
 
-SECURITY NOTES:
+The HUD communicates with the MOAP interface via region chat on a unique channel
+generated from the owner's UUID. This allows the web interface to send commands
+that need LSL execution (like chat announcements).
 
-- The session token is passed to MOAP via URL parameters
-- MOAP should use HTTPS for all GAS communications
-- Token expiration is handled server-side
-- Never store sensitive data in LSL (no Experience KVP dependency)
+MOAP → LSL Commands (pipe-delimited):
+  NOTIFY|message         - Show notification to owner only
+  ANNOUNCE|message       - Say message in local chat
+  ROLL|stat|dice|target|result|success - Announce dice roll
+  COMBAT|action|target|damage|effect - Announce combat action
+  EMOTE|action           - Perform emote
+  REFRESH                - Reload interface
+  STATUS|message         - Set hover text
+  CLEARSTATUS            - Clear hover text
+  REQUEST|action         - Request LSL data (region_info, nearby_players)
+
+LSL → MOAP Responses:
+  REGION|name|position   - Region information
+  PLAYERS|name:uuid,...  - Nearby player list
+
+ARCHITECTURE:
+
+This HUD uses a "thin client" architecture:
+- All game logic runs in Firebase/Firestore
+- Web interface handles UI and data operations
+- LSL script only provides:
+  * Avatar identity (UUID, username, display name)
+  * Second Life world integration (chat, emotes)
+  * Nearby player detection
+  * Region/position information
+
+Authentication is handled by Firebase Anonymous Auth, tied to the avatar's UUID.
+This means:
+- No Experience system required
+- Works anywhere on the grid
+- Session persists across regions (tied to browser session)
+- Multiple alts can play independently
 
 */
-

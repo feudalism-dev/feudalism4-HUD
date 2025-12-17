@@ -5,22 +5,33 @@
 // ============================================================================
 
 const API = {
-    // Session data
+    // Session data from LSL
     uuid: null,
-    token: null,
-    role: 'player',
+    username: null,
+    displayName: null,
     hudChannel: null,
+    
+    // User/role data
+    role: 'player',
     user: null,
     
     /**
      * Initialize API - sign in anonymously using SL UUID as identifier
      */
     async init() {
+        // Parse LSL parameters from URL
         const params = new URLSearchParams(window.location.search);
         this.uuid = params.get('uuid') || '';
-        this.hudChannel = params.get('channel') || '';
+        this.username = params.get('username') || '';
+        this.displayName = params.get('displayname') || this.username || 'Unknown';
+        this.hudChannel = parseInt(params.get('channel')) || 0;
         
-        console.log('API initializing with UUID:', this.uuid);
+        console.log('API initializing with LSL data:', {
+            uuid: this.uuid,
+            username: this.username,
+            displayName: this.displayName,
+            channel: this.hudChannel
+        });
         
         // If we have a UUID from LSL, use it as a custom token basis
         // For now, use anonymous auth
@@ -52,17 +63,19 @@ const API = {
             this.user = userDoc.data();
             this.role = this.user.role || 'player';
             
-            // Update last login
+            // Update last login and refresh name from LSL
             await userRef.update({
                 last_login: firebase.firestore.FieldValue.serverTimestamp(),
-                firebase_uid: auth.currentUser?.uid || null
+                firebase_uid: auth.currentUser?.uid || null,
+                username: this.username || this.user.username,
+                display_name: this.displayName || this.user.display_name
             });
         } else {
             // Create new user
             const newUser = {
                 uuid: this.uuid,
-                username: this.uuid, // Will be updated from SL
-                display_name: 'New Player',
+                username: this.username || this.uuid,
+                display_name: this.displayName || 'New Player',
                 role: 'player',
                 created_at: firebase.firestore.FieldValue.serverTimestamp(),
                 last_login: firebase.firestore.FieldValue.serverTimestamp(),
@@ -75,7 +88,7 @@ const API = {
             this.role = 'player';
         }
         
-        console.log('User synced:', this.role);
+        console.log('User synced:', this.role, '- Display:', this.displayName);
     },
     
     // =========================== TEMPLATES (Public Read) ====================
@@ -426,6 +439,57 @@ const API = {
     
     createStatCaps(defaultValue, overrides = {}) {
         return this.createBaseStats(defaultValue, overrides);
+    },
+    
+    // =========================== LSL COMMUNICATION ============================
+    
+    /**
+     * Build an LSL command string
+     * Commands use pipe-delimited format: COMMAND|param1|param2|...
+     * These are sent via region chat on the hudChannel
+     * 
+     * Since MOAP can't directly chat in SL, these are stored for:
+     * 1. User to manually copy/paste
+     * 2. Future: External relay service
+     * 3. Future: LSL HTTP polling
+     */
+    buildLSLCommand(command, ...params) {
+        return [command, ...params].join('|');
+    },
+    
+    /**
+     * Queue an announcement for LSL
+     * Returns the formatted command for display/relay
+     */
+    queueAnnouncement(message) {
+        const cmd = this.buildLSLCommand('ANNOUNCE', message);
+        console.log('LSL Command:', cmd);
+        return cmd;
+    },
+    
+    /**
+     * Queue a roll announcement for LSL
+     */
+    queueRollAnnouncement(stat, diceStr, target, result, success) {
+        const cmd = this.buildLSLCommand('ROLL', stat, diceStr, target, result, success ? 'true' : 'false');
+        console.log('LSL Roll Command:', cmd);
+        return cmd;
+    },
+    
+    /**
+     * Queue a combat announcement for LSL
+     */
+    queueCombatAnnouncement(action, target, damage, effect) {
+        const cmd = this.buildLSLCommand('COMBAT', action, target || '', damage || '', effect || '');
+        console.log('LSL Combat Command:', cmd);
+        return cmd;
+    },
+    
+    /**
+     * Get current player display name
+     */
+    getDisplayName() {
+        return this.displayName || this.username || 'Unknown';
     },
     
     // Keep compatibility with old interface
