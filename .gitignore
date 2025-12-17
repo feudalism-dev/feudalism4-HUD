@@ -1,0 +1,37 @@
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node (if using Firebase CLI locally)
+node_modules/
+package-lock.json
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# Environment files (don't commit secrets!)
+.env
+.env.local
+*.secret
+
+# Build outputs
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+

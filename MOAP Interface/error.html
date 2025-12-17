@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feudalism 4 - Error</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Cormorant+Garamond&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a1612 0%, #2a2420 50%, #1a1612 100%);
+            font-family: 'Cormorant Garamond', serif;
+            color: #e8dcc8;
+            padding: 20px;
+        }
+        
+        .error-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            filter: grayscale(50%);
+        }
+        
+        h1 {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            color: #8b3a3a;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .error-message {
+            max-width: 400px;
+            text-align: center;
+            font-size: 1.1rem;
+            color: #a89880;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+        
+        .error-details {
+            background: rgba(139, 58, 58, 0.2);
+            border: 1px solid #8b3a3a;
+            border-radius: 8px;
+            padding: 1rem;
+            max-width: 400px;
+            font-size: 0.9rem;
+            color: #e8dcc8;
+            margin-bottom: 2rem;
+        }
+        
+        .retry-btn {
+            font-family: 'Cinzel', serif;
+            font-size: 0.9rem;
+            padding: 12px 24px;
+            background: linear-gradient(180deg, #8b3a3a 0%, #5a2828 100%);
+            border: 1px solid #8b3a3a;
+            border-radius: 4px;
+            color: #e8dcc8;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: all 0.2s ease;
+        }
+        
+        .retry-btn:hover {
+            background: linear-gradient(180deg, #a84848 0%, #8b3a3a 100%);
+            transform: translateY(-1px);
+        }
+        
+        .decorative-line {
+            width: 60px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #8b3a3a, transparent);
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-icon">⚠️</div>
+    <h1>Connection Lost</h1>
+    <div class="decorative-line"></div>
+    <p class="error-message">
+        The realm could not be reached. This may be due to network issues or server maintenance.
+    </p>
+    <div class="error-details" id="error-details">
+        Unable to connect to the Feudalism server. Please check your internet connection and try again.
+    </div>
+    <button class="retry-btn" onclick="retry()">Try Again</button>
+    
+    <script>
+        // Parse error from URL params
+        const params = new URLSearchParams(window.location.search);
+        const errorMsg = params.get('msg');
+        
+        const errorMessages = {
+            'connection_failed': 'Failed to establish connection to the server. The server may be offline or your network connection may be interrupted.',
+            'auth_failed': 'Authentication failed. Your session may have expired. Please detach and re-attach your HUD.',
+            'timeout': 'The connection timed out. Please check your network and try again.',
+            'invalid_token': 'Your session is invalid. Please detach and re-attach your HUD to start a new session.',
+            'banned': 'Your account has been suspended. Please contact an administrator.'
+        };
+        
+        if (errorMsg && errorMessages[errorMsg]) {
+            document.getElementById('error-details').textContent = errorMessages[errorMsg];
+        }
+        
+        function retry() {
+            // Attempt to reload
+            window.location.href = window.location.origin + '/hud.html' + window.location.search.replace(/msg=[^&]+&?/, '');
+        }
+    </script>
+</body>
+</html>
+
