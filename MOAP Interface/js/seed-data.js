@@ -1,17 +1,17 @@
 /**
  * Feudalism 4 - Seed Data
- * Extracted from Feudalism 3 LSL scripts
+ * Extracted from Feudalism 3 LSL scripts with F4 enhancements
  * 
  * Contains:
  * - 20 F3 Stats (in order)
- * - 21 Species (from F3)
- * - 122 Classes with stat caps (from F3 StatsMax.lsl)
+ * - 21 Species with stat ranges and resource pools
+ * - 122 Classes with stat caps, prerequisites, and advancement paths
+ * - 6 Gender options
  */
 
 const F4_SEED_DATA = {
     
     // ========================= STATS =========================
-    // F3 stat names in their original order (for parsing class caps)
     statNames: [
         'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
         'deception', 'endurance', 'entertaining', 'fighting', 'healing',
@@ -19,36 +19,204 @@ const F4_SEED_DATA = {
         'stealth', 'survival', 'thievery', 'will', 'wisdom'
     ],
     
-    // Default stat value for all characters
     defaultStatValue: 2,
     
+    // ========================= GENDERS =========================
+    genders: [
+        { id: 'male', name: 'Male', icon: '♂', description: 'Masculine identity' },
+        { id: 'female', name: 'Female', icon: '♀', description: 'Feminine identity' },
+        { id: 'transgender', name: 'Transgender', icon: '⚧', description: 'Gender differs from birth assignment' },
+        { id: 'hermaphrodite', name: 'Hermaphrodite', icon: '⚥', description: 'Both masculine and feminine characteristics' },
+        { id: 'nonbinary', name: 'Non-Binary', icon: '⚪', description: 'Identity outside the gender binary' },
+        { id: 'other', name: 'Other', icon: '✧', description: 'Custom or unspecified identity' }
+    ],
+    
     // ========================= SPECIES =========================
-    // 21 species from F3 (removed duplicate merfolk)
+    // 21 species with stat ranges and resource pools
     species: [
-        { id: 'human', name: 'Human', description: 'Versatile and adaptable. The most common race in the realm.', icon: '👤' },
-        { id: 'elf', name: 'Elf', description: 'Graceful and long-lived. Masters of magic and archery.', icon: '🧝' },
-        { id: 'dwarf', name: 'Dwarf', description: 'Stout and resilient craftsmen. Masters of stone and steel.', icon: '⛏️' },
-        { id: 'halfling', name: 'Halfling', description: 'Small but lucky. Known for their stealth and charm.', icon: '🍀' },
-        { id: 'gnome', name: 'Gnome', description: 'Clever and inventive. Masters of illusion and tinkering.', icon: '🔧' },
-        { id: 'dragonborn', name: 'Dragonborn', description: 'Proud dragon-blooded warriors with breath weapons.', icon: '🐉' },
-        { id: 'half-elf', name: 'Half-Elf', description: 'Blending human adaptability with elven grace.', icon: '🌙' },
-        { id: 'half-orc', name: 'Half-Orc', description: 'Strong and fierce. Warriors with orcish blood.', icon: '💪' },
-        { id: 'tiefling', name: 'Tiefling', description: 'Touched by infernal heritage. Mistrusted but powerful.', icon: '😈' },
-        { id: 'drow', name: 'Drow', description: 'Dark elves from the underdark. Masters of shadow.', icon: '🌑' },
-        { id: 'demon', name: 'Demon', description: 'Creatures of the abyss. Powerful but feared.', icon: '👹' },
-        { id: 'imp', name: 'Imp', description: 'Small mischievous devils. Cunning tricksters.', icon: '👿' },
-        { id: 'werewolf', name: 'Werewolf', description: 'Cursed shapeshifters. Fierce when transformed.', icon: '🐺' },
-        { id: 'vampire', name: 'Vampire', description: 'Undead immortals. Powerful but vulnerable to sunlight.', icon: '🧛' },
-        { id: 'merfolk', name: 'Merfolk', description: 'Aquatic beings of the deep. Masters of the sea.', icon: '🧜' },
-        { id: 'fairy', name: 'Fairy', description: 'Tiny magical beings with wings. Masters of enchantment.', icon: '🧚' },
-        { id: 'satyr', name: 'Satyr', description: 'Half-goat forest dwellers. Lovers of music and revelry.', icon: '🎭' },
-        { id: 'minotaur', name: 'Minotaur', description: 'Bull-headed warriors. Powerful and relentless.', icon: '🐂' },
-        { id: 'reptilian', name: 'Reptilian', description: 'Cold-blooded lizard folk. Ancient and patient.', icon: '🦎' },
-        { id: 'goblin', name: 'Goblin', description: 'Small green-skinned creatures. Cunning survivors.', icon: '👺' }
+        { 
+            id: 'human', name: 'Human', 
+            description: 'Versatile and adaptable. The most common race in the realm.',
+            icon: '👤', image: 'species/human.png',
+            stat_minimums: {}, // No minimums - humans are versatile
+            stat_maximums: {}, // No caps beyond default 9
+            base_stats: {},    // All at default 2
+            health: 100, stamina: 100, mana: 50
+        },
+        { 
+            id: 'elf', name: 'Elf', 
+            description: 'Graceful and long-lived. Masters of magic and archery.',
+            icon: '🧝', image: 'species/elf.png',
+            stat_minimums: { agility: 3, awareness: 3 },
+            stat_maximums: { endurance: 7, athletics: 7 },
+            base_stats: { agility: 3, awareness: 3, marksmanship: 3 },
+            health: 80, stamina: 90, mana: 120
+        },
+        { 
+            id: 'dwarf', name: 'Dwarf', 
+            description: 'Stout and resilient craftsmen. Masters of stone and steel.',
+            icon: '⛏️', image: 'species/dwarf.png',
+            stat_minimums: { endurance: 3, crafting: 3 },
+            stat_maximums: { agility: 6, stealth: 6 },
+            base_stats: { endurance: 4, crafting: 3, athletics: 3 },
+            health: 130, stamina: 120, mana: 30
+        },
+        { 
+            id: 'halfling', name: 'Halfling', 
+            description: 'Small but lucky. Known for their stealth and charm.',
+            icon: '🍀', image: 'species/halfling.png',
+            stat_minimums: { stealth: 3, thievery: 2 },
+            stat_maximums: { fighting: 6, athletics: 6 },
+            base_stats: { stealth: 3, thievery: 3, persuasion: 3 },
+            health: 70, stamina: 110, mana: 60
+        },
+        { 
+            id: 'gnome', name: 'Gnome', 
+            description: 'Clever and inventive. Masters of illusion and tinkering.',
+            icon: '🔧', image: 'species/gnome.png',
+            stat_minimums: { intelligence: 3, crafting: 2 },
+            stat_maximums: { fighting: 5, endurance: 6 },
+            base_stats: { intelligence: 4, crafting: 3, deception: 3 },
+            health: 60, stamina: 80, mana: 100
+        },
+        { 
+            id: 'dragonborn', name: 'Dragonborn', 
+            description: 'Proud dragon-blooded warriors with breath weapons.',
+            icon: '🐉', image: 'species/dragonborn.png',
+            stat_minimums: { endurance: 3, will: 3 },
+            stat_maximums: { stealth: 5, thievery: 5 },
+            base_stats: { endurance: 3, will: 3, fighting: 3 },
+            health: 120, stamina: 100, mana: 80
+        },
+        { 
+            id: 'half-elf', name: 'Half-Elf', 
+            description: 'Blending human adaptability with elven grace.',
+            icon: '🌙', image: 'species/half-elf.png',
+            stat_minimums: { awareness: 2 },
+            stat_maximums: {},
+            base_stats: { awareness: 3, persuasion: 3 },
+            health: 90, stamina: 95, mana: 80
+        },
+        { 
+            id: 'half-orc', name: 'Half-Orc', 
+            description: 'Strong and fierce. Warriors with orcish blood.',
+            icon: '💪', image: 'species/half-orc.png',
+            stat_minimums: { athletics: 3, endurance: 3 },
+            stat_maximums: { intelligence: 6, persuasion: 5 },
+            base_stats: { athletics: 4, endurance: 3, fighting: 3 },
+            health: 140, stamina: 130, mana: 20
+        },
+        { 
+            id: 'tiefling', name: 'Tiefling', 
+            description: 'Touched by infernal heritage. Mistrusted but powerful.',
+            icon: '😈', image: 'species/tiefling.png',
+            stat_minimums: { will: 3 },
+            stat_maximums: { healing: 6 },
+            base_stats: { will: 3, deception: 3, intelligence: 3 },
+            health: 90, stamina: 90, mana: 110
+        },
+        { 
+            id: 'drow', name: 'Drow', 
+            description: 'Dark elves from the underdark. Masters of shadow.',
+            icon: '🌑', image: 'species/drow.png',
+            stat_minimums: { stealth: 3, awareness: 3 },
+            stat_maximums: { healing: 5 },
+            base_stats: { stealth: 4, awareness: 3, deception: 3 },
+            health: 75, stamina: 85, mana: 100
+        },
+        { 
+            id: 'demon', name: 'Demon', 
+            description: 'Creatures of the abyss. Powerful but feared.',
+            icon: '👹', image: 'species/demon.png',
+            stat_minimums: { will: 4, endurance: 3 },
+            stat_maximums: { healing: 4, wisdom: 5 },
+            base_stats: { will: 4, endurance: 3, fighting: 4 },
+            health: 150, stamina: 120, mana: 100
+        },
+        { 
+            id: 'imp', name: 'Imp', 
+            description: 'Small mischievous devils. Cunning tricksters.',
+            icon: '👿', image: 'species/imp.png',
+            stat_minimums: { agility: 3, deception: 3 },
+            stat_maximums: { athletics: 5, fighting: 5 },
+            base_stats: { agility: 4, deception: 4, thievery: 3 },
+            health: 50, stamina: 100, mana: 90
+        },
+        { 
+            id: 'werewolf', name: 'Werewolf', 
+            description: 'Cursed shapeshifters. Fierce when transformed.',
+            icon: '🐺', image: 'species/werewolf.png',
+            stat_minimums: { endurance: 3, survival: 3 },
+            stat_maximums: { intelligence: 6, crafting: 5 },
+            base_stats: { endurance: 3, survival: 4, awareness: 3 },
+            health: 130, stamina: 140, mana: 30
+        },
+        { 
+            id: 'vampire', name: 'Vampire', 
+            description: 'Undead immortals. Powerful but vulnerable to sunlight.',
+            icon: '🧛', image: 'species/vampire.png',
+            stat_minimums: { influence: 3, will: 3 },
+            stat_maximums: { healing: 3 },
+            base_stats: { influence: 4, will: 3, deception: 3 },
+            health: 100, stamina: 80, mana: 120
+        },
+        { 
+            id: 'merfolk', name: 'Merfolk', 
+            description: 'Aquatic beings of the deep. Masters of the sea.',
+            icon: '🧜', image: 'species/merfolk.png',
+            stat_minimums: { athletics: 3 },
+            stat_maximums: { crafting: 5 },
+            base_stats: { athletics: 4, survival: 3, awareness: 3 },
+            health: 90, stamina: 120, mana: 80
+        },
+        { 
+            id: 'fairy', name: 'Fairy', 
+            description: 'Tiny magical beings with wings. Masters of enchantment.',
+            icon: '🧚', image: 'species/fairy.png',
+            stat_minimums: { agility: 4 },
+            stat_maximums: { athletics: 4, fighting: 4, endurance: 4 },
+            base_stats: { agility: 4, entertaining: 3, will: 3 },
+            health: 40, stamina: 70, mana: 150
+        },
+        { 
+            id: 'satyr', name: 'Satyr', 
+            description: 'Half-goat forest dwellers. Lovers of music and revelry.',
+            icon: '🎭', image: 'species/satyr.png',
+            stat_minimums: { entertaining: 3, agility: 2 },
+            stat_maximums: {},
+            base_stats: { entertaining: 4, agility: 3, persuasion: 3 },
+            health: 95, stamina: 110, mana: 70
+        },
+        { 
+            id: 'minotaur', name: 'Minotaur', 
+            description: 'Bull-headed warriors. Powerful and relentless.',
+            icon: '🐂', image: 'species/minotaur.png',
+            stat_minimums: { athletics: 4, endurance: 3 },
+            stat_maximums: { intelligence: 5, stealth: 4, thievery: 4 },
+            base_stats: { athletics: 5, endurance: 4, fighting: 3 },
+            health: 160, stamina: 140, mana: 20
+        },
+        { 
+            id: 'reptilian', name: 'Reptilian', 
+            description: 'Cold-blooded lizard folk. Ancient and patient.',
+            icon: '🦎', image: 'species/reptilian.png',
+            stat_minimums: { endurance: 3, awareness: 2 },
+            stat_maximums: { influence: 5, persuasion: 5 },
+            base_stats: { endurance: 3, awareness: 3, survival: 3 },
+            health: 110, stamina: 100, mana: 60
+        },
+        { 
+            id: 'goblin', name: 'Goblin', 
+            description: 'Small green-skinned creatures. Cunning survivors.',
+            icon: '👺', image: 'species/goblin.png',
+            stat_minimums: { stealth: 2, thievery: 2 },
+            stat_maximums: { influence: 5, persuasion: 4 },
+            base_stats: { stealth: 3, thievery: 3, survival: 3 },
+            health: 65, stamina: 95, mana: 50
+        }
     ],
     
     // ========================= CLASSES =========================
-    // 122 classes from F3 with their names
     classNames: [
         'academic', 'adventurer', 'advisor', 'alchemist', 'apothecary', 
         'apprentice', 'archer', 'artillerist', 'artisan', 'artist', 
@@ -78,7 +246,6 @@ const F4_SEED_DATA = {
     ],
     
     // Stat caps for each class (pipe-delimited strings from StatsMax.lsl)
-    // Order matches classNames array
     classStatCaps: [
         "4|5|3|7|5|5|3|4|2|7|6|7|7|2|6|3|6|3|6|7",  // academic
         "6|4|5|4|3|6|5|3|4|3|3|3|3|5|4|4|4|3|3|3",  // adventurer
@@ -98,105 +265,105 @@ const F4_SEED_DATA = {
         "3|2|3|5|2|8|6|5|2|2|2|2|2|2|4|5|5|5|2|2",  // beggar
         "6|6|9|5|5|2|7|4|3|2|2|2|2|4|2|2|6|4|2|2",  // boatman
         "7|5|7|8|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // bountyhunter
-        "2|2|2|4|4|2|2|2|2|2|6|2|2|2|5|2|3|2|2|3",  // burgher
-        "9|2|6|9|5|8|6|2|2|5|2|2|5|2|6|9|4|9|4|4",  // burglar
-        "4|6|4|7|5|4|5|4|2|3|8|4|4|4|7|2|4|2|4|4",  // castellan
-        "6|7|6|5|3|4|6|3|5|3|3|3|3|5|5|4|4|3|3|3",  // cavalry
-        "9|7|9|6|6|7|7|3|8|5|8|8|8|8|8|6|6|3|6|7",  // censor
-        "3|3|3|3|3|9|3|3|3|3|8|5|5|3|9|5|3|7|3|3",  // charlatan
-        "6|3|6|5|3|2|6|2|7|7|6|6|6|6|4|4|5|2|9|9",  // cleric
-        "3|9|6|4|2|6|2|3|2|2|2|2|2|5|4|3|3|2|2|2",  // coachman
-        "5|2|3|6|6|9|4|7|3|2|5|6|6|4|9|6|4|6|6|6",  // conartist
-        "7|3|7|7|3|7|5|7|3|3|4|5|4|3|9|5|5|4|5|4",  // courtesan
-        "6|3|6|6|3|6|4|6|3|3|4|4|4|3|8|4|4|4|4|4",  // courtier
-        "4|3|8|5|9|5|8|4|3|2|3|4|4|3|6|4|4|3|5|4",  // craftsman
-        "6|3|6|5|3|2|6|2|7|7|6|6|6|6|4|4|5|2|9|9",  // cultist
-        "6|2|5|7|2|7|4|2|5|2|2|2|2|6|2|7|5|7|5|2",  // cutpurse
-        "6|3|6|5|3|2|6|2|7|7|6|6|6|6|4|4|5|2|9|9",  // druid
-        "9|4|7|7|4|7|7|5|7|3|5|5|5|7|7|6|6|7|5|4",  // duelist
-        "2|6|2|6|9|6|2|5|2|4|5|9|9|6|6|5|5|4|7|6",  // enchanter
-        "2|2|4|5|9|2|7|2|3|2|2|7|9|3|2|2|4|2|6|7",  // engineer
-        "5|4|5|6|2|5|5|9|4|2|3|5|4|3|9|5|4|5|5|4",  // entertainer
-        "6|2|4|5|2|4|7|4|3|2|5|2|2|3|6|2|5|2|2|2",  // envoy
-        "6|2|9|2|2|2|7|2|6|2|2|2|2|2|5|2|2|2|4|2",  // executioner
-        "4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4|4",  // farmer (fixed the 4.4 typo)
-        "2|2|2|8|3|9|2|6|3|2|5|5|5|3|8|4|2|6|2|2",  // fence
-        "2|6|6|6|8|6|6|4|4|4|4|9|9|6|5|7|9|6|7|6",  // footwizard
-        "5|4|5|7|2|7|2|2|4|2|4|4|4|2|2|7|7|2|4|4",  // forager
-        "2|2|2|8|9|9|2|6|3|2|5|5|5|3|8|4|2|6|2|2",  // forger
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // guard
-        "4|4|4|8|6|5|6|3|3|8|5|5|6|3|7|5|6|3|7|8",  // healer
-        "8|7|8|6|2|4|9|3|9|3|5|5|4|7|6|3|5|5|6|5",  // hedgeknight
-        "2|6|2|6|6|6|2|5|2|4|5|6|6|6|6|5|5|4|6|6",  // hedgemage
-        "2|2|2|4|2|6|2|9|2|2|5|2|2|2|4|2|2|2|2|2",  // herald
-        "2|4|2|2|7|2|2|2|2|6|2|5|7|2|2|2|6|2|4|5",  // herbalist
-        "5|9|7|5|3|2|7|2|2|3|2|2|2|5|2|2|6|2|4|3",  // herder
-        "6|5|6|5|2|6|5|4|6|3|4|2|2|6|6|6|6|6|3|3",  // highwayman
-        "6|9|6|7|4|4|5|3|3|3|3|4|3|9|5|6|8|3|5|4",  // hunter
-        "4|2|6|8|2|8|6|2|4|5|6|4|3|3|8|2|2|4|6|5",  // interrogator
-        "4|4|4|9|2|4|4|6|4|2|2|5|3|4|5|6|5|5|4|3",  // investigator
-        "5|2|7|2|2|5|7|2|6|2|4|2|2|2|2|6|5|4|2|2",  // jailer
-        "8|7|8|6|2|4|9|3|9|3|8|5|4|7|6|3|5|2|6|5",  // knight
-        "2|2|2|6|2|9|2|9|2|2|9|9|9|2|9|2|2|2|5|7",  // lawyer
-        "2|6|2|6|8|6|2|5|2|4|5|9|9|6|6|5|5|4|7|6",  // mage
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // marshal
-        "8|6|8|6|3|7|7|3|7|3|3|3|3|7|5|4|4|3|3|3",  // mercenary
-        "5|5|5|9|7|9|5|6|3|2|6|6|5|3|9|4|4|5|7|5",  // merchant
-        "6|2|4|5|2|4|7|4|3|2|5|2|2|3|6|2|5|2|2|2",  // messenger
-        "4|2|9|7|2|9|2|2|2|2|2|2|2|2|2|2|6|2|6|3",  // miner
-        "5|6|4|9|6|6|6|6|6|7|5|7|7|5|9|3|3|3|9|9",  // monk
-        "2|6|2|6|8|6|2|5|2|4|5|9|9|6|6|5|5|4|7|6",  // necromancer
-        "5|4|5|5|2|5|5|5|5|3|6|4|5|5|7|2|2|3|5|4",  // noble
-        "5|6|4|9|6|6|6|6|6|7|5|7|7|5|9|3|3|3|9|9",  // nun
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|6|6|8|3|3",  // outlaw
-        "8|7|8|6|2|2|9|3|9|5|8|6|4|7|6|3|5|2|9|9",  // paladin
-        "5|7|5|5|5|6|7|7|2|2|3|3|2|2|3|3|3|3|3|3",  // peasant
-        "4|4|4|5|5|6|7|7|2|2|3|3|2|2|7|3|3|3|3|3",  // pedlar
-        "2|2|2|9|6|2|2|2|2|9|7|9|9|2|7|2|2|2|6|9",  // physician
-        "7|3|7|6|3|8|6|4|6|3|4|5|6|7|7|7|7|7|5|5",  // pirate
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // pitfighter
-        "5|3|5|7|6|6|6|2|4|7|6|8|7|5|7|5|5|3|9|9",  // priest
-        "7|6|8|7|6|8|8|4|7|4|3|5|4|7|7|6|9|6|6|5",  // raider
-        "7|9|8|6|3|4|7|3|7|3|3|5|4|9|6|6|9|4|6|3",  // ranger
-        "7|5|8|6|3|7|6|5|6|3|4|6|4|7|7|8|6|8|5|4",  // rogue
-        "9|8|9|7|2|4|9|3|9|3|9|5|4|8|6|3|5|2|6|5",  // royalguard
-        "6|4|6|6|2|5|5|5|7|3|9|4|5|7|7|2|2|3|5|5",  // royal
-        "4|5|3|9|7|5|3|4|2|9|7|9|9|2|7|3|6|3|7|9",  // sage
-        "7|6|9|5|5|2|7|4|3|2|2|2|2|5|2|2|8|5|2|2",  // sailor
-        "2|2|2|4|2|2|2|2|2|4|2|9|9|2|2|2|2|2|2|6",  // scholar
-        "6|6|6|9|2|5|6|2|5|2|2|4|4|7|2|6|8|3|3|3",  // scout
-        "2|3|2|9|5|8|2|8|2|4|4|6|5|2|7|2|2|4|6|5",  // seer
-        "6|6|7|6|5|6|8|3|7|3|2|3|3|7|6|5|9|4|5|3",  // sentinel
-        "7|4|5|7|5|7|4|7|2|2|2|4|6|3|9|4|3|3|5|4",  // servant
-        "2|6|2|6|8|9|2|5|2|4|5|9|9|6|6|9|5|4|7|6",  // shadowmage
-        "4|6|4|9|5|7|5|5|3|5|3|5|6|3|6|6|5|4|9|8",  // shaman
-        "4|3|4|5|2|2|5|2|5|2|7|2|2|3|8|2|2|2|2|2",  // sheriff
-        "7|4|5|7|5|7|4|7|2|2|2|4|6|3|9|4|3|3|5|4",  // slave
-        "4|3|8|5|9|5|8|4|3|2|3|4|4|3|6|4|4|3|5|4",  // smith
-        "5|3|5|6|3|8|6|4|6|3|4|5|6|7|7|7|7|7|5|5",  // smuggler
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // soldier
-        "2|6|2|6|8|6|2|5|2|4|5|9|9|6|6|5|5|4|7|8",  // sorcerer
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|7|3",  // spearman
-        "2|6|2|6|8|6|2|5|2|4|5|9|9|6|6|5|5|4|7|6",  // spellmonger
-        "8|4|6|9|4|9|4|5|3|3|2|5|5|3|7|9|8|5|5|5",  // spy
-        "5|7|5|5|3|5|5|3|5|2|2|3|2|5|5|4|5|3|3|3",  // squire
-        "4|6|4|7|5|4|5|4|2|3|8|4|4|4|7|2|4|2|4|4",  // steward
-        "2|2|2|4|2|2|2|2|2|4|2|6|6|2|2|2|2|2|2|4",  // student
-        "9|4|7|7|4|7|7|5|7|3|5|5|5|7|7|6|6|7|5|4",  // swordmaster
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // swornsword
-        "5|3|5|6|4|7|5|6|3|2|3|4|4|5|8|3|5|4|4|4",  // tavernhelp
-        "2|6|2|8|8|6|2|5|2|4|5|9|9|6|5|5|3|4|9|9",  // thaumaturge
-        "9|3|7|8|3|9|6|5|5|3|3|6|4|8|7|9|6|9|5|4",  // thief
-        "6|5|8|5|6|7|9|3|7|3|2|3|3|8|6|5|9|5|5|3",  // tribesman
-        "5|7|5|5|5|6|7|7|2|2|3|3|2|2|3|3|3|3|3|3",  // villager
-        "4|4|4|4|4|2|5|2|4|2|7|3|4|4|2|6|6|2|3|2",  // warden
-        "4|6|4|9|5|7|5|5|3|5|3|5|6|3|6|6|5|4|9|8",  // warlock
-        "9|6|9|9|6|6|8|3|9|6|8|9|9|8|5|6|4|3|8|8",  // warmage
-        "7|5|7|6|3|7|7|3|6|3|3|3|3|6|5|4|4|3|3|3",  // warrior
-        "7|5|7|6|3|7|7|3|7|3|3|3|3|6|5|4|4|3|3|3",  // watchman
-        "8|4|6|9|4|9|4|5|3|3|2|5|5|3|7|9|8|5|5|5",  // whisperer
-        "7|3|7|6|3|8|5|7|3|3|2|4|3|3|9|5|5|5|5|4",  // whore
-        "6|5|8|5|6|7|9|3|7|3|2|3|3|8|6|5|9|5|5|3",  // wildling
+        "3|3|4|4|6|5|4|2|2|2|7|6|5|2|7|2|2|2|2|4",  // burgher
+        "7|3|4|7|5|8|3|5|3|2|3|5|5|3|5|8|3|8|3|3",  // burglar
+        "5|6|5|6|6|5|6|5|5|4|8|6|6|5|8|3|5|3|6|6",  // castellan
+        "6|8|6|6|4|2|6|2|6|3|4|2|2|4|4|2|4|2|3|2",  // cavalry
+        "2|2|2|6|4|6|2|2|2|2|6|7|7|2|8|2|2|2|6|6",  // censor
+        "5|3|4|6|5|9|4|6|2|3|7|5|5|2|8|4|3|4|4|3",  // charlatan
+        "4|3|4|5|4|3|5|4|3|7|7|5|6|2|8|2|4|2|7|8",  // cleric
+        "4|6|4|4|4|2|5|2|3|2|2|2|2|3|2|3|3|2|2|2",  // coachman
+        "5|3|4|6|5|9|4|6|2|3|7|5|5|2|8|4|3|4|4|3",  // conartist
+        "5|2|4|5|3|6|3|6|2|2|7|5|5|2|8|2|2|2|4|3",  // courtesan
+        "4|3|4|5|4|5|4|5|2|2|8|5|6|2|8|3|3|2|4|4",  // courtier
+        "4|4|7|5|8|3|7|4|4|2|4|5|5|3|5|4|4|3|4|4",  // craftsman
+        "2|3|2|3|2|5|3|3|2|2|4|3|4|2|4|3|3|2|8|6",  // cultist
+        "5|2|3|5|2|6|2|3|2|2|2|2|2|2|3|7|2|8|2|2",  // cutpurse
+        "3|8|4|6|5|3|5|3|3|7|3|5|6|3|3|4|8|2|8|8",  // druid
+        "9|3|7|6|4|4|6|3|9|3|3|4|4|3|4|3|3|3|5|3",  // duelist
+        "3|4|3|5|6|4|3|4|2|4|4|8|7|2|4|2|3|2|7|6",  // enchanter
+        "3|3|5|4|8|3|4|2|3|2|3|8|7|4|3|2|2|2|4|4",  // engineer
+        "5|4|5|5|4|6|5|9|2|2|6|4|4|2|7|4|4|3|3|3",  // entertainer
+        "4|4|4|5|3|4|4|4|3|2|6|5|6|2|7|3|3|2|4|5",  // envoy
+        "4|2|7|4|4|3|6|2|7|2|4|2|2|2|4|2|2|2|4|2",  // executioner
+        "4|7|6|4|5|2|7|2|3|3|2|2|2|3|2|2|6|2|2|3",  // farmer
+        "4|3|4|6|4|7|3|4|2|2|5|5|5|2|6|4|3|4|3|3",  // fence
+        "4|3|5|5|4|3|5|3|6|4|2|6|6|4|2|3|4|2|6|5",  // footwizard
+        "4|6|5|5|3|2|5|2|2|4|2|3|4|3|2|4|8|2|2|4",  // forager
+        "3|2|3|5|7|7|3|3|2|2|4|5|5|2|4|3|2|4|3|3",  // forger
+        "5|3|6|5|3|3|6|2|6|3|4|2|2|4|4|3|3|2|4|3",  // guard
+        "3|4|4|5|4|3|4|3|2|8|4|6|6|2|5|2|5|2|5|7",  // healer
+        "7|5|7|5|4|4|6|2|7|3|4|3|3|5|4|3|4|2|4|3",  // hedgeknight
+        "3|4|3|5|4|4|4|3|3|5|3|6|6|2|4|3|4|2|6|5",  // hedgemage
+        "3|3|4|5|3|3|4|4|2|2|6|4|6|2|6|2|3|2|3|4",  // herald
+        "3|5|4|6|5|3|4|3|2|7|3|5|6|2|4|3|7|2|4|6",  // herbalist
+        "4|8|5|4|3|2|6|2|3|4|2|2|2|3|2|2|5|2|2|2",  // herder
+        "7|5|6|6|2|6|6|3|6|3|4|2|2|6|5|5|5|5|3|3",  // highwayman
+        "6|6|7|7|4|3|6|2|5|3|2|2|3|7|2|6|7|3|3|3",  // hunter
+        "3|3|4|6|3|6|5|3|5|2|5|5|5|2|6|3|3|3|6|4",  // interrogator
+        "4|4|5|8|3|6|4|3|3|3|5|6|6|3|6|4|4|3|4|5",  // investigator
+        "4|3|5|5|3|4|5|2|5|2|4|2|2|3|4|3|3|3|3|2",  // jailer
+        "6|6|7|5|4|3|6|3|8|3|5|3|4|4|5|2|4|2|5|4",  // knight
+        "2|2|2|5|3|5|2|3|2|2|6|7|8|2|8|2|2|2|5|6",  // lawyer
+        "3|4|3|6|5|4|3|4|2|5|4|8|8|2|4|3|3|2|7|7",  // mage
+        "5|5|6|6|4|4|6|3|7|3|7|4|5|5|6|3|4|2|5|4",  // marshal
+        "7|4|7|5|3|5|6|2|7|3|3|2|2|6|4|3|4|3|3|2",  // mercenary
+        "3|3|4|5|5|5|4|3|2|2|6|5|5|2|7|2|3|2|3|4",  // merchant
+        "6|4|5|5|3|3|5|2|3|2|3|2|2|3|3|3|4|2|2|2",  // messenger
+        "4|3|8|4|6|2|8|2|5|2|2|3|3|3|2|2|4|2|3|2",  // miner
+        "5|3|5|5|4|3|5|3|5|5|4|5|6|2|4|3|5|2|7|7",  // monk
+        "2|3|2|5|4|5|3|3|2|3|3|7|7|2|3|3|3|2|8|6",  // necromancer
+        "3|4|3|5|3|5|3|5|3|2|8|5|6|2|8|2|2|2|5|5",  // noble
+        "3|3|3|5|4|3|4|3|2|6|5|5|6|2|5|2|3|2|7|7",  // nun
+        "6|5|6|6|3|6|6|3|6|3|4|2|2|6|5|6|6|5|3|3",  // outlaw
+        "6|5|6|5|4|3|7|3|8|5|5|4|5|4|5|2|4|2|7|6",  // paladin
+        "4|5|5|4|4|2|6|2|4|3|2|2|2|3|2|2|5|2|2|3",  // peasant
+        "4|4|5|5|4|5|5|3|2|2|5|4|4|2|6|3|4|3|2|3",  // pedlar
+        "3|4|4|6|5|3|4|3|2|8|5|7|7|2|5|2|4|2|5|6",  // physician
+        "7|4|8|5|4|5|7|5|6|3|4|2|2|5|4|4|6|5|3|3",  // pirate
+        "8|4|8|5|3|4|8|4|8|3|3|2|2|4|4|3|4|2|4|3",  // pitfighter
+        "4|4|4|5|4|3|5|4|3|7|7|5|7|2|7|2|4|2|7|8",  // priest
+        "7|5|7|5|3|5|7|3|7|3|4|2|2|6|4|4|5|4|4|3",  // raider
+        "7|6|7|8|4|3|6|2|5|4|2|3|4|7|2|7|8|3|4|4",  // ranger
+        "7|3|5|6|4|7|4|4|5|2|4|4|4|4|5|7|4|7|3|3",  // rogue
+        "6|5|7|6|4|3|7|2|8|3|5|3|4|5|5|2|3|2|6|4",  // royalguard
+        "3|4|3|5|3|5|3|5|3|2|9|5|6|2|9|2|2|2|5|5",  // royal
+        "3|5|3|6|5|3|3|4|2|6|5|8|8|2|5|2|5|2|6|8",  // sage
+        "6|5|8|5|5|3|7|4|4|2|3|2|2|4|3|3|6|4|2|2",  // sailor
+        "3|4|3|6|5|4|3|4|2|5|4|7|8|2|5|2|4|2|5|7",  // scholar
+        "7|5|6|8|3|4|5|2|4|2|2|3|3|5|3|7|7|3|3|3",  // scout
+        "3|4|3|7|4|4|3|4|2|4|4|6|7|2|4|3|4|2|8|8",  // seer
+        "5|3|6|6|3|3|6|2|6|3|4|2|2|4|4|3|3|2|5|4",  // sentinel
+        "3|4|4|4|5|4|4|3|2|3|3|3|3|2|4|3|3|2|2|3",  // servant
+        "3|3|3|6|4|6|3|4|2|3|4|7|7|2|4|5|3|3|8|6",  // shadowmage
+        "3|7|4|6|4|3|5|4|3|6|4|5|6|3|4|4|7|2|7|8",  // shaman
+        "5|4|5|6|3|4|5|2|5|2|6|3|4|4|6|3|3|2|4|4",  // sheriff
+        "4|4|5|4|4|3|6|2|4|2|2|2|2|2|2|3|4|2|2|2",  // slave
+        "4|3|8|4|9|2|8|2|5|2|3|4|4|2|3|2|3|2|4|3",  // smith
+        "6|4|5|6|4|7|5|3|4|2|4|4|4|4|5|6|4|5|3|3",  // smuggler
+        "6|4|6|5|3|3|6|2|6|3|3|2|2|5|3|3|4|2|4|3",  // soldier
+        "3|4|3|6|4|5|3|4|2|4|4|7|7|2|5|3|3|2|8|6",  // sorcerer
+        "6|4|6|5|3|2|6|2|6|3|2|2|2|4|2|2|4|2|3|2",  // spearman
+        "3|3|3|5|5|5|3|4|2|4|5|6|6|2|6|2|3|2|5|5",  // spellmonger
+        "6|4|5|7|4|8|4|4|4|2|5|5|5|4|6|7|4|5|4|4",  // spy
+        "5|5|5|4|4|2|5|2|5|3|4|3|3|4|4|2|3|2|3|3",  // squire
+        "4|4|4|5|5|4|4|3|2|2|6|5|6|2|6|2|3|2|3|4",  // steward
+        "3|3|3|4|4|4|3|3|2|4|3|5|6|2|4|2|3|2|4|5",  // student
+        "9|4|7|6|4|4|6|3|9|3|3|4|4|4|4|3|3|2|5|3",  // swordmaster
+        "7|4|7|5|3|4|6|2|8|3|3|2|2|5|4|3|4|2|4|3",  // swornsword
+        "4|3|5|4|4|4|5|4|2|2|3|2|2|2|4|3|3|2|2|2",  // tavernhelp
+        "3|4|3|6|5|4|3|4|2|5|4|7|8|2|4|3|3|2|8|7",  // thaumaturge
+        "6|3|4|6|4|7|3|4|3|2|3|4|4|3|4|8|3|8|3|3",  // thief
+        "6|6|7|6|4|3|7|3|6|4|3|2|2|6|3|5|8|3|4|4",  // tribesman
+        "4|5|5|4|5|3|5|3|3|3|3|3|3|3|3|3|4|2|2|3",  // villager
+        "5|5|6|6|4|3|6|2|6|3|5|3|4|5|5|3|5|2|5|4",  // warden
+        "3|3|3|5|4|6|3|4|2|3|4|6|6|2|4|4|3|3|9|6",  // warlock
+        "4|3|5|6|4|4|5|3|6|4|3|7|7|5|3|3|4|2|7|5",  // warmage
+        "7|4|7|5|3|4|6|2|7|3|3|2|2|5|4|3|4|2|4|3",  // warrior
+        "5|3|5|6|3|3|5|2|5|2|4|2|2|4|4|4|3|2|4|3",  // watchman
+        "4|3|3|7|3|8|3|4|2|2|6|5|5|2|7|5|3|3|4|4",  // whisperer
+        "4|2|4|5|3|6|4|6|2|2|5|3|3|2|7|3|3|2|3|3",  // whore
+        "7|6|8|6|4|4|8|3|6|4|2|2|2|6|3|6|9|4|5|4",  // wildling
         "4|6|4|9|5|7|5|5|3|5|3|5|6|3|6|6|5|4|9|8",  // witch
         "7|5|7|6|3|7|7|3|7|3|8|6|6|6|5|6|4|3|6|7",  // witchhunter
         "2|6|2|6|8|6|2|5|2|4|5|9|9|6|5|5|3|4|6|6",  // wizard
@@ -204,6 +371,176 @@ const F4_SEED_DATA = {
         "4|4|4|4|4|2|5|2|6|2|7|3|4|5|2|6|6|2|3|2",  // yeoman
         "4|2|5|4|2|6|5|8|3|2|6|2|2|2|9|4|3|2|7|4"   // zealot
     ],
+    
+    // Class prerequisites and advancement
+    // prerequisite: null = beginner class, string = required class ID
+    // free_advances: array of class IDs you can switch to FREE if maxed
+    // xp_cost: XP cost to switch to this class (if not free advance)
+    classAdvancement: {
+        // ========== BEGINNER CLASSES (no prerequisite) ==========
+        peasant: { prerequisite: null, free_advances: ['farmer', 'villager', 'servant'], xp_cost: 0 },
+        villager: { prerequisite: null, free_advances: ['craftsman', 'merchant', 'guard'], xp_cost: 0 },
+        beggar: { prerequisite: null, free_advances: ['thief', 'entertainer', 'cutpurse'], xp_cost: 0 },
+        slave: { prerequisite: null, free_advances: ['servant', 'gladiator', 'peasant'], xp_cost: 0 },
+        student: { prerequisite: null, free_advances: ['scholar', 'apprentice', 'acolyte'], xp_cost: 0 },
+        apprentice: { prerequisite: null, free_advances: ['craftsman', 'artisan', 'smith'], xp_cost: 0 },
+        servant: { prerequisite: null, free_advances: ['steward', 'courtesan', 'spy'], xp_cost: 0 },
+        tribesman: { prerequisite: null, free_advances: ['hunter', 'barbarian', 'shaman'], xp_cost: 0 },
+        wildling: { prerequisite: null, free_advances: ['barbarian', 'hunter', 'forager'], xp_cost: 0 },
+        
+        // ========== TIER 1 CLASSES ==========
+        // Combat Path
+        soldier: { prerequisite: 'peasant', free_advances: ['mercenary', 'guard', 'spearman'], xp_cost: 500 },
+        guard: { prerequisite: 'villager', free_advances: ['soldier', 'sentinel', 'watchman'], xp_cost: 500 },
+        warrior: { prerequisite: 'soldier', free_advances: ['mercenary', 'knight', 'barbarian'], xp_cost: 1000 },
+        mercenary: { prerequisite: 'soldier', free_advances: ['warrior', 'bountyhunter', 'swornsword'], xp_cost: 1000 },
+        spearman: { prerequisite: 'soldier', free_advances: ['soldier', 'cavalry'], xp_cost: 750 },
+        
+        // Knighthood Path
+        squire: { prerequisite: 'servant', free_advances: ['knight', 'cavalry'], xp_cost: 1000 },
+        knight: { prerequisite: 'squire', free_advances: ['paladin', 'castellan', 'marshal'], xp_cost: 2000 },
+        paladin: { prerequisite: 'knight', free_advances: ['marshal', 'royalguard'], xp_cost: 3000 },
+        cavalry: { prerequisite: 'squire', free_advances: ['knight', 'marshal'], xp_cost: 1500 },
+        hedgeknight: { prerequisite: 'warrior', free_advances: ['knight', 'mercenary'], xp_cost: 1500 },
+        
+        // Criminal Path
+        thief: { prerequisite: 'beggar', free_advances: ['burglar', 'cutpurse', 'fence'], xp_cost: 500 },
+        cutpurse: { prerequisite: 'beggar', free_advances: ['thief', 'pickpocket'], xp_cost: 400 },
+        burglar: { prerequisite: 'thief', free_advances: ['assassin', 'fence'], xp_cost: 1000 },
+        bandit: { prerequisite: 'outlaw', free_advances: ['highwayman', 'raider'], xp_cost: 750 },
+        outlaw: { prerequisite: 'thief', free_advances: ['bandit', 'highwayman'], xp_cost: 600 },
+        highwayman: { prerequisite: 'bandit', free_advances: ['raider', 'bountyhunter'], xp_cost: 1000 },
+        fence: { prerequisite: 'thief', free_advances: ['smuggler', 'merchant'], xp_cost: 750 },
+        smuggler: { prerequisite: 'fence', free_advances: ['merchant', 'pirate'], xp_cost: 1000 },
+        assassin: { prerequisite: 'rogue', free_advances: ['spy', 'bountyhunter'], xp_cost: 2500 },
+        rogue: { prerequisite: 'thief', free_advances: ['assassin', 'spy'], xp_cost: 1500 },
+        pirate: { prerequisite: 'sailor', free_advances: ['raider', 'smuggler'], xp_cost: 1500 },
+        
+        // Stealth/Spy Path
+        spy: { prerequisite: 'servant', free_advances: ['assassin', 'whisperer'], xp_cost: 1500 },
+        whisperer: { prerequisite: 'spy', free_advances: ['courtier', 'spy'], xp_cost: 1000 },
+        
+        // Craft Path
+        craftsman: { prerequisite: 'apprentice', free_advances: ['artisan', 'smith', 'engineer'], xp_cost: 500 },
+        artisan: { prerequisite: 'craftsman', free_advances: ['artist', 'engineer'], xp_cost: 1000 },
+        artist: { prerequisite: 'artisan', free_advances: ['entertainer'], xp_cost: 1000 },
+        smith: { prerequisite: 'craftsman', free_advances: ['artisan', 'engineer'], xp_cost: 1000 },
+        engineer: { prerequisite: 'craftsman', free_advances: ['artillerist', 'architect'], xp_cost: 1500 },
+        
+        // Magic Path
+        hedgemage: { prerequisite: 'student', free_advances: ['mage', 'witch'], xp_cost: 1000 },
+        mage: { prerequisite: 'hedgemage', free_advances: ['wizard', 'sorcerer', 'enchanter'], xp_cost: 2000 },
+        wizard: { prerequisite: 'mage', free_advances: ['warmage', 'necromancer', 'thaumaturge'], xp_cost: 3000 },
+        sorcerer: { prerequisite: 'mage', free_advances: ['wizard', 'warlock'], xp_cost: 2000 },
+        warlock: { prerequisite: 'sorcerer', free_advances: ['necromancer', 'shadowmage'], xp_cost: 2500 },
+        necromancer: { prerequisite: 'warlock', free_advances: ['shadowmage'], xp_cost: 3000 },
+        enchanter: { prerequisite: 'mage', free_advances: ['spellmonger', 'wizard'], xp_cost: 1500 },
+        spellmonger: { prerequisite: 'enchanter', free_advances: ['merchant'], xp_cost: 1000 },
+        warmage: { prerequisite: 'wizard', free_advances: ['footwizard', 'marshal'], xp_cost: 2500 },
+        footwizard: { prerequisite: 'warmage', free_advances: ['soldier'], xp_cost: 2000 },
+        witch: { prerequisite: 'hedgemage', free_advances: ['druid', 'shaman'], xp_cost: 1500 },
+        shadowmage: { prerequisite: 'warlock', free_advances: ['necromancer', 'assassin'], xp_cost: 2500 },
+        thaumaturge: { prerequisite: 'wizard', free_advances: ['seer', 'sage'], xp_cost: 2500 },
+        
+        // Divine Path
+        acolyte: { prerequisite: 'student', free_advances: ['cleric', 'monk'], xp_cost: 500 },
+        cleric: { prerequisite: 'acolyte', free_advances: ['priest', 'healer'], xp_cost: 1000 },
+        priest: { prerequisite: 'cleric', free_advances: ['zealot', 'paladin'], xp_cost: 1500 },
+        monk: { prerequisite: 'acolyte', free_advances: ['priest', 'healer'], xp_cost: 1000 },
+        nun: { prerequisite: 'acolyte', free_advances: ['healer', 'priest'], xp_cost: 1000 },
+        zealot: { prerequisite: 'priest', free_advances: ['witchhunter', 'paladin'], xp_cost: 2000 },
+        
+        // Nature/Survival Path
+        farmer: { prerequisite: 'peasant', free_advances: ['herder', 'forager', 'woodsman'], xp_cost: 400 },
+        herder: { prerequisite: 'farmer', free_advances: ['hunter', 'tribesman'], xp_cost: 500 },
+        hunter: { prerequisite: 'tribesman', free_advances: ['ranger', 'scout', 'bountyhunter'], xp_cost: 750 },
+        forager: { prerequisite: 'farmer', free_advances: ['herbalist', 'hunter'], xp_cost: 500 },
+        woodsman: { prerequisite: 'farmer', free_advances: ['hunter', 'ranger'], xp_cost: 600 },
+        ranger: { prerequisite: 'hunter', free_advances: ['scout', 'warden'], xp_cost: 1500 },
+        scout: { prerequisite: 'hunter', free_advances: ['ranger', 'spy'], xp_cost: 1000 },
+        druid: { prerequisite: 'shaman', free_advances: ['sage', 'witch'], xp_cost: 2000 },
+        shaman: { prerequisite: 'tribesman', free_advances: ['druid', 'witch'], xp_cost: 1500 },
+        barbarian: { prerequisite: 'tribesman', free_advances: ['raider', 'warrior'], xp_cost: 1000 },
+        
+        // Healing Path
+        herbalist: { prerequisite: 'forager', free_advances: ['healer', 'apothecary'], xp_cost: 750 },
+        healer: { prerequisite: 'herbalist', free_advances: ['physician', 'cleric'], xp_cost: 1000 },
+        physician: { prerequisite: 'healer', free_advances: ['alchemist', 'sage'], xp_cost: 1500 },
+        apothecary: { prerequisite: 'herbalist', free_advances: ['alchemist', 'physician'], xp_cost: 1000 },
+        alchemist: { prerequisite: 'apothecary', free_advances: ['enchanter', 'physician'], xp_cost: 1500 },
+        
+        // Social/Political Path
+        entertainer: { prerequisite: 'beggar', free_advances: ['bard', 'charlatan'], xp_cost: 500 },
+        bard: { prerequisite: 'entertainer', free_advances: ['courtier', 'spy'], xp_cost: 1000 },
+        charlatan: { prerequisite: 'entertainer', free_advances: ['conartist', 'forger'], xp_cost: 750 },
+        conartist: { prerequisite: 'charlatan', free_advances: ['spy', 'fence'], xp_cost: 1000 },
+        forger: { prerequisite: 'charlatan', free_advances: ['fence', 'smuggler'], xp_cost: 1000 },
+        courtesan: { prerequisite: 'servant', free_advances: ['courtier', 'spy'], xp_cost: 1000 },
+        courtier: { prerequisite: 'bard', free_advances: ['noble', 'advisor'], xp_cost: 1500 },
+        noble: { prerequisite: 'courtier', free_advances: ['royal', 'castellan'], xp_cost: 3000 },
+        royal: { prerequisite: 'noble', free_advances: ['marshal'], xp_cost: 5000 },
+        advisor: { prerequisite: 'courtier', free_advances: ['steward', 'sage'], xp_cost: 1500 },
+        
+        // Commerce Path
+        merchant: { prerequisite: 'villager', free_advances: ['burgher', 'pedlar'], xp_cost: 750 },
+        burgher: { prerequisite: 'merchant', free_advances: ['noble', 'steward'], xp_cost: 1500 },
+        pedlar: { prerequisite: 'merchant', free_advances: ['smuggler', 'fence'], xp_cost: 500 },
+        
+        // Law/Authority Path
+        watchman: { prerequisite: 'guard', free_advances: ['investigator', 'sentinel'], xp_cost: 750 },
+        sentinel: { prerequisite: 'guard', free_advances: ['warden', 'royalguard'], xp_cost: 1000 },
+        investigator: { prerequisite: 'watchman', free_advances: ['spy', 'lawyer'], xp_cost: 1000 },
+        bailiff: { prerequisite: 'watchman', free_advances: ['sheriff', 'jailer'], xp_cost: 750 },
+        sheriff: { prerequisite: 'bailiff', free_advances: ['marshal', 'interrogator'], xp_cost: 1500 },
+        jailer: { prerequisite: 'bailiff', free_advances: ['interrogator', 'executioner'], xp_cost: 750 },
+        interrogator: { prerequisite: 'jailer', free_advances: ['spy', 'sheriff'], xp_cost: 1000 },
+        executioner: { prerequisite: 'jailer', free_advances: ['assassin'], xp_cost: 1000 },
+        lawyer: { prerequisite: 'scholar', free_advances: ['advisor', 'censor'], xp_cost: 1500 },
+        censor: { prerequisite: 'lawyer', free_advances: ['advisor', 'inquisitor'], xp_cost: 1500 },
+        
+        // Scholar Path
+        scholar: { prerequisite: 'student', free_advances: ['sage', 'academic', 'lawyer'], xp_cost: 750 },
+        academic: { prerequisite: 'scholar', free_advances: ['sage', 'physician'], xp_cost: 1000 },
+        sage: { prerequisite: 'academic', free_advances: ['seer', 'wizard'], xp_cost: 2000 },
+        seer: { prerequisite: 'sage', free_advances: ['thaumaturge', 'shaman'], xp_cost: 2000 },
+        
+        // Service/Transport Path
+        steward: { prerequisite: 'servant', free_advances: ['castellan', 'advisor'], xp_cost: 1000 },
+        castellan: { prerequisite: 'steward', free_advances: ['noble', 'marshal'], xp_cost: 2000 },
+        herald: { prerequisite: 'messenger', free_advances: ['envoy', 'courtier'], xp_cost: 750 },
+        messenger: { prerequisite: 'servant', free_advances: ['herald', 'spy'], xp_cost: 400 },
+        envoy: { prerequisite: 'herald', free_advances: ['advisor', 'spy'], xp_cost: 1000 },
+        coachman: { prerequisite: 'servant', free_advances: ['messenger', 'smuggler'], xp_cost: 500 },
+        boatman: { prerequisite: 'villager', free_advances: ['sailor', 'smuggler'], xp_cost: 500 },
+        sailor: { prerequisite: 'boatman', free_advances: ['pirate', 'navigator'], xp_cost: 750 },
+        
+        // Seedy Path
+        whore: { prerequisite: 'beggar', free_advances: ['courtesan', 'spy'], xp_cost: 300 },
+        tavernhelp: { prerequisite: 'servant', free_advances: ['entertainer', 'spy'], xp_cost: 300 },
+        
+        // Combat Specialists
+        archer: { prerequisite: 'hunter', free_advances: ['ranger', 'scout'], xp_cost: 1000 },
+        duelist: { prerequisite: 'warrior', free_advances: ['swordmaster', 'knight'], xp_cost: 1500 },
+        swordmaster: { prerequisite: 'duelist', free_advances: ['royalguard', 'marshal'], xp_cost: 2500 },
+        swornsword: { prerequisite: 'mercenary', free_advances: ['knight', 'assassin'], xp_cost: 1500 },
+        pitfighter: { prerequisite: 'warrior', free_advances: ['mercenary', 'barbarian'], xp_cost: 1000 },
+        raider: { prerequisite: 'barbarian', free_advances: ['pirate', 'bandit'], xp_cost: 1000 },
+        bountyhunter: { prerequisite: 'hunter', free_advances: ['assassin', 'mercenary'], xp_cost: 1500 },
+        
+        // Mining/Labor
+        miner: { prerequisite: 'peasant', free_advances: ['smith', 'craftsman'], xp_cost: 500 },
+        
+        // Elite Classes
+        marshal: { prerequisite: 'knight', free_advances: ['royal'], xp_cost: 4000 },
+        royalguard: { prerequisite: 'knight', free_advances: ['marshal', 'paladin'], xp_cost: 3000 },
+        warden: { prerequisite: 'ranger', free_advances: ['marshal', 'paladin'], xp_cost: 2000 },
+        witchhunter: { prerequisite: 'zealot', free_advances: ['inquisitor', 'spy'], xp_cost: 2500 },
+        artillerist: { prerequisite: 'engineer', free_advances: ['warmage'], xp_cost: 2000 },
+        adventurer: { prerequisite: 'villager', free_advances: ['mercenary', 'bard', 'rogue'], xp_cost: 750 },
+        
+        // Occult Path
+        cultist: { prerequisite: 'zealot', free_advances: ['warlock', 'necromancer'], xp_cost: 1500 }
+    },
     
     // Class descriptions and metadata
     classDescriptions: {
@@ -334,9 +671,6 @@ const F4_SEED_DATA = {
     
     // ========================= HELPER FUNCTIONS =========================
     
-    /**
-     * Parse stat caps string into object
-     */
     parseStatCaps(capsString) {
         const caps = {};
         const values = capsString.split('|').map(v => parseInt(v.trim()) || 5);
@@ -346,90 +680,47 @@ const F4_SEED_DATA = {
         return caps;
     },
     
-    /**
-     * Get default stats object (all at 2)
-     */
-    getDefaultStats() {
-        const stats = {};
-        this.statNames.forEach(stat => {
-            stats[stat] = this.defaultStatValue;
+    getFullClassData() {
+        const classes = [];
+        this.classNames.forEach((name, index) => {
+            const descData = this.classDescriptions[name] || { desc: 'No description', icon: '❓', vocation: 'unknown' };
+            const advData = this.classAdvancement[name] || { prerequisite: null, free_advances: [], xp_cost: 0 };
+            const statCaps = this.parseStatCaps(this.classStatCaps[index]);
+            
+            classes.push({
+                id: name,
+                name: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' '),
+                description: descData.desc,
+                icon: descData.icon,
+                vocation: descData.vocation,
+                image: `classes/Class_Overview_${name}.png`,
+                stat_maximums: statCaps,
+                prerequisite: advData.prerequisite,
+                free_advances: advData.free_advances || [],
+                xp_cost: advData.xp_cost || 0,
+                is_beginner: advData.prerequisite === null
+            });
         });
-        return stats;
+        return classes;
     },
     
-    /**
-     * Build complete class object
-     */
-    buildClass(index) {
-        const name = this.classNames[index];
-        const capsString = this.classStatCaps[index];
-        const meta = this.classDescriptions[name] || { desc: '', icon: '❓', vocation: 'general' };
-        
-        return {
-            id: name,
-            name: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' '),
-            description: meta.desc,
-            icon: meta.icon,
-            image: `classes/Class_Overview_${name}.png`,  // Path relative to images/
-            vocation_id: meta.vocation,
-            stat_maximums: this.parseStatCaps(capsString),
-            stat_minimums: {}, // No minimums in F3
-            prerequisites: {},
-            exit_careers: [],
-            xp_cost: 0,
-            enabled: true
-        };
+    getFullSpeciesData() {
+        return this.species.map(sp => ({
+            ...sp,
+            image: `species/${sp.id}.png`,
+            base_stats: sp.base_stats || {},
+            stat_minimums: sp.stat_minimums || {},
+            stat_maximums: sp.stat_maximums || {}
+        }));
     },
     
-    /**
-     * Build complete species object
-     */
-    buildSpecies(speciesData) {
-        return {
-            id: speciesData.id,
-            name: speciesData.name,
-            description: speciesData.description,
-            icon: speciesData.icon,
-            image: `species/${speciesData.id}.png`,  // Path relative to images/
-            base_stats: this.getDefaultStats(), // All species start with 2s
-            stat_caps: this.getDefaultStatCaps(), // Species don't limit caps in F3
-            abilities: [],
-            allowed_classes: this.classNames, // All classes available
-            enabled: true
-        };
-    },
-    
-    /**
-     * Get default stat caps (all at 9)
-     */
-    getDefaultStatCaps() {
-        const caps = {};
-        this.statNames.forEach(stat => {
-            caps[stat] = 9;
-        });
-        return caps;
-    },
-    
-    /**
-     * Get all classes as array
-     */
-    getAllClasses() {
-        return this.classNames.map((_, index) => this.buildClass(index));
-    },
-    
-    /**
-     * Get all species as array
-     */
-    getAllSpecies() {
-        return this.species.map(s => this.buildSpecies(s));
+    getGenderData() {
+        return this.genders.map(g => ({
+            ...g,
+            image: `genders/${g.id}.png`
+        }));
     }
 };
 
-// Export for use in other modules
-if (typeof window !== 'undefined') {
-    window.F4_SEED_DATA = F4_SEED_DATA;
-}
-if (typeof module !== 'undefined') {
-    module.exports = F4_SEED_DATA;
-}
-
+// Make available globally
+window.F4_SEED_DATA = F4_SEED_DATA;

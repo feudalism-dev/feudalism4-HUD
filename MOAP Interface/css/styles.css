@@ -961,6 +961,397 @@ input::placeholder {
     }
 }
 
+/* === Species Resource Pools === */
+.species-resources {
+    background: var(--bg-dark);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.species-resources h4 {
+    font-family: var(--font-display);
+    color: var(--gold);
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 1rem;
+}
+
+.resource-bars {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.resource-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.resource-label {
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    width: 80px;
+    color: var(--text-secondary);
+}
+
+.resource-bar {
+    flex: 1;
+    height: 16px;
+    background: var(--bg-medium);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.resource-fill {
+    height: 100%;
+    border-radius: 8px;
+    transition: width 0.3s ease;
+}
+
+.resource-value {
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    width: 40px;
+    text-align: right;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.species-stat-bonuses,
+.species-stat-limits {
+    background: var(--bg-dark);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.species-stat-bonuses h4,
+.species-stat-limits h4 {
+    font-family: var(--font-display);
+    color: var(--gold);
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 1rem;
+}
+
+.stat-bonuses-grid,
+.stat-limits-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.stat-bonus {
+    background: var(--success);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-family: var(--font-ui);
+}
+
+.stat-min,
+.stat-max {
+    background: var(--bg-medium);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-family: var(--font-ui);
+}
+
+.stat-min {
+    border-left: 3px solid var(--warning);
+}
+
+.stat-max {
+    border-left: 3px solid var(--crimson);
+}
+
+/* === Class Prerequisites and Advances === */
+.class-requirements {
+    background: var(--bg-dark);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.class-prereq,
+.class-cost-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.prereq-label,
+.cost-label {
+    font-family: var(--font-ui);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.prereq-value,
+.cost-value {
+    font-family: var(--font-display);
+    color: var(--gold);
+    font-weight: 600;
+}
+
+.cost-value.free {
+    color: var(--success);
+}
+
+.class-prereq.none .prereq-value {
+    color: var(--success);
+}
+
+.class-advances {
+    background: var(--bg-dark);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.class-advances h4 {
+    font-family: var(--font-display);
+    color: var(--gold);
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 0.9rem;
+}
+
+.advance-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.advance-tag {
+    background: var(--bg-medium);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-family: var(--font-ui);
+    border: 1px solid var(--border-color);
+}
+
+.advance-more {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+}
+
+.class-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: var(--font-ui);
+    font-weight: 600;
+    margin-bottom: var(--space-sm);
+}
+
+.class-badge.beginner {
+    background: var(--success);
+    color: white;
+}
+
+.class-completed-badge {
+    position: absolute;
+    bottom: var(--space-sm);
+    right: var(--space-sm);
+    background: var(--success);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* === Career Path Visualization === */
+.career-path-container {
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-color);
+}
+
+.career-path-container h4 {
+    font-family: var(--font-display);
+    color: var(--gold);
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 0.9rem;
+}
+
+.career-path {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    background: var(--bg-dark);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.career-path.empty {
+    justify-content: center;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.career-path-node {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: var(--bg-medium);
+    border-radius: 50%;
+    border: 2px solid var(--border-color);
+    transition: all var(--transition-fast);
+}
+
+.career-path-node.maxed {
+    border-color: var(--success);
+    background: rgba(74, 139, 74, 0.2);
+}
+
+.career-path-node.current {
+    border-color: var(--gold);
+    background: rgba(201, 162, 39, 0.2);
+    box-shadow: 0 0 10px var(--gold-dark);
+}
+
+.career-path-node.visited:not(.maxed) {
+    border-color: var(--warning);
+    background: rgba(179, 139, 40, 0.1);
+}
+
+.node-icon {
+    font-size: 1.2rem;
+}
+
+.node-badge {
+    position: absolute;
+    bottom: -4px;
+    right: -4px;
+    font-size: 0.7rem;
+    background: var(--success);
+    color: white;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.node-badge.current {
+    background: var(--gold);
+    color: var(--bg-dark);
+}
+
+.career-path-arrow {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+/* === Career Card Overlays === */
+.card-lock-overlay,
+.card-complete-overlay {
+    position: absolute;
+    top: var(--space-xs);
+    right: var(--space-xs);
+    font-size: 1rem;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 4px;
+    border-radius: 4px;
+}
+
+.card-lock-overlay {
+    color: var(--text-muted);
+}
+
+.card-complete-overlay {
+    color: var(--success);
+    background: rgba(74, 139, 74, 0.9);
+}
+
+.career-card.locked {
+    opacity: 0.6;
+    filter: grayscale(50%);
+}
+
+.career-card.completed {
+    border-color: var(--success);
+}
+
+.career-card.visited:not(.completed) {
+    border-color: var(--warning);
+}
+
+.career-card.beginner .card-name::before {
+    content: '🌟 ';
+}
+
+.current-career-header {
+    display: flex;
+    gap: var(--space-md);
+    align-items: flex-start;
+}
+
+/* === Gender Gallery === */
+.gender-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.gender-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 60px;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-medium);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.gender-btn:hover {
+    background: var(--bg-light);
+    border-color: var(--gold-dark);
+}
+
+.gender-btn.selected {
+    background: rgba(201, 162, 39, 0.2);
+    border-color: var(--gold);
+}
+
+.gender-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.gender-label {
+    font-family: var(--font-ui);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.gender-btn.selected .gender-label {
+    color: var(--gold);
+}
+
 /* === Toast Notifications === */
 #toast-container {
     position: fixed;

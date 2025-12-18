@@ -184,8 +184,8 @@ const App = {
         // Render career gallery
         UI.renderCareerGallery(this.state.classes, char?.class_id, char);
         
-        // Render current career
-        UI.renderCurrentCareer(this.state.currentClass, this.state.currentVocation);
+        // Render current career with career path
+        UI.renderCurrentCareer(this.state.currentClass, this.state.currentVocation, char);
         
         // Get current stats (don't override on every render - that was wiping manual changes)
         let stats = char?.stats || this.getDefaultStats();
@@ -604,24 +604,51 @@ window.onSpeciesSelected = function(speciesId) {
 
 /**
  * Called when a class is selected in the gallery
+ * @param {string} classId - The class to change to
+ * @param {boolean} isFreeAdvance - Whether this is a free advancement
  */
-window.onClassSelected = function(classId) {
+window.onClassSelected = async function(classId, isFreeAdvance = false) {
     if (!App.state.character) return;
     
     const classTemplate = App.state.classes.find(c => c.id === classId);
     if (!classTemplate) return;
     
-    // Check XP cost
-    if (classTemplate.xp_cost > 0 && App.state.character.xp_available < classTemplate.xp_cost) {
-        UI.showToast(`Insufficient XP. Need ${classTemplate.xp_cost}, have ${App.state.character.xp_available}`, 'warning');
+    // For new characters without a class, just set it directly
+    if (!App.state.character.class_id && App.state.isNewCharacter) {
+        App.state.character.class_id = classId;
+        App.state.character.stats_at_class_start = { ...App.state.character.stats };
+        App.state.character.class_started_at = new Date().toISOString();
+        App.state.pendingChanges.class_id = classId;
+        App.state.pendingChanges.stats_at_class_start = { ...App.state.character.stats };
+        App.state.pendingChanges.class_started_at = App.state.character.class_started_at;
+        
+        App.renderAll();
+        UI.showToast(`Class selected: ${classTemplate.name}`, 'success', 1500);
         return;
     }
     
-    App.state.character.class_id = classId;
-    App.state.pendingChanges.class_id = classId;
-    
-    App.renderAll();
-    UI.showToast(`Career: ${classTemplate.name}`, 'info', 1500);
+    // For existing characters, use the changeClass API for career tracking
+    try {
+        const result = await API.changeClass(classId, classTemplate, isFreeAdvance);
+        
+        if (result.success) {
+            // Reload character to get updated career history
+            const charResult = await API.getCharacter();
+            if (charResult.success) {
+                App.state.character = charResult.data.character;
+            }
+            App.state.currentClass = classTemplate;
+            App.state.pendingChanges = {};
+            
+            App.renderAll();
+            UI.showToast(result.data.message, 'success', 2000);
+        } else {
+            UI.showToast(result.error || 'Failed to change class', 'error');
+        }
+    } catch (error) {
+        console.error('Class change error:', error);
+        UI.showToast('Error changing class', 'error');
+    }
 };
 
 /**
@@ -632,6 +659,12 @@ window.onGenderSelected = function(gender) {
     
     App.state.character.gender = gender;
     App.state.pendingChanges.gender = gender;
+    
+    // Update visual selection
+    document.querySelectorAll('.gender-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.gender === gender);
+    });
+    
     App.renderAll();
 };
 
@@ -639,7 +672,11 @@ window.onGenderSelected = function(gender) {
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-gender]').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            window.onGenderSelected(e.target.dataset.gender);
+            // Handle click on child elements
+            const genderBtn = e.target.closest('[data-gender]');
+            if (genderBtn) {
+                window.onGenderSelected(genderBtn.dataset.gender);
+            }
         });
     });
 });

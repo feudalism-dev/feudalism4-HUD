@@ -233,7 +233,7 @@ const UI = {
     },
     
     /**
-     * Show species detail modal with large image
+     * Show species detail modal with large image, stat ranges, and resource pools
      * @param {object} species - Species data object
      */
     showSpeciesDetailModal(species) {
@@ -246,6 +246,28 @@ const UI = {
             (species.image.startsWith('images/') ? species.image : 'images/' + species.image) : null;
         
         const isSelected = App.state.character?.species_id === species.id;
+        
+        // Build stat bonuses HTML
+        const baseStats = species.base_stats || {};
+        const statBonuses = Object.entries(baseStats)
+            .filter(([stat, val]) => val > 2)
+            .map(([stat, val]) => `<span class="stat-bonus">+${val - 2} ${this.formatStatName(stat)}</span>`)
+            .join('');
+        
+        // Build stat limits HTML (minimums and maximums)
+        const statMins = species.stat_minimums || {};
+        const statMaxs = species.stat_maximums || {};
+        const statLimitsHtml = [
+            ...Object.entries(statMins).map(([stat, val]) => 
+                `<span class="stat-min">${this.formatStatName(stat)} min: ${val}</span>`),
+            ...Object.entries(statMaxs).map(([stat, val]) => 
+                `<span class="stat-max">${this.formatStatName(stat)} max: ${val}</span>`)
+        ].join('');
+        
+        // Resource pools
+        const health = species.health || 100;
+        const stamina = species.stamina || 100;
+        const mana = species.mana || 50;
         
         modalBody.innerHTML = `
             <div class="species-detail">
@@ -261,14 +283,48 @@ const UI = {
                 <div class="species-detail-info">
                     <h2 class="species-detail-name">${species.name}</h2>
                     <p class="species-detail-description">${species.description || 'No description available.'}</p>
-                    ${species.abilities && species.abilities.length > 0 ? `
-                        <div class="species-detail-abilities">
-                            <h4>Abilities</h4>
-                            <ul>
-                                ${species.abilities.map(a => `<li>${a}</li>`).join('')}
-                            </ul>
+                    
+                    <div class="species-resources">
+                        <h4>Resource Pools</h4>
+                        <div class="resource-bars">
+                            <div class="resource-item health">
+                                <span class="resource-label">❤️ Health</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" style="width: ${health}%; background: var(--crimson);"></div>
+                                </div>
+                                <span class="resource-value">${health}</span>
+                            </div>
+                            <div class="resource-item stamina">
+                                <span class="resource-label">⚡ Stamina</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" style="width: ${stamina}%; background: var(--gold);"></div>
+                                </div>
+                                <span class="resource-value">${stamina}</span>
+                            </div>
+                            <div class="resource-item mana">
+                                <span class="resource-label">✨ Mana</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" style="width: ${mana}%; background: var(--azure);"></div>
+                                </div>
+                                <span class="resource-value">${mana}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${statBonuses ? `
+                        <div class="species-stat-bonuses">
+                            <h4>Starting Stat Bonuses</h4>
+                            <div class="stat-bonuses-grid">${statBonuses}</div>
                         </div>
                     ` : ''}
+                    
+                    ${statLimitsHtml ? `
+                        <div class="species-stat-limits">
+                            <h4>Stat Limits</h4>
+                            <div class="stat-limits-grid">${statLimitsHtml}</div>
+                        </div>
+                    ` : ''}
+                    
                     <div class="species-detail-actions">
                         <button class="action-btn primary species-select-btn" data-species-id="${species.id}">
                             ${isSelected ? '✓ Selected' : '✓ Select This Species'}
@@ -320,7 +376,7 @@ const UI = {
     // =========================== CAREER GALLERY =========================
     
     /**
-     * Render career/class gallery with images
+     * Render career/class gallery with images, showing locked/completed status
      * @param {Array} classes - Array of class templates
      * @param {string} currentClassId - Currently selected class ID
      * @param {object} character - Character data for prerequisite checking
@@ -328,14 +384,30 @@ const UI = {
     renderCareerGallery(classes, currentClassId, character = null) {
         if (!this.elements.careerGallery) return;
         
+        // Get completed classes from character history
+        const completedClasses = character ? (API.getCompletedClasses?.(character) || []) : [];
+        const careerHistory = character?.career_history || [];
+        
         this.elements.careerGallery.innerHTML = classes.map(cls => {
             const isSelected = cls.id === currentClassId;
             const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+            const isCompleted = completedClasses.includes(cls.id);
+            const wasVisited = careerHistory.some(h => h.class_id === cls.id);
             const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
             const hasImage = cls.image ? true : false;
             
+            // Determine card classes
+            const cardClasses = [
+                'gallery-card', 'career-card',
+                isSelected ? 'selected' : '',
+                isLocked ? 'locked' : '',
+                isCompleted ? 'completed' : '',
+                wasVisited && !isCompleted ? 'visited' : '',
+                cls.is_beginner ? 'beginner' : ''
+            ].filter(Boolean).join(' ');
+            
             return `
-                <div class="gallery-card career-card ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''}" 
+                <div class="${cardClasses}" 
                      data-class-id="${cls.id}"
                      title="${cls.description || ''}">
                     ${hasImage ? `
@@ -343,18 +415,20 @@ const UI = {
                             <img src="${cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image}" alt="${cls.name}" 
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <span class="card-icon-fallback" style="display:none;">${icon}</span>
+                            ${isLocked ? '<span class="card-lock-overlay">🔒</span>' : ''}
+                            ${isCompleted ? '<span class="card-complete-overlay">✓</span>' : ''}
                         </div>
                     ` : `
                         <div class="card-icon">${icon}</div>
                     `}
                     <div class="card-name">${cls.name}</div>
-                    <div class="card-desc">${cls.xp_cost ? cls.xp_cost + ' XP' : 'Free'}</div>
+                    <div class="card-desc">${isLocked ? 'Locked' : (cls.xp_cost ? cls.xp_cost + ' XP' : 'Free')}</div>
                 </div>
             `;
         }).join('');
         
-        // Bind click events - show detail modal
-        this.elements.careerGallery.querySelectorAll('.gallery-card:not(.locked)').forEach(card => {
+        // Bind click events - locked cards open modal too (to show requirements)
+        this.elements.careerGallery.querySelectorAll('.gallery-card').forEach(card => {
             card.addEventListener('click', () => {
                 const classId = card.dataset.classId;
                 const classData = App.state.classes.find(c => c.id === classId);
@@ -366,7 +440,7 @@ const UI = {
     },
     
     /**
-     * Show class detail modal with large image
+     * Show class detail modal with prerequisites, free advances, and cost info
      * @param {object} cls - Class data object
      * @param {object} character - Current character for prereq checking
      */
@@ -380,7 +454,25 @@ const UI = {
             (cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image) : null;
         
         const isSelected = App.state.character?.class_id === cls.id;
-        const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+        const allClasses = App.state.classes || [];
+        
+        // Check if player can change to this class
+        const canChangeInfo = character && typeof API !== 'undefined' && API.canChangeToClass 
+            ? API.canChangeToClass(character, cls, allClasses)
+            : { canChange: true, isFreeAdvance: false, xpCost: cls.xp_cost || 0, reason: '' };
+        
+        // Check if player has completed this class before
+        const completedClasses = character ? API.getCompletedClasses(character) : [];
+        const isCompleted = completedClasses.includes(cls.id);
+        
+        // Get prerequisite class name
+        const prereqClass = cls.prerequisite ? allClasses.find(c => c.id === cls.prerequisite) : null;
+        const prereqName = prereqClass ? prereqClass.name : null;
+        
+        // Get free advance class names
+        const freeAdvanceNames = (cls.free_advances || [])
+            .map(id => allClasses.find(c => c.id === id)?.name || id)
+            .slice(0, 5); // Limit to 5 for display
         
         // Format stat maximums for display
         const statMaxHtml = cls.stat_maximums ? Object.entries(cls.stat_maximums)
@@ -398,36 +490,61 @@ const UI = {
                     ` : `
                         <div class="species-detail-icon">${icon}</div>
                     `}
+                    ${isCompleted ? '<div class="class-completed-badge">✓ Mastered</div>' : ''}
                 </div>
                 <div class="species-detail-info">
                     <h2 class="species-detail-name">${cls.name}</h2>
+                    ${cls.is_beginner ? '<span class="class-badge beginner">Beginner Class</span>' : ''}
                     <p class="species-detail-description">${cls.description || 'No description available.'}</p>
                     
-                    ${cls.xp_cost ? `
-                        <div class="class-detail-cost">
-                            <span class="cost-label">Cost:</span>
-                            <span class="cost-value">${cls.xp_cost} XP</span>
+                    <div class="class-requirements">
+                        ${prereqName ? `
+                            <div class="class-prereq">
+                                <span class="prereq-label">🔗 Requires:</span>
+                                <span class="prereq-value">${prereqName}</span>
+                            </div>
+                        ` : `
+                            <div class="class-prereq none">
+                                <span class="prereq-label">🔓 Prerequisites:</span>
+                                <span class="prereq-value">None (Beginner)</span>
+                            </div>
+                        `}
+                        
+                        <div class="class-cost-info">
+                            <span class="cost-label">💰 Cost to Switch:</span>
+                            ${canChangeInfo.isFreeAdvance ? `
+                                <span class="cost-value free">FREE (Maxed Current Class)</span>
+                            ` : `
+                                <span class="cost-value">${canChangeInfo.xpCost || 0} XP</span>
+                            `}
                         </div>
-                    ` : `
-                        <div class="class-detail-cost free">
-                            <span class="cost-label">Cost:</span>
-                            <span class="cost-value">Free</span>
+                    </div>
+                    
+                    ${freeAdvanceNames.length > 0 ? `
+                        <div class="class-advances">
+                            <h4>🎓 Free Advances (when maxed)</h4>
+                            <div class="advance-list">
+                                ${freeAdvanceNames.map(n => `<span class="advance-tag">${n}</span>`).join('')}
+                                ${cls.free_advances.length > 5 ? `<span class="advance-more">+${cls.free_advances.length - 5} more</span>` : ''}
+                            </div>
                         </div>
-                    `}
+                    ` : ''}
                     
                     ${statMaxHtml ? `
                         <div class="class-detail-stats">
-                            <h4>Stat Caps</h4>
+                            <h4>📊 Stat Caps</h4>
                             <div class="stat-caps-grid">${statMaxHtml}</div>
                         </div>
                     ` : ''}
                     
                     <div class="species-detail-actions">
-                        ${isLocked ? `
-                            <button class="action-btn disabled" disabled>🔒 Prerequisites Not Met</button>
+                        ${!canChangeInfo.canChange ? `
+                            <button class="action-btn disabled" disabled>🔒 ${canChangeInfo.reason || 'Cannot Select'}</button>
+                        ` : isSelected ? `
+                            <button class="action-btn disabled" disabled>✓ Current Class</button>
                         ` : `
                             <button class="action-btn primary class-select-btn" data-class-id="${cls.id}">
-                                ${isSelected ? '✓ Selected' : '✓ Select This Class'}
+                                ${canChangeInfo.isFreeAdvance ? '🎓 Advance FREE' : `⚔️ Switch (${canChangeInfo.xpCost} XP)`}
                             </button>
                         `}
                         <button class="action-btn modal-cancel-btn">Cancel</button>
@@ -437,12 +554,11 @@ const UI = {
         `;
         
         // Bind select button
-        modalBody.querySelector('.class-select-btn')?.addEventListener('click', () => {
+        modalBody.querySelector('.class-select-btn')?.addEventListener('click', async () => {
             if (typeof window.onClassSelected === 'function') {
-                window.onClassSelected(cls.id);
+                await window.onClassSelected(cls.id, canChangeInfo.isFreeAdvance);
             }
             this.hideModal();
-            this.showToast(`Selected: ${cls.name}`, 'success', 2000);
         });
         
         // Bind cancel button
@@ -457,31 +573,21 @@ const UI = {
      * Check if character meets class prerequisites
      */
     checkPrerequisites(classTemplate, character) {
-        if (!classTemplate.prerequisites) return true;
+        // Beginner classes have no prerequisite
+        if (!classTemplate.prerequisite) return true;
         
-        const prereqs = classTemplate.prerequisites;
+        // Check if character has had the prerequisite class (current or in history)
+        const careerHistory = character.career_history || [];
+        const hasPrereq = character.class_id === classTemplate.prerequisite ||
+            careerHistory.some(h => h.class_id === classTemplate.prerequisite && !h.abandoned);
         
-        // Check required classes
-        if (prereqs.required_classes?.length > 0) {
-            if (!prereqs.required_classes.includes(character.class_id)) {
-                return false;
-            }
-        }
-        
-        // Check required species
-        if (prereqs.required_species?.length > 0) {
-            if (!prereqs.required_species.includes(character.species_id)) {
-                return false;
-            }
-        }
-        
-        return true;
+        return hasPrereq;
     },
     
     /**
-     * Update current career display
+     * Update current career display with career path
      */
-    renderCurrentCareer(classTemplate, vocation) {
+    renderCurrentCareer(classTemplate, vocation, character = null) {
         if (!this.elements.currentCareer) return;
         
         if (!classTemplate) {
@@ -489,12 +595,66 @@ const UI = {
             return;
         }
         
+        // Build career path HTML
+        const careerPathHtml = this.buildCareerPathHtml(character, classTemplate);
+        
         this.elements.currentCareer.innerHTML = `
-            <div class="career-icon">${this.classIcons[classTemplate.id] || this.classIcons.default}</div>
-            <div class="career-info">
-                <h3>${classTemplate.name}</h3>
-                <p class="career-desc">${classTemplate.description || ''}</p>
-                ${vocation ? `<p class="vocation-preview">Vocation: ${vocation.name}</p>` : ''}
+            <div class="current-career-header">
+                <div class="career-icon">${this.classIcons[classTemplate.id] || this.classIcons.default}</div>
+                <div class="career-info">
+                    <h3>${classTemplate.name}</h3>
+                    <p class="career-desc">${classTemplate.description || ''}</p>
+                    ${vocation ? `<p class="vocation-preview">Vocation: ${vocation.name}</p>` : ''}
+                </div>
+            </div>
+            ${careerPathHtml}
+        `;
+    },
+    
+    /**
+     * Build career path visualization HTML
+     */
+    buildCareerPathHtml(character, currentClass) {
+        if (!character) return '';
+        
+        const careerHistory = character.career_history || [];
+        const allClasses = App.state.classes || [];
+        
+        if (careerHistory.length === 0 && !currentClass) {
+            return '<div class="career-path empty"><p>No career history yet</p></div>';
+        }
+        
+        // Build path nodes
+        const nodes = careerHistory.map(entry => {
+            const classData = allClasses.find(c => c.id === entry.class_id);
+            const icon = classData?.icon || this.classIcons[entry.class_id] || '❓';
+            const name = classData?.name || entry.class_id;
+            
+            return `
+                <div class="career-path-node ${entry.maxed ? 'maxed' : ''} ${entry.abandoned ? 'abandoned' : ''}"
+                     title="${name}${entry.maxed ? ' (Mastered)' : ''}${entry.abandoned ? ' (Abandoned)' : ''}">
+                    <span class="node-icon">${icon}</span>
+                    ${entry.maxed ? '<span class="node-badge">✓</span>' : ''}
+                </div>
+                <div class="career-path-arrow">→</div>
+            `;
+        }).join('');
+        
+        // Add current class
+        const currentNode = currentClass ? `
+            <div class="career-path-node current" title="${currentClass.name} (Current)">
+                <span class="node-icon">${currentClass.icon || this.classIcons[currentClass.id] || '❓'}</span>
+                <span class="node-badge current">★</span>
+            </div>
+        ` : '';
+        
+        return `
+            <div class="career-path-container">
+                <h4>Career Path</h4>
+                <div class="career-path">
+                    ${nodes}
+                    ${currentNode}
+                </div>
             </div>
         `;
     },

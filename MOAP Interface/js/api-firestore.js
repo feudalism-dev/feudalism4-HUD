@@ -218,14 +218,34 @@ const API = {
                 owner_uuid: this.uuid,
                 name: charData.name || 'Unnamed',
                 title: charData.title || '',
-                gender: charData.gender || 'unspecified',
+                gender: charData.gender || 'other',
                 species_id: charData.species_id || 'human',
-                class_id: charData.class_id || 'commoner',
+                class_id: charData.class_id || null,
+                
+                // Resource pools
+                health: charData.health || 100,
+                health_max: charData.health_max || 100,
+                stamina: charData.stamina || 100,
+                stamina_max: charData.stamina_max || 100,
+                mana: charData.mana || 50,
+                mana_max: charData.mana_max || 50,
+                
+                // XP and currency
                 xp_total: 100,
                 xp_available: 100,
                 currency: 50,
+                
+                // Stats
                 stats: charData.stats || this.getDefaultStats(),
+                stats_at_class_start: charData.stats || this.getDefaultStats(), // Snapshot for tracking progress
+                
+                // Career history: array of { class_id, started_at, ended_at, maxed, stats_gained, abandoned }
+                career_history: [],
+                
+                // Inventory
                 inventory: [],
+                
+                // Timestamps
                 created_at: firebase.firestore.FieldValue.serverTimestamp(),
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
             };
@@ -286,6 +306,178 @@ const API = {
             console.error('updateCharacter error:', error);
             return { success: false, error: error.message };
         }
+    },
+    
+    /**
+     * Change character's class with career history tracking
+     * @param {string} newClassId - The class to change to
+     * @param {object} classData - The class template data
+     * @param {boolean} isFreeAdvance - If true, no XP cost
+     */
+    async changeClass(newClassId, classData, isFreeAdvance = false) {
+        if (!this.uuid) {
+            return { success: false, error: 'No UUID' };
+        }
+        
+        try {
+            const charResult = await this.getCharacter();
+            if (!charResult.success) {
+                return { success: false, error: 'No character found' };
+            }
+            
+            const character = charResult.data.character;
+            const currentClassId = character.class_id;
+            const xpCost = isFreeAdvance ? 0 : (classData.xp_cost || 0);
+            
+            // Check XP if not free advance
+            if (!isFreeAdvance && xpCost > 0 && (character.xp_available || 0) < xpCost) {
+                return { success: false, error: `Not enough XP. Need ${xpCost}, have ${character.xp_available || 0}` };
+            }
+            
+            // Calculate if we gained any points in current class
+            const startStats = character.stats_at_class_start || {};
+            const currentStats = character.stats || {};
+            let totalGained = 0;
+            let isMaxed = true;
+            
+            // Get current class stat caps (if we have a current class)
+            if (currentClassId) {
+                const currentClassRef = await db.collection('classes').doc(currentClassId).get();
+                const currentClassData = currentClassRef.exists ? currentClassRef.data() : null;
+                
+                for (const stat in currentStats) {
+                    const start = startStats[stat] || 2;
+                    const current = currentStats[stat] || 2;
+                    totalGained += Math.max(0, current - start);
+                    
+                    // Check if any stat is below its cap
+                    if (currentClassData?.stat_maximums?.[stat]) {
+                        if (current < currentClassData.stat_maximums[stat]) {
+                            isMaxed = false;
+                        }
+                    }
+                }
+            }
+            
+            // Build career history entry for old class
+            const careerHistory = character.career_history || [];
+            if (currentClassId) {
+                const isAbandoned = totalGained === 0;
+                
+                if (!isAbandoned) {
+                    // Only add to history if they gained at least 1 point
+                    careerHistory.push({
+                        class_id: currentClassId,
+                        started_at: character.class_started_at || new Date().toISOString(),
+                        ended_at: new Date().toISOString(),
+                        maxed: isMaxed,
+                        stats_gained: totalGained,
+                        abandoned: false
+                    });
+                }
+                // If abandoned (0 points gained), don't add to career history
+            }
+            
+            // Prepare update
+            const updateData = {
+                class_id: newClassId,
+                class_started_at: new Date().toISOString(),
+                stats_at_class_start: { ...currentStats }, // Snapshot current stats
+                career_history: careerHistory,
+                xp_available: (character.xp_available || 0) - xpCost,
+                updated_at: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            const result = await this.updateCharacter(updateData);
+            
+            if (result.success) {
+                result.data.message = isFreeAdvance 
+                    ? `Advanced to ${classData.name}!`
+                    : `Changed class to ${classData.name} (${xpCost} XP)`;
+                result.data.career_history = careerHistory;
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('changeClass error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Check if character can change to a class
+     * @param {object} character - Character data
+     * @param {object} classData - Class template data
+     * @param {Array} allClasses - All class templates
+     */
+    canChangeToClass(character, classData, allClasses = []) {
+        const result = {
+            canChange: false,
+            isFreeAdvance: false,
+            xpCost: classData.xp_cost || 0,
+            reason: ''
+        };
+        
+        // Check prerequisite
+        if (classData.prerequisite) {
+            // Check if they've had this prerequisite class in their history (and not abandoned)
+            const hasPrereq = (character.career_history || []).some(
+                h => h.class_id === classData.prerequisite && !h.abandoned
+            ) || character.class_id === classData.prerequisite;
+            
+            if (!hasPrereq) {
+                result.reason = `Requires ${classData.prerequisite} class`;
+                return result;
+            }
+        }
+        
+        // Check if this is a free advance from current class
+        if (character.class_id) {
+            const currentClass = allClasses.find(c => c.id === character.class_id);
+            if (currentClass && (currentClass.free_advances || []).includes(classData.id)) {
+                // Check if maxed current class
+                const isMaxed = this.isClassMaxed(character, currentClass);
+                if (isMaxed) {
+                    result.isFreeAdvance = true;
+                    result.xpCost = 0;
+                }
+            }
+        }
+        
+        // Check XP
+        if (!result.isFreeAdvance && result.xpCost > (character.xp_available || 0)) {
+            result.reason = `Need ${result.xpCost} XP (have ${character.xp_available || 0})`;
+            return result;
+        }
+        
+        result.canChange = true;
+        return result;
+    },
+    
+    /**
+     * Check if character has maxed their current class
+     */
+    isClassMaxed(character, classData) {
+        if (!classData || !classData.stat_maximums) return false;
+        
+        const stats = character.stats || {};
+        const caps = classData.stat_maximums;
+        
+        for (const stat in caps) {
+            if ((stats[stat] || 2) < caps[stat]) {
+                return false;
+            }
+        }
+        return true;
+    },
+    
+    /**
+     * Get completed classes for character (classes they've maxed)
+     */
+    getCompletedClasses(character) {
+        return (character.career_history || [])
+            .filter(h => h.maxed && !h.abandoned)
+            .map(h => h.class_id);
     },
     
     // =========================== DICE ROLLING ===============================
@@ -382,35 +574,34 @@ const API = {
     // Uses F4_SEED_DATA from seed-data.js for 122 classes and 21 species
     
     async seedDefaultSpecies() {
-        console.log('Seeding default species from F3 data...');
+        console.log('Seeding default species from F4 data...');
         
         if (typeof F4_SEED_DATA === 'undefined') {
             console.error('F4_SEED_DATA not loaded!');
             return;
         }
         
-        const allSpecies = F4_SEED_DATA.getAllSpecies();
+        const allSpecies = F4_SEED_DATA.getFullSpeciesData();
         console.log(`Seeding ${allSpecies.length} species...`);
         
-        // Firestore batch limit is 500, so we're safe
         const batch = db.batch();
         allSpecies.forEach(sp => {
             const ref = db.collection('species').doc(sp.id);
-            batch.set(ref, sp);
+            batch.set(ref, { ...sp, enabled: true });
         });
         await batch.commit();
         console.log('Species seeding complete!');
     },
     
     async seedDefaultClasses() {
-        console.log('Seeding default classes from F3 data...');
+        console.log('Seeding default classes from F4 data...');
         
         if (typeof F4_SEED_DATA === 'undefined') {
             console.error('F4_SEED_DATA not loaded!');
             return;
         }
         
-        const allClasses = F4_SEED_DATA.getAllClasses();
+        const allClasses = F4_SEED_DATA.getFullClassData();
         console.log(`Seeding ${allClasses.length} classes...`);
         
         // Firestore batch limit is 500, so we need to batch in chunks
@@ -420,12 +611,53 @@ const API = {
             const batch = db.batch();
             chunk.forEach(cls => {
                 const ref = db.collection('classes').doc(cls.id);
-                batch.set(ref, cls);
+                batch.set(ref, { ...cls, enabled: true });
             });
             await batch.commit();
             console.log(`Committed batch ${Math.floor(i / batchSize) + 1}`);
         }
         console.log('Classes seeding complete!');
+    },
+    
+    async seedDefaultGenders() {
+        console.log('Seeding default genders...');
+        
+        if (typeof F4_SEED_DATA === 'undefined') {
+            console.error('F4_SEED_DATA not loaded!');
+            return;
+        }
+        
+        const genders = F4_SEED_DATA.getGenderData();
+        console.log(`Seeding ${genders.length} genders...`);
+        
+        const batch = db.batch();
+        genders.forEach(g => {
+            const ref = db.collection('genders').doc(g.id);
+            batch.set(ref, { ...g, enabled: true });
+        });
+        await batch.commit();
+        console.log('Gender seeding complete!');
+    },
+    
+    async getGenders() {
+        try {
+            const snapshot = await db.collection('genders').where('enabled', '==', true).get();
+            
+            if (snapshot.empty) {
+                await this.seedDefaultGenders();
+                return this.getGenders();
+            }
+            
+            const genders = [];
+            snapshot.forEach(doc => {
+                genders.push({ id: doc.id, ...doc.data() });
+            });
+            
+            return { success: true, data: { genders } };
+        } catch (error) {
+            console.error('getGenders error:', error);
+            return { success: false, error: error.message };
+        }
     },
     
     async seedDefaultVocations() {
