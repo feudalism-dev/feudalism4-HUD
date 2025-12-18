@@ -150,14 +150,19 @@ const App = {
      * All stats start at 2 (matching F3 system)
      */
     getDefaultStats() {
+        // Use F3 stat names from seed data if available
+        if (typeof F4_SEED_DATA !== 'undefined') {
+            return F4_SEED_DATA.getDefaultStats();
+        }
+        // Fallback
         const statNames = [
-            'fighting', 'agility', 'awareness', 'strength', 'endurance',
-            'will', 'intellect', 'charisma', 'perception', 'stealth',
-            'crafting', 'survival', 'medicine', 'arcana', 'faith',
-            'persuasion', 'intimidation', 'athletics', 'acrobatics', 'luck'
+            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+            'stealth', 'survival', 'thievery', 'will', 'wisdom'
         ];
         const stats = {};
-        statNames.forEach(stat => stats[stat] = 2); // Start at 2, not 1
+        statNames.forEach(stat => stats[stat] = 2);
         return stats;
     },
     

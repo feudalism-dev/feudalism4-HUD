@@ -347,11 +347,12 @@ const UI = {
     renderStatsGrid(stats, caps = {}, availablePoints = 0) {
         if (!this.elements.statsGrid) return;
         
-        const statNames = [
-            'fighting', 'agility', 'awareness', 'strength', 'endurance',
-            'will', 'intellect', 'charisma', 'perception', 'stealth',
-            'crafting', 'survival', 'medicine', 'arcana', 'faith',
-            'persuasion', 'intimidation', 'athletics', 'acrobatics', 'luck'
+        // F3 stat names in order
+        const statNames = (typeof F4_SEED_DATA !== 'undefined') ? F4_SEED_DATA.statNames : [
+            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+            'stealth', 'survival', 'thievery', 'will', 'wisdom'
         ];
         
         this.elements.statsGrid.innerHTML = statNames.map(stat => {

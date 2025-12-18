@@ -365,63 +365,91 @@ const API = {
     // =========================== HELPERS ====================================
     
     getDefaultStats() {
-        // All stats start at 2 (F3 system)
+        // Use F3 seed data if available
+        if (typeof F4_SEED_DATA !== 'undefined') {
+            return F4_SEED_DATA.getDefaultStats();
+        }
+        // Fallback: F3 stats all at 2
         return {
-            fighting: 2, agility: 2, awareness: 2, strength: 2, endurance: 2,
-            will: 2, intellect: 2, charisma: 2, perception: 2, stealth: 2,
-            crafting: 2, survival: 2, medicine: 2, arcana: 2, faith: 2,
-            persuasion: 2, intimidation: 2, athletics: 2, acrobatics: 2, luck: 2
+            agility: 2, animal_handling: 2, athletics: 2, awareness: 2, crafting: 2,
+            deception: 2, endurance: 2, entertaining: 2, fighting: 2, healing: 2,
+            influence: 2, intelligence: 2, knowledge: 2, marksmanship: 2, persuasion: 2,
+            stealth: 2, survival: 2, thievery: 2, will: 2, wisdom: 2
         };
     },
     
     // =========================== SEED DATA ==================================
+    // Uses F4_SEED_DATA from seed-data.js for 122 classes and 21 species
     
     async seedDefaultSpecies() {
-        console.log('Seeding default species...');
-        const species = [
-            { id: 'human', name: 'Human', icon: '👤', image: 'species/human.png', description: 'Versatile and adaptable.', base_stats: this.createBaseStats(2), stat_caps: this.createStatCaps(9), abilities: [], allowed_classes: ['commoner', 'soldier', 'squire', 'merchant', 'scholar', 'priest'], enabled: true },
-            { id: 'elf', name: 'Elf', icon: '🧝', image: 'species/elf.png', description: 'Graceful and long-lived.', base_stats: this.createBaseStats(2, { agility: 3, awareness: 3, intellect: 3, strength: 1, endurance: 1 }), stat_caps: this.createStatCaps(9, { agility: 10, awareness: 10, arcana: 10, strength: 7, endurance: 7 }), abilities: ['Low-Light Vision'], allowed_classes: ['commoner', 'scout', 'mage', 'scholar'], enabled: true },
-            { id: 'dwarf', name: 'Dwarf', icon: '⛏️', image: 'species/dwarf.png', description: 'Stout and resilient craftsmen.', base_stats: this.createBaseStats(2, { strength: 3, endurance: 3, crafting: 3, agility: 1 }), stat_caps: this.createStatCaps(9, { strength: 10, endurance: 10, crafting: 10, agility: 7, arcana: 6 }), abilities: ['Darkvision'], allowed_classes: ['commoner', 'soldier', 'smith', 'merchant'], enabled: true },
-            { id: 'halfling', name: 'Halfling', icon: '🍀', image: 'species/halfling.png', description: 'Small but lucky.', base_stats: this.createBaseStats(2, { agility: 3, luck: 4, stealth: 3, strength: 1 }), stat_caps: this.createStatCaps(9, { luck: 12, stealth: 10, strength: 6 }), abilities: ['Lucky'], allowed_classes: ['commoner', 'scout', 'merchant', 'thief'], enabled: true },
-        ];
+        console.log('Seeding default species from F3 data...');
         
+        if (typeof F4_SEED_DATA === 'undefined') {
+            console.error('F4_SEED_DATA not loaded!');
+            return;
+        }
+        
+        const allSpecies = F4_SEED_DATA.getAllSpecies();
+        console.log(`Seeding ${allSpecies.length} species...`);
+        
+        // Firestore batch limit is 500, so we're safe
         const batch = db.batch();
-        species.forEach(sp => {
+        allSpecies.forEach(sp => {
             const ref = db.collection('species').doc(sp.id);
             batch.set(ref, sp);
         });
         await batch.commit();
+        console.log('Species seeding complete!');
     },
     
     async seedDefaultClasses() {
-        console.log('Seeding default classes...');
-        // Image naming: classes/Class_Overview_{id}.png (matches SL texture names)
-        const classes = [
-            { id: 'commoner', name: 'Commoner', icon: '🏠', image: 'classes/Class_Overview_peasants.png', description: 'The common folk who form the backbone of society. Versatile but limited in specialized training.', vocation_id: 'common_sense', stat_minimums: {}, stat_maximums: this.createStatCaps(5), prerequisites: {}, exit_careers: ['soldier', 'scout', 'merchant', 'smith', 'scholar', 'thief'], xp_cost: 0, enabled: true },
-            { id: 'soldier', name: 'Soldier', icon: '⚔️', image: 'classes/Class_Overview_soldier.png', description: 'Trained fighters who serve in armies or militias. Disciplined and combat-ready.', vocation_id: 'martial_training', stat_minimums: { fighting: 2, strength: 2 }, stat_maximums: this.createStatCaps(7, { fighting: 8, strength: 8, endurance: 8 }), prerequisites: { required_classes: ['commoner'] }, exit_careers: ['squire', 'sergeant'], xp_cost: 100, enabled: true },
-            { id: 'squire', name: 'Squire', icon: '🛡️', image: 'classes/Class_Overview_squire.png', description: 'An aspiring knight learning the ways of chivalry and mounted combat.', vocation_id: 'squires_duty', stat_minimums: { fighting: 3, agility: 2 }, stat_maximums: this.createStatCaps(7, { fighting: 8, agility: 7 }), prerequisites: { required_classes: ['soldier'] }, exit_careers: ['knight'], xp_cost: 200, enabled: true },
-            { id: 'knight', name: 'Knight', icon: '🏇', image: 'classes/Class_Overview_knight.png', description: 'Noble mounted warriors bound by codes of honor and duty.', vocation_id: 'knights_prowess', stat_minimums: { fighting: 5, agility: 3, strength: 4 }, stat_maximums: this.createStatCaps(9, { fighting: 10, intimidation: 9 }), prerequisites: { required_classes: ['squire'] }, exit_careers: ['champion', 'lord'], xp_cost: 500, enabled: true },
-            { id: 'scout', name: 'Scout', icon: '🏹', image: 'classes/Class_Overview_scout.png', description: 'Wilderness experts skilled in tracking, survival, and reconnaissance.', vocation_id: 'wilderness_wisdom', stat_minimums: { perception: 2, survival: 2 }, stat_maximums: this.createStatCaps(7, { perception: 8, stealth: 8, survival: 8 }), prerequisites: { required_classes: ['commoner'] }, exit_careers: ['ranger', 'spy'], xp_cost: 100, enabled: true },
-            { id: 'merchant', name: 'Merchant', icon: '💰', image: 'classes/Class_Overview_merchant.png', description: 'Traders and negotiators who profit from commerce and deal-making.', vocation_id: 'traders_eye', stat_minimums: { charisma: 2, intellect: 2 }, stat_maximums: this.createStatCaps(7, { charisma: 8, persuasion: 8 }), prerequisites: { required_classes: ['commoner'] }, exit_careers: ['guild_master'], xp_cost: 100, enabled: true },
-        ];
+        console.log('Seeding default classes from F3 data...');
         
-        const batch = db.batch();
-        classes.forEach(cls => {
-            const ref = db.collection('classes').doc(cls.id);
-            batch.set(ref, cls);
-        });
-        await batch.commit();
+        if (typeof F4_SEED_DATA === 'undefined') {
+            console.error('F4_SEED_DATA not loaded!');
+            return;
+        }
+        
+        const allClasses = F4_SEED_DATA.getAllClasses();
+        console.log(`Seeding ${allClasses.length} classes...`);
+        
+        // Firestore batch limit is 500, so we need to batch in chunks
+        const batchSize = 450;
+        for (let i = 0; i < allClasses.length; i += batchSize) {
+            const chunk = allClasses.slice(i, i + batchSize);
+            const batch = db.batch();
+            chunk.forEach(cls => {
+                const ref = db.collection('classes').doc(cls.id);
+                batch.set(ref, cls);
+            });
+            await batch.commit();
+            console.log(`Committed batch ${Math.floor(i / batchSize) + 1}`);
+        }
+        console.log('Classes seeding complete!');
     },
     
     async seedDefaultVocations() {
         console.log('Seeding default vocations...');
+        // Create vocations based on unique vocation_ids from classes
         const vocations = [
-            { id: 'common_sense', name: 'Common Sense', primary_stat: 'awareness', secondary_stat: 'luck', applies_to: ['survival', 'perception'] },
-            { id: 'martial_training', name: 'Martial Training', primary_stat: 'fighting', secondary_stat: 'strength', applies_to: ['fighting', 'athletics'] },
-            { id: 'squires_duty', name: "Squire's Duty", primary_stat: 'fighting', secondary_stat: 'charisma', applies_to: ['fighting', 'persuasion'] },
-            { id: 'knights_prowess', name: "Knight's Prowess", primary_stat: 'fighting', secondary_stat: 'awareness', applies_to: ['fighting', 'intimidation'] },
-            { id: 'wilderness_wisdom', name: 'Wilderness Wisdom', primary_stat: 'survival', secondary_stat: 'perception', applies_to: ['survival', 'stealth', 'perception'] },
-            { id: 'traders_eye', name: "Trader's Eye", primary_stat: 'charisma', secondary_stat: 'perception', applies_to: ['persuasion', 'perception'] },
+            { id: 'combat', name: 'Combat Training', primary_stat: 'fighting', secondary_stat: 'endurance', applies_to: ['fighting', 'athletics'] },
+            { id: 'stealth', name: 'Shadow Arts', primary_stat: 'stealth', secondary_stat: 'agility', applies_to: ['stealth', 'thievery'] },
+            { id: 'magic', name: 'Arcane Studies', primary_stat: 'intelligence', secondary_stat: 'will', applies_to: ['knowledge', 'wisdom'] },
+            { id: 'crafting', name: 'Master Crafting', primary_stat: 'crafting', secondary_stat: 'intelligence', applies_to: ['crafting', 'knowledge'] },
+            { id: 'faith', name: 'Divine Calling', primary_stat: 'will', secondary_stat: 'wisdom', applies_to: ['healing', 'influence'] },
+            { id: 'commerce', name: 'Trade Mastery', primary_stat: 'persuasion', secondary_stat: 'awareness', applies_to: ['persuasion', 'deception'] },
+            { id: 'survival', name: 'Wilderness Lore', primary_stat: 'survival', secondary_stat: 'awareness', applies_to: ['survival', 'animal_handling'] },
+            { id: 'entertainment', name: 'Performance Arts', primary_stat: 'entertaining', secondary_stat: 'persuasion', applies_to: ['entertaining', 'influence'] },
+            { id: 'crime', name: 'Criminal Expertise', primary_stat: 'thievery', secondary_stat: 'deception', applies_to: ['thievery', 'stealth', 'deception'] },
+            { id: 'healing', name: 'Healing Arts', primary_stat: 'healing', secondary_stat: 'knowledge', applies_to: ['healing', 'awareness'] },
+            { id: 'hunting', name: 'Hunter\'s Instinct', primary_stat: 'marksmanship', secondary_stat: 'awareness', applies_to: ['marksmanship', 'survival'] },
+            { id: 'scholarship', name: 'Academic Knowledge', primary_stat: 'knowledge', secondary_stat: 'intelligence', applies_to: ['knowledge', 'wisdom'] },
+            { id: 'exploration', name: 'Wanderer\'s Path', primary_stat: 'awareness', secondary_stat: 'agility', applies_to: ['awareness', 'athletics', 'survival'] },
+            { id: 'protection', name: 'Guardian\'s Duty', primary_stat: 'fighting', secondary_stat: 'awareness', applies_to: ['fighting', 'awareness'] },
+            { id: 'dark_magic', name: 'Forbidden Arts', primary_stat: 'intelligence', secondary_stat: 'will', applies_to: ['knowledge', 'deception'] },
+            { id: 'law', name: 'Legal Authority', primary_stat: 'influence', secondary_stat: 'knowledge', applies_to: ['influence', 'persuasion'] },
+            { id: 'nobility', name: 'Noble Bearing', primary_stat: 'influence', secondary_stat: 'awareness', applies_to: ['influence', 'persuasion', 'entertaining'] },
+            { id: 'general', name: 'Jack of All Trades', primary_stat: 'awareness', secondary_stat: 'will', applies_to: ['awareness', 'survival'] },
         ];
         
         const batch = db.batch();
@@ -433,8 +461,14 @@ const API = {
     },
     
     createBaseStats(defaultValue, overrides = {}) {
+        // Use F3 stat names
         const stats = {};
-        const names = ['fighting', 'agility', 'awareness', 'strength', 'endurance', 'will', 'intellect', 'charisma', 'perception', 'stealth', 'crafting', 'survival', 'medicine', 'arcana', 'faith', 'persuasion', 'intimidation', 'athletics', 'acrobatics', 'luck'];
+        const names = F4_SEED_DATA?.statNames || [
+            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+            'stealth', 'survival', 'thievery', 'will', 'wisdom'
+        ];
         names.forEach(s => stats[s] = overrides[s] !== undefined ? overrides[s] : defaultValue);
         return stats;
     },
