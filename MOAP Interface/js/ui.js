@@ -339,12 +339,12 @@ const UI = {
     // =========================== STATS GRID =============================
     
     /**
-     * Render stats grid
+     * Render stats grid with exponential point costs
      * @param {object} stats - Current stat values
      * @param {object} caps - Stat maximums from class/species
-     * @param {number} xpAvailable - Available XP for spending
+     * @param {number} availablePoints - Available points for spending
      */
-    renderStatsGrid(stats, caps = {}, xpAvailable = 0) {
+    renderStatsGrid(stats, caps = {}, availablePoints = 0) {
         if (!this.elements.statsGrid) return;
         
         const statNames = [
@@ -355,26 +355,28 @@ const UI = {
         ];
         
         this.elements.statsGrid.innerHTML = statNames.map(stat => {
-            const value = stats[stat] || 1;
-            const max = caps[stat] || 9;
-            const canIncrease = value < max && xpAvailable >= this.getStatCost(value + 1);
+            const value = stats[stat] || 2;
+            const max = Math.min(caps[stat] || 9, 9);
+            const costToIncrease = this.getStatPointCost(value);
+            const canIncrease = value < max && availablePoints >= costToIncrease;
+            const canDecrease = value > 1;
             
             return `
                 <div class="stat-row" data-stat="${stat}">
                     <span class="stat-name">${this.formatStatName(stat)}</span>
                     <div class="stat-controls">
-                        <button class="stat-btn" data-action="decrease" ${value <= 1 ? 'disabled' : ''}>−</button>
+                        <button class="stat-btn" data-action="decrease" ${!canDecrease ? 'disabled' : ''} title="Refund: ${this.getStatPointCost(value - 1)} pts">−</button>
                         <span class="stat-value">${value}</span>
                         <span class="stat-max">/${max}</span>
-                        <button class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''}>+</button>
+                        <button class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''} title="Cost: ${costToIncrease} pts">+</button>
                     </div>
                 </div>
             `;
         }).join('');
         
-        // Update XP display
+        // Update points display (renamed from XP)
         if (this.elements.xpAvailable) {
-            this.elements.xpAvailable.textContent = xpAvailable;
+            this.elements.xpAvailable.textContent = availablePoints;
         }
         
         // Bind stat button events
@@ -392,10 +394,12 @@ const UI = {
     },
     
     /**
-     * Get XP cost for a stat level
+     * Get point cost to increase stat from current level
+     * Exponential: 2^(level-1) - so 1, 2, 4, 8, 16, 32, 64, 128
      */
-    getStatCost(level) {
-        return level * 10;
+    getStatPointCost(fromLevel) {
+        if (fromLevel < 1) return 0;
+        return Math.pow(2, fromLevel - 1);
     },
     
     /**
@@ -476,8 +480,12 @@ const UI = {
                     <span class="summary-value">${classTemplate?.name || 'None'}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">XP:</span>
-                    <span class="summary-value">${character.xp_available || 0} / ${character.xp_total || 0}</span>
+                    <span class="summary-label">Points:</span>
+                    <span class="summary-value">${typeof window.calculateAvailablePoints === 'function' ? window.calculateAvailablePoints(character) : 0} available</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">XP Earned:</span>
+                    <span class="summary-value">${character.xp_total || 0}</span>
                 </div>
             </div>
         `;

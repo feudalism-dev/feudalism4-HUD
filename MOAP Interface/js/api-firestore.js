@@ -365,11 +365,12 @@ const API = {
     // =========================== HELPERS ====================================
     
     getDefaultStats() {
+        // All stats start at 2 (F3 system)
         return {
-            fighting: 1, agility: 1, awareness: 1, strength: 1, endurance: 1,
-            will: 1, intellect: 1, charisma: 1, perception: 1, stealth: 1,
-            crafting: 1, survival: 1, medicine: 1, arcana: 1, faith: 1,
-            persuasion: 1, intimidation: 1, athletics: 1, acrobatics: 1, luck: 1
+            fighting: 2, agility: 2, awareness: 2, strength: 2, endurance: 2,
+            will: 2, intellect: 2, charisma: 2, perception: 2, stealth: 2,
+            crafting: 2, survival: 2, medicine: 2, arcana: 2, faith: 2,
+            persuasion: 2, intimidation: 2, athletics: 2, acrobatics: 2, luck: 2
         };
     },
     

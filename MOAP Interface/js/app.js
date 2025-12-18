@@ -147,6 +147,7 @@ const App = {
     
     /**
      * Get default stats object
+     * All stats start at 2 (matching F3 system)
      */
     getDefaultStats() {
         const statNames = [
@@ -156,7 +157,7 @@ const App = {
             'persuasion', 'intimidation', 'athletics', 'acrobatics', 'luck'
         ];
         const stats = {};
-        statNames.forEach(stat => stats[stat] = 1);
+        statNames.forEach(stat => stats[stat] = 2); // Start at 2, not 1
         return stats;
     },
     
@@ -181,18 +182,17 @@ const App = {
         // Render current career
         UI.renderCurrentCareer(this.state.currentClass, this.state.currentVocation);
         
-        // Apply species base stats if new character
+        // Get current stats (don't override on every render - that was wiping manual changes)
         let stats = char?.stats || this.getDefaultStats();
-        if (this.state.isNewCharacter && this.state.currentSpecies?.base_stats) {
-            stats = { ...this.state.currentSpecies.base_stats };
-            this.state.character.stats = stats;
-        }
         
         // Get stat caps (minimum of species and class caps)
         const caps = this.calculateStatCaps();
         
-        // Render stats grid
-        UI.renderStatsGrid(stats, caps, char?.xp_available || 0);
+        // Calculate available points using the F3-style exponential system
+        const availablePoints = char ? window.calculateAvailablePoints(char) : 20;
+        
+        // Render stats grid with points
+        UI.renderStatsGrid(stats, caps, availablePoints);
         
         // Render vocation
         UI.renderVocation(this.state.currentVocation, stats);
@@ -580,13 +580,17 @@ const App = {
 window.onSpeciesSelected = function(speciesId) {
     if (!App.state.character) return;
     
+    const previousSpeciesId = App.state.character.species_id;
     App.state.character.species_id = speciesId;
     App.state.pendingChanges.species_id = speciesId;
     
-    // Apply species base stats if new character
+    // Only reset stats to species base when species CHANGES on a new character
     const species = App.state.species.find(s => s.id === speciesId);
-    if (App.state.isNewCharacter && species?.base_stats) {
-        App.state.character.stats = { ...species.base_stats };
+    if (App.state.isNewCharacter && species?.base_stats && speciesId !== previousSpeciesId) {
+        // Reset stats to this species' base values (all start at 2)
+        App.state.character.stats = App.getDefaultStats();
+        App.state.pendingChanges.stats = App.state.character.stats;
+        UI.showToast(`Stats reset to defaults for ${species.name}`, 'info', 2000);
     }
     
     App.renderAll();
@@ -636,44 +640,91 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
+ * Calculate point cost to increase from current level
+ * Uses exponential formula: 2^(level-1)
+ * Level 1→2: 1pt, 2→3: 2pt, 3→4: 4pt, etc.
+ */
+window.getStatPointCost = function(fromLevel) {
+    return Math.pow(2, fromLevel - 1);
+};
+
+/**
+ * Calculate total points spent on a stat at a given level
+ * Sum of costs from level 2 to current level
+ */
+window.getStatTotalCost = function(level) {
+    if (level <= 1) return 0;
+    let total = 0;
+    for (let l = 1; l < level; l++) {
+        total += Math.pow(2, l - 1);
+    }
+    return total;
+};
+
+/**
+ * Calculate available points from XP
+ * Base: 20 points (20000 XP equivalent)
+ * Conversion: 1000 XP = 1 point
+ */
+window.calculateAvailablePoints = function(character) {
+    const BASE_POINTS = 20; // Everyone starts with 20 points
+    const XP_PER_POINT = 1000;
+    
+    // Calculate points from earned XP
+    const earnedXP = character.xp_total || 0;
+    const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
+    
+    // Calculate points spent on stats
+    let pointsSpent = 0;
+    const stats = character.stats || {};
+    for (const stat in stats) {
+        const level = stats[stat] || 2;
+        pointsSpent += window.getStatTotalCost(level);
+    }
+    
+    return BASE_POINTS + earnedPoints - pointsSpent;
+};
+
+/**
  * Called when a stat is changed
  */
 window.onStatChange = function(stat, action) {
     if (!App.state.character) return;
     
-    const currentValue = App.state.character.stats[stat] || 1;
+    const currentValue = App.state.character.stats[stat] || 2;
     const caps = App.calculateStatCaps();
-    const max = caps[stat] || 9;
+    const max = Math.min(caps[stat] || 9, 9);
+    
+    // Calculate available points
+    const availablePoints = window.calculateAvailablePoints(App.state.character);
     
     if (action === 'increase') {
         if (currentValue >= max) {
-            UI.showToast('Stat at maximum', 'warning');
+            UI.showToast(`Stat capped at ${max} for your class`, 'warning');
             return;
         }
         
-        const cost = (currentValue + 1) * 10;
-        if (App.state.character.xp_available < cost) {
-            UI.showToast(`Need ${cost} XP`, 'warning');
+        const cost = window.getStatPointCost(currentValue);
+        if (availablePoints < cost) {
+            UI.showToast(`Need ${cost} points (have ${availablePoints})`, 'warning');
             return;
         }
         
         App.state.character.stats[stat] = currentValue + 1;
-        App.state.character.xp_available -= cost;
         App.state.pendingChanges.stats = App.state.character.stats;
+        UI.showToast(`+1 ${stat} (cost: ${cost} pts)`, 'info', 1500);
         
     } else if (action === 'decrease') {
-        // Only allow decrease to species base or 1
-        const speciesBase = App.state.currentSpecies?.base_stats?.[stat] || 1;
-        if (currentValue <= speciesBase) {
-            UI.showToast('Cannot decrease below species base', 'warning');
+        // Can lower ANY stat to 1 (not species base in F4)
+        if (currentValue <= 1) {
+            UI.showToast('Cannot go below 1', 'warning');
             return;
         }
         
-        // Refund XP
-        const refund = currentValue * 10;
+        const refund = window.getStatPointCost(currentValue - 1);
         App.state.character.stats[stat] = currentValue - 1;
-        App.state.character.xp_available += refund;
         App.state.pendingChanges.stats = App.state.character.stats;
+        UI.showToast(`-1 ${stat} (refund: ${refund} pts)`, 'info', 1500);
     }
     
     App.renderAll();
