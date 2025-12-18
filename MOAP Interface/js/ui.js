@@ -220,17 +220,91 @@ const UI = {
             `;
         }).join('');
         
-        // Bind click events
+        // Bind click events - show detail modal
         this.elements.speciesGallery.querySelectorAll('.gallery-card').forEach(card => {
             card.addEventListener('click', () => {
                 const speciesId = card.dataset.speciesId;
-                this.selectSpecies(speciesId);
-                // Trigger callback in app.js
-                if (typeof window.onSpeciesSelected === 'function') {
-                    window.onSpeciesSelected(speciesId);
+                const speciesData = App.state.species.find(s => s.id === speciesId);
+                if (speciesData) {
+                    this.showSpeciesDetailModal(speciesData);
                 }
             });
         });
+    },
+    
+    /**
+     * Show species detail modal with large image
+     * @param {object} species - Species data object
+     */
+    showSpeciesDetailModal(species) {
+        const modal = document.getElementById('modal');
+        const modalBody = document.getElementById('modal-body');
+        if (!modal || !modalBody) return;
+        
+        const icon = species.icon || this.speciesIcons[species.id] || '👤';
+        const imagePath = species.image ? 
+            (species.image.startsWith('images/') ? species.image : 'images/' + species.image) : null;
+        
+        const isSelected = App.state.character?.species_id === species.id;
+        
+        modalBody.innerHTML = `
+            <div class="species-detail">
+                <div class="species-detail-image">
+                    ${imagePath ? `
+                        <img src="${imagePath}" alt="${species.name}" 
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="species-detail-icon-fallback" style="display:none;">${icon}</div>
+                    ` : `
+                        <div class="species-detail-icon">${icon}</div>
+                    `}
+                </div>
+                <div class="species-detail-info">
+                    <h2 class="species-detail-name">${species.name}</h2>
+                    <p class="species-detail-description">${species.description || 'No description available.'}</p>
+                    ${species.abilities && species.abilities.length > 0 ? `
+                        <div class="species-detail-abilities">
+                            <h4>Abilities</h4>
+                            <ul>
+                                ${species.abilities.map(a => `<li>${a}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                    <div class="species-detail-actions">
+                        <button class="action-btn primary species-select-btn" data-species-id="${species.id}">
+                            ${isSelected ? '✓ Selected' : '✓ Select This Species'}
+                        </button>
+                        <button class="action-btn modal-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Bind select button
+        modalBody.querySelector('.species-select-btn')?.addEventListener('click', () => {
+            this.selectSpecies(species.id);
+            if (typeof window.onSpeciesSelected === 'function') {
+                window.onSpeciesSelected(species.id);
+            }
+            this.hideModal();
+            this.showToast(`Selected: ${species.name}`, 'success', 2000);
+        });
+        
+        // Bind cancel button
+        modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', () => {
+            this.hideModal();
+        });
+        
+        modal.classList.remove('hidden');
+    },
+    
+    /**
+     * Hide the modal
+     */
+    hideModal() {
+        const modal = document.getElementById('modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
     },
     
     /**

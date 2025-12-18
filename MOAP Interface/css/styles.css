@@ -763,6 +763,136 @@ input::placeholder {
     color: var(--text-primary);
 }
 
+/* === Species/Class Detail Modal === */
+.species-detail {
+    display: flex;
+    gap: var(--space-lg);
+    max-height: 80vh;
+}
+
+.species-detail-image {
+    flex: 0 0 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-dark);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+}
+
+.species-detail-image img {
+    width: 100%;
+    height: auto;
+    max-height: 400px;
+    object-fit: contain;
+}
+
+.species-detail-icon,
+.species-detail-icon-fallback {
+    font-size: 8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 300px;
+    height: 300px;
+}
+
+.species-detail-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.species-detail-name {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    color: var(--gold);
+    margin: 0;
+    border-bottom: 2px solid var(--gold-dark);
+    padding-bottom: var(--space-sm);
+}
+
+.species-detail-description {
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.species-detail-abilities {
+    background: var(--bg-dark);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.species-detail-abilities h4 {
+    font-family: var(--font-display);
+    color: var(--gold);
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 1rem;
+}
+
+.species-detail-abilities ul {
+    margin: 0;
+    padding-left: var(--space-lg);
+    color: var(--text-secondary);
+}
+
+.species-detail-abilities li {
+    margin-bottom: var(--space-xs);
+}
+
+.species-detail-actions {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: auto;
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--border-color);
+}
+
+.species-detail-actions .action-btn {
+    flex: 1;
+    padding: var(--space-md) var(--space-lg);
+    font-size: 1.1rem;
+}
+
+.species-detail-actions .action-btn.primary {
+    background: linear-gradient(135deg, var(--gold-dark), var(--gold));
+    color: var(--bg-dark);
+    font-weight: 600;
+}
+
+.species-detail-actions .action-btn.primary:hover {
+    background: linear-gradient(135deg, var(--gold), var(--gold-light));
+}
+
+/* Responsive for smaller screens */
+@media (max-width: 600px) {
+    .species-detail {
+        flex-direction: column;
+    }
+    
+    .species-detail-image {
+        flex: 0 0 auto;
+        max-height: 200px;
+    }
+    
+    .species-detail-image img {
+        max-height: 200px;
+    }
+    
+    .species-detail-icon,
+    .species-detail-icon-fallback {
+        font-size: 4rem;
+        width: 100%;
+        height: 150px;
+    }
+}
+
 /* === Toast Notifications === */
 #toast-container {
     position: fixed;
