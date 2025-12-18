@@ -208,7 +208,7 @@ const UI = {
                      title="${sp.description || ''}">
                     ${hasImage ? `
                         <div class="card-image">
-                            <img src="images/${sp.image}" alt="${sp.name}" 
+                            <img src="${sp.image.startsWith('images/') ? sp.image : 'images/' + sp.image}" alt="${sp.name}" 
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <span class="card-icon-fallback" style="display:none;">${icon}</span>
                         </div>
@@ -266,7 +266,7 @@ const UI = {
                      title="${cls.description || ''}">
                     ${hasImage ? `
                         <div class="card-image">
-                            <img src="images/${cls.image}" alt="${cls.name}" 
+                            <img src="${cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image}" alt="${cls.name}" 
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <span class="card-icon-fallback" style="display:none;">${icon}</span>
                         </div>

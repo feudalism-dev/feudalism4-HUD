@@ -370,7 +370,7 @@ const F4_SEED_DATA = {
             name: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' '),
             description: meta.desc,
             icon: meta.icon,
-            image: `images/classes/Class_Overview_${name}.png`,
+            image: `classes/Class_Overview_${name}.png`,  // Path relative to images/
             vocation_id: meta.vocation,
             stat_maximums: this.parseStatCaps(capsString),
             stat_minimums: {}, // No minimums in F3
@@ -390,7 +390,7 @@ const F4_SEED_DATA = {
             name: speciesData.name,
             description: speciesData.description,
             icon: speciesData.icon,
-            image: `images/species/${speciesData.id}.png`,
+            image: `species/${speciesData.id}.png`,  // Path relative to images/
             base_stats: this.getDefaultStats(), // All species start with 2s
             stat_caps: this.getDefaultStatCaps(), // Species don't limit caps in F3
             abilities: [],
