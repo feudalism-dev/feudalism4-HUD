@@ -870,6 +870,74 @@ input::placeholder {
     background: linear-gradient(135deg, var(--gold), var(--gold-light));
 }
 
+/* === Class Detail Modal Additions === */
+.class-detail-cost {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: var(--bg-dark);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.class-detail-cost.free {
+    border-color: var(--success);
+}
+
+.class-detail-cost .cost-label {
+    font-family: var(--font-display);
+    color: var(--text-secondary);
+}
+
+.class-detail-cost .cost-value {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    color: var(--gold);
+    font-weight: 600;
+}
+
+.class-detail-cost.free .cost-value {
+    color: var(--success);
+}
+
+.class-detail-stats {
+    background: var(--bg-dark);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.class-detail-stats h4 {
+    font-family: var(--font-display);
+    color: var(--gold);
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 1rem;
+}
+
+.stat-caps-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.stat-cap {
+    background: var(--bg-medium);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: 4px;
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.species-detail-actions .action-btn.disabled {
+    background: var(--bg-medium);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
 /* Responsive for smaller screens */
 @media (max-width: 600px) {
     .species-detail {

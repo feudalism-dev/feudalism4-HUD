@@ -353,15 +353,104 @@ const UI = {
             `;
         }).join('');
         
-        // Bind click events
+        // Bind click events - show detail modal
         this.elements.careerGallery.querySelectorAll('.gallery-card:not(.locked)').forEach(card => {
             card.addEventListener('click', () => {
                 const classId = card.dataset.classId;
-                if (typeof window.onClassSelected === 'function') {
-                    window.onClassSelected(classId);
+                const classData = App.state.classes.find(c => c.id === classId);
+                if (classData) {
+                    this.showClassDetailModal(classData, character);
                 }
             });
         });
+    },
+    
+    /**
+     * Show class detail modal with large image
+     * @param {object} cls - Class data object
+     * @param {object} character - Current character for prereq checking
+     */
+    showClassDetailModal(cls, character = null) {
+        const modal = document.getElementById('modal');
+        const modalBody = document.getElementById('modal-body');
+        if (!modal || !modalBody) return;
+        
+        const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
+        const imagePath = cls.image ? 
+            (cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image) : null;
+        
+        const isSelected = App.state.character?.class_id === cls.id;
+        const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+        
+        // Format stat maximums for display
+        const statMaxHtml = cls.stat_maximums ? Object.entries(cls.stat_maximums)
+            .filter(([stat, max]) => max < 9)  // Only show limited stats
+            .map(([stat, max]) => `<span class="stat-cap">${this.formatStatName(stat)}: ${max}</span>`)
+            .join('') : '';
+        
+        modalBody.innerHTML = `
+            <div class="species-detail class-detail">
+                <div class="species-detail-image">
+                    ${imagePath ? `
+                        <img src="${imagePath}" alt="${cls.name}" 
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="species-detail-icon-fallback" style="display:none;">${icon}</div>
+                    ` : `
+                        <div class="species-detail-icon">${icon}</div>
+                    `}
+                </div>
+                <div class="species-detail-info">
+                    <h2 class="species-detail-name">${cls.name}</h2>
+                    <p class="species-detail-description">${cls.description || 'No description available.'}</p>
+                    
+                    ${cls.xp_cost ? `
+                        <div class="class-detail-cost">
+                            <span class="cost-label">Cost:</span>
+                            <span class="cost-value">${cls.xp_cost} XP</span>
+                        </div>
+                    ` : `
+                        <div class="class-detail-cost free">
+                            <span class="cost-label">Cost:</span>
+                            <span class="cost-value">Free</span>
+                        </div>
+                    `}
+                    
+                    ${statMaxHtml ? `
+                        <div class="class-detail-stats">
+                            <h4>Stat Caps</h4>
+                            <div class="stat-caps-grid">${statMaxHtml}</div>
+                        </div>
+                    ` : ''}
+                    
+                    <div class="species-detail-actions">
+                        ${isLocked ? `
+                            <button class="action-btn disabled" disabled>🔒 Prerequisites Not Met</button>
+                        ` : `
+                            <button class="action-btn primary class-select-btn" data-class-id="${cls.id}">
+                                ${isSelected ? '✓ Selected' : '✓ Select This Class'}
+                            </button>
+                        `}
+                        <button class="action-btn modal-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Bind select button
+        modalBody.querySelector('.class-select-btn')?.addEventListener('click', () => {
+            if (typeof window.onClassSelected === 'function') {
+                window.onClassSelected(cls.id);
+            }
+            this.hideModal();
+            this.showToast(`Selected: ${cls.name}`, 'success', 2000);
+        });
+        
+        // Bind cancel button
+        modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', () => {
+            this.hideModal();
+        });
+        
+        modal.classList.remove('hidden');
     },
     
     /**
