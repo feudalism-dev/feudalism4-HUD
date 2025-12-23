@@ -14,14 +14,68 @@ const firebaseConfig = {
     appId: "1:417226860670:web:4235990fc3bf9eaa1f502f"
 };
 
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
+// Initialize Firebase with error handling for SL browser
+let db, auth; // Will be assigned below
 
-// Initialize Firestore
-const db = firebase.firestore();
+if (window.simpleDebug) {
+    window.simpleDebug('firebase-config.js executing...', 'info');
+}
 
-// Initialize Auth (for anonymous auth)
-const auth = firebase.auth();
-
-console.log('Firebase initialized for project:', firebaseConfig.projectId);
+try {
+    if (window.simpleDebug) {
+        window.simpleDebug('Checking if firebase is defined...', 'debug');
+    }
+    
+    if (typeof firebase === 'undefined') {
+        throw new Error('Firebase SDK not loaded');
+    }
+    
+    if (window.simpleDebug) {
+        window.simpleDebug('Firebase SDK found, initializing...', 'info');
+    }
+    
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    auth = firebase.auth();
+    
+    if (window.simpleDebug) {
+        window.simpleDebug('Firebase initialized for project: ' + firebaseConfig.projectId, 'info');
+    }
+    console.log('Firebase initialized for project:', firebaseConfig.projectId);
+    
+    // Test if Firestore methods are available
+    if (typeof db.collection !== 'function') {
+        throw new Error('Firestore collection method not available');
+    }
+    
+    if (window.simpleDebug) {
+        window.simpleDebug('Firestore methods verified', 'info');
+    }
+    console.log('Firestore methods verified');
+} catch (error) {
+    if (window.simpleDebug) {
+        window.simpleDebug('Firebase initialization ERROR: ' + error.message, 'error');
+    }
+    console.error('Firebase initialization error:', error);
+    console.error('This may be a Second Life browser compatibility issue');
+    
+    // Show error in UI
+    if (document.body) {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; background: #ff6b6b; color: white; padding: 20px; z-index: 10000; text-align: center;';
+        errorDiv.innerHTML = `
+            <h2>⚠️ Firebase Initialization Failed</h2>
+            <p>Error: ${error.message}</p>
+            <p>This may be a browser compatibility issue. Please check the console.</p>
+        `;
+        document.body.appendChild(errorDiv);
+    }
+    
+    // Create dummy objects to prevent further errors
+    db = { collection: function() { 
+        console.error('Firestore not initialized - collection() called');
+        return { get: function() { return Promise.resolve({ empty: true, forEach: function() {} }); } };
+    }};
+    auth = { signInAnonymously: function() { return Promise.reject(new Error('Auth not initialized')); } };
+}
 

@@ -227,7 +227,7 @@ function initializeSheet(sheet, sheetName) {
                    'created_at', 'updated_at'],
     'sessions': ['token', 'uuid', 'object_key', 'created_at', 'expires_at', 'last_activity'],
     'species': ['id', 'name', 'description', 'base_stats', 'stat_caps', 'abilities', 
-                'allowed_classes', 'enabled'],
+                'allowed_classes', 'health_factor', 'stamina_factor', 'mana_factor', 'mana_chance', 'enabled'],
     'classes': ['id', 'name', 'description', 'vocation_id', 'stat_minimums', 'stat_maximums',
                 'prerequisites', 'exit_careers', 'xp_cost', 'enabled'],
     'vocations': ['id', 'name', 'description', 'primary_stat', 'secondary_stat', 'applies_to']

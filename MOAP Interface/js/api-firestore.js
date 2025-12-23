@@ -26,6 +26,19 @@ const API = {
         this.displayName = params.get('displayname') || this.username || 'Unknown';
         this.hudChannel = parseInt(params.get('channel')) || 0;
         
+        // SECURITY: Require UUID from LSL - without it, the app cannot function
+        if (!this.uuid || this.uuid.trim() === '') {
+            console.error('SECURITY: No UUID provided. This app requires LSL integration.');
+            document.body.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; gap: 20px; background: #1a1a1a; color: #fff; font-family: sans-serif;">
+                    <h1 style="color: #ff6b6b;">⚠️ Access Denied</h1>
+                    <p style="font-size: 1.2em;">This application can only be accessed through the Second Life HUD.</p>
+                    <p style="color: #999;">Please attach the HUD in-world to access your character.</p>
+                </div>
+            `;
+            return;
+        }
+        
         console.log('API initializing with LSL data:', {
             uuid: this.uuid,
             username: this.username,
@@ -42,6 +55,7 @@ const API = {
             }
             
             // If we have an SL UUID, store/update user document
+            // This links the Firebase UID to the SL UUID for security
             if (this.uuid) {
                 await this.syncUser();
             }
@@ -59,8 +73,23 @@ const API = {
         const userRef = db.collection('users').doc(this.uuid);
         const userDoc = await userRef.get();
         
+        // Check if this is the super admin
+        const isSuperAdmin = this.uuid === this.SUPER_ADMIN_UUID;
+        
         if (userDoc.exists) {
             this.user = userDoc.data();
+            
+            // Ensure super admin always has sys_admin role
+            if (isSuperAdmin && this.user.role !== 'sys_admin') {
+                await userRef.update({
+                    role: 'sys_admin',
+                    is_super_admin: true,
+                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                this.user.role = 'sys_admin';
+                this.user.is_super_admin = true;
+            }
+            
             this.role = this.user.role || 'player';
             
             // Update last login and refresh name from LSL
@@ -76,7 +105,8 @@ const API = {
                 uuid: this.uuid,
                 username: this.username || this.uuid,
                 display_name: this.displayName || 'New Player',
-                role: 'player',
+                role: isSuperAdmin ? 'sys_admin' : 'player',
+                is_super_admin: isSuperAdmin,
                 created_at: firebase.firestore.FieldValue.serverTimestamp(),
                 last_login: firebase.firestore.FieldValue.serverTimestamp(),
                 firebase_uid: auth.currentUser?.uid || null,
@@ -85,10 +115,10 @@ const API = {
             
             await userRef.set(newUser);
             this.user = newUser;
-            this.role = 'player';
+            this.role = isSuperAdmin ? 'sys_admin' : 'player';
         }
         
-        console.log('User synced:', this.role, '- Display:', this.displayName);
+        console.log('User synced:', this.role, '- Display:', this.displayName, isSuperAdmin ? '(Super Admin)' : '');
     },
     
     // =========================== TEMPLATES (Public Read) ====================
@@ -98,12 +128,27 @@ const API = {
      */
     async getSpecies() {
         try {
-            const snapshot = await db.collection('species').where('enabled', '==', true).get();
+            console.log('[DEBUG] getSpecies() called');
+            // Try with enabled filter first
+            console.log('[DEBUG] Querying species collection (enabled=true)...');
+            let snapshot = await db.collection('species').where('enabled', '==', true).get();
+            console.log('[DEBUG] Species query returned', snapshot.size, 'documents');
+            DebugLog.log(`Species query returned ${snapshot.size} documents`, 'debug');
             
+            // If empty, check if collection exists at all (might be seeding)
             if (snapshot.empty) {
-                // Seed default species if none exist
-                await this.seedDefaultSpecies();
-                return this.getSpecies();
+                const allSnapshot = await db.collection('species').limit(1).get();
+                if (allSnapshot.empty) {
+                    // No species at all - seed them
+                    console.log('No species found, seeding...');
+                    await this.seedDefaultSpecies();
+                    // Retry with a small delay
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    snapshot = await db.collection('species').where('enabled', '==', true).get();
+                } else {
+                    // Species exist but none are enabled - use all
+                    snapshot = await db.collection('species').get();
+                }
             }
             
             const species = [];
@@ -111,10 +156,26 @@ const API = {
                 species.push({ id: doc.id, ...doc.data() });
             });
             
+            console.log('[DEBUG] getSpecies() returning', species.length, 'species');
+            DebugLog.log(`getSpecies() returning ${species.length} species`, 'info');
             return { success: true, data: { species } };
         } catch (error) {
             console.error('getSpecies error:', error);
-            return { success: false, error: error.message };
+            DebugLog.log('getSpecies error: ' + error.message, 'error');
+            // Fallback: try without enabled filter
+            try {
+                DebugLog.log('Trying species fallback (no filter)...', 'debug');
+                const snapshot = await db.collection('species').get();
+                const species = [];
+                snapshot.forEach(doc => {
+                    species.push({ id: doc.id, ...doc.data() });
+                });
+                DebugLog.log(`Species fallback returned ${species.length} species`, 'info');
+                return { success: true, data: { species } };
+            } catch (fallbackError) {
+                DebugLog.log('Species fallback also failed: ' + fallbackError.message, 'error');
+                return { success: false, error: error.message };
+            }
         }
     },
     
@@ -123,7 +184,10 @@ const API = {
      */
     async getClasses() {
         try {
+            console.log('[DEBUG] getClasses() called');
+            console.log('[DEBUG] Querying classes collection (enabled=true)...');
             const snapshot = await db.collection('classes').where('enabled', '==', true).get();
+            console.log('[DEBUG] Classes query returned', snapshot.size, 'documents');
             
             if (snapshot.empty) {
                 await this.seedDefaultClasses();
@@ -135,6 +199,8 @@ const API = {
                 classes.push({ id: doc.id, ...doc.data() });
             });
             
+            console.log('[DEBUG] getClasses() returning', classes.length, 'classes');
+            DebugLog.log(`getClasses() returning ${classes.length} classes`, 'info');
             return { success: true, data: { classes } };
         } catch (error) {
             console.error('getClasses error:', error);
@@ -173,10 +239,11 @@ const API = {
      */
     async getCharacter() {
         if (!this.uuid) {
-            return { success: false, error: 'No UUID' };
+            return { success: false, error: 'No UUID - access denied' };
         }
         
         try {
+            // SECURITY: Always filter by owner_uuid to ensure users can only access their own character
             const snapshot = await db.collection('characters')
                 .where('owner_uuid', '==', this.uuid)
                 .limit(1)
@@ -187,11 +254,19 @@ const API = {
             }
             
             const doc = snapshot.docs[0];
-            return { 
-                success: true, 
-                data: { 
-                    character: { id: doc.id, ...doc.data() } 
-                } 
+            const character = { id: doc.id, ...doc.data() };
+            
+            // SECURITY: Double-check that the character belongs to this user
+            if (character.owner_uuid !== this.uuid) {
+                console.error('SECURITY VIOLATION: Character owner_uuid does not match current user UUID');
+                return { success: false, error: 'Access denied - character ownership mismatch' };
+            }
+            
+            return {
+                success: true,
+                data: {
+                    character: character
+                }
             };
         } catch (error) {
             console.error('getCharacter error:', error);
@@ -203,8 +278,8 @@ const API = {
      * Create a new character
      */
     async createCharacter(charData) {
-        if (!this.uuid) {
-            return { success: false, error: 'No UUID' };
+        if (!this.uuid || this.uuid.trim() === '') {
+            return { success: false, error: 'No UUID - access denied' };
         }
         
         try {
@@ -214,21 +289,30 @@ const API = {
                 return { success: false, error: 'Character already exists' };
             }
             
+            // SECURITY: Always set owner_uuid to current user's UUID - cannot be overridden
+            // Remove any attempt to set owner_uuid from charData
+            if (charData.owner_uuid) {
+                delete charData.owner_uuid;
+            }
+            
             const character = {
-                owner_uuid: this.uuid,
+                owner_uuid: this.uuid,  // Force to current user's UUID
                 name: charData.name || 'Unnamed',
                 title: charData.title || '',
                 gender: charData.gender || 'other',
                 species_id: charData.species_id || 'human',
                 class_id: charData.class_id || null,
                 
-                // Resource pools
-                health: charData.health || 100,
-                health_max: charData.health_max || 100,
-                stamina: charData.stamina || 100,
-                stamina_max: charData.stamina_max || 100,
-                mana: charData.mana || 50,
-                mana_max: charData.mana_max || 50,
+                // Resource pools (object structure: {current, base, max})
+                health: charData.health || { current: 100, base: 100, max: 100 },
+                stamina: charData.stamina || { current: 100, base: 100, max: 100 },
+                mana: charData.mana || { current: 50, base: 50, max: 50 },
+                
+                // Action slots for readied items/spells/buffs
+                action_slots: charData.action_slots || [],
+                
+                // Mode (roleplay, tournament, ooc, afk)
+                mode: charData.mode || 'roleplay',
                 
                 // XP and currency
                 xp_total: 100,
@@ -261,6 +345,41 @@ const API = {
             };
         } catch (error) {
             console.error('createCharacter error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Delete current character
+     */
+    async deleteCharacter() {
+        if (!this.uuid) {
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            // Find character by owner_uuid
+            const snapshot = await db.collection('characters')
+                .where('owner_uuid', '==', this.uuid)
+                .limit(1)
+                .get();
+            
+            if (snapshot.empty) {
+                return { success: false, error: 'No character found' };
+            }
+            
+            // Delete the character document
+            const doc = snapshot.docs[0];
+            await doc.ref.delete();
+            
+            return {
+                success: true,
+                data: {
+                    message: 'Character deleted successfully'
+                }
+            };
+        } catch (error) {
+            console.error('deleteCharacter error:', error);
             return { success: false, error: error.message };
         }
     },
@@ -327,7 +446,12 @@ const API = {
             
             const character = charResult.data.character;
             const currentClassId = character.class_id;
-            const xpCost = isFreeAdvance ? 0 : (classData.xp_cost || 0);
+            // Support multiple prerequisites (array format)
+            const prerequisites = Array.isArray(classData.prerequisites) ? classData.prerequisites : [];
+            
+            // Beginner classes (no prerequisites) always cost 0
+            const isBeginnerClass = prerequisites.length === 0;
+            const xpCost = isFreeAdvance ? 0 : (isBeginnerClass ? 0 : (classData.xp_cost || 0));
             
             // Check XP if not free advance
             if (!isFreeAdvance && xpCost > 0 && (character.xp_available || 0) < xpCost) {
@@ -391,9 +515,13 @@ const API = {
             const result = await this.updateCharacter(updateData);
             
             if (result.success) {
-                result.data.message = isFreeAdvance 
-                    ? `Advanced to ${classData.name}!`
-                    : `Changed class to ${classData.name} (${xpCost} XP)`;
+                if (isFreeAdvance) {
+                    result.data.message = `Advanced to ${classData.name}!`;
+                } else if (xpCost === 0) {
+                    result.data.message = `Changed class to ${classData.name} (Free)`;
+                } else {
+                    result.data.message = `Changed class to ${classData.name} (${xpCost} XP)`;
+                }
                 result.data.career_history = careerHistory;
             }
             
@@ -414,19 +542,53 @@ const API = {
         const result = {
             canChange: false,
             isFreeAdvance: false,
-            xpCost: classData.xp_cost || 0,
+            xpCost: 0,
             reason: ''
         };
         
-        // Check prerequisite
-        if (classData.prerequisite) {
-            // Check if they've had this prerequisite class in their history (and not abandoned)
-            const hasPrereq = (character.career_history || []).some(
-                h => h.class_id === classData.prerequisite && !h.abandoned
-            ) || character.class_id === classData.prerequisite;
+        // Support both single prerequisite (backward compat) and multiple prerequisites
+        const prerequisites = classData.prerequisites || (classData.prerequisite ? [classData.prerequisite] : []);
+        
+        // Beginner classes (no prerequisites) always cost 0
+        const isBeginnerClass = prerequisites.length === 0;
+        if (!isBeginnerClass) {
+            result.xpCost = classData.xp_cost || 0;
+        }
+        
+        // Check prerequisites - character needs ANY one of them
+        if (prerequisites.length > 0) {
+            const careerHistory = character.career_history || [];
+            const hasAnyPrereq = prerequisites.some(prereqId => {
+                return character.class_id === prereqId ||
+                    careerHistory.some(h => h.class_id === prereqId && !h.abandoned);
+            });
             
-            if (!hasPrereq) {
-                result.reason = `Requires ${classData.prerequisite} class`;
+            if (!hasAnyPrereq) {
+                // Get prerequisite names for display
+                const prereqNames = prerequisites
+                    .map(id => allClasses.find(c => c.id === id)?.name || id)
+                    .join(' or ');
+                result.reason = `Requires one of: ${prereqNames}`;
+                return result;
+            }
+        }
+        
+        // Check minimum stat requirements
+        if (classData.stat_minimums) {
+            const stats = character.stats || {};
+            const missingStats = [];
+            
+            for (const [stat, minValue] of Object.entries(classData.stat_minimums)) {
+                const currentValue = stats[stat] || 2; // Default stat value
+                if (currentValue < minValue) {
+                    // Format stat name (simple version - just capitalize and replace underscores)
+                    const statName = stat.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    missingStats.push(`${statName}: ${currentValue}/${minValue}`);
+                }
+            }
+            
+            if (missingStats.length > 0) {
+                result.reason = `Stat requirements not met: ${missingStats.join(', ')}`;
                 return result;
             }
         }
@@ -641,11 +803,26 @@ const API = {
     
     async getGenders() {
         try {
-            const snapshot = await db.collection('genders').where('enabled', '==', true).get();
+            console.log('[DEBUG] getGenders() called');
+            // Try with enabled filter first
+            console.log('[DEBUG] Querying genders collection (enabled=true)...');
+            let snapshot = await db.collection('genders').where('enabled', '==', true).get();
+            console.log('[DEBUG] Genders query returned', snapshot.size, 'documents');
             
+            // If empty, check if collection exists at all (might be seeding)
             if (snapshot.empty) {
-                await this.seedDefaultGenders();
-                return this.getGenders();
+                const allSnapshot = await db.collection('genders').limit(1).get();
+                if (allSnapshot.empty) {
+                    // No genders at all - seed them
+                    console.log('No genders found, seeding...');
+                    await this.seedDefaultGenders();
+                    // Retry with a small delay
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    snapshot = await db.collection('genders').where('enabled', '==', true).get();
+                } else {
+                    // Genders exist but none are enabled - use all
+                    snapshot = await db.collection('genders').get();
+                }
             }
             
             const genders = [];
@@ -653,10 +830,22 @@ const API = {
                 genders.push({ id: doc.id, ...doc.data() });
             });
             
+            console.log('[DEBUG] getGenders() returning', genders.length, 'genders');
+            DebugLog.log(`getGenders() returning ${genders.length} genders`, 'info');
             return { success: true, data: { genders } };
         } catch (error) {
             console.error('getGenders error:', error);
-            return { success: false, error: error.message };
+            // Fallback: try without enabled filter
+            try {
+                const snapshot = await db.collection('genders').get();
+                const genders = [];
+                snapshot.forEach(doc => {
+                    genders.push({ id: doc.id, ...doc.data() });
+                });
+                return { success: true, data: { genders } };
+            } catch (fallbackError) {
+                return { success: false, error: error.message };
+            }
         }
     },
     
@@ -707,6 +896,289 @@ const API = {
     
     createStatCaps(defaultValue, overrides = {}) {
         return this.createBaseStats(defaultValue, overrides);
+    },
+    
+    // =========================== ADMIN: USER MANAGEMENT =======================
+    
+    /**
+     * Super Admin UUID - only this user can promote others to sys_admin
+     */
+    SUPER_ADMIN_UUID: '4d4e9fdc-41ae-42c3-bbc9-fc01ce159130',
+    
+    /**
+     * List all users (admin only)
+     */
+    async listUsers() {
+        try {
+            if (this.role !== 'sim_admin' && this.role !== 'sys_admin') {
+                return { success: false, error: 'Unauthorized: Admin access required' };
+            }
+            
+            const snapshot = await db.collection('users').get();
+            const users = [];
+            snapshot.forEach(doc => {
+                users.push({ uuid: doc.id, ...doc.data() });
+            });
+            
+            return { success: true, data: { users } };
+        } catch (error) {
+            console.error('listUsers error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Promote or demote a user
+     * Only super admin can promote to sys_admin
+     */
+    async promoteUser(targetUUID, newRole) {
+        try {
+            if (this.role !== 'sim_admin' && this.role !== 'sys_admin') {
+                return { success: false, error: 'Unauthorized: Admin access required' };
+            }
+            
+            // Only super admin can promote to sys_admin
+            if (newRole === 'sys_admin' && this.uuid !== this.SUPER_ADMIN_UUID) {
+                return { success: false, error: 'Unauthorized: Only the Super Admin can create System Admins' };
+            }
+            
+            // Only super admin can demote sys_admin
+            const targetRef = db.collection('users').doc(targetUUID);
+            const targetDoc = await targetRef.get();
+            if (targetDoc.exists) {
+                const currentRole = targetDoc.data().role;
+                if (currentRole === 'sys_admin' && this.uuid !== this.SUPER_ADMIN_UUID) {
+                    return { success: false, error: 'Unauthorized: Only the Super Admin can modify System Admins' };
+                }
+            }
+            
+            const validRoles = ['player', 'sim_admin', 'sys_admin'];
+            if (!validRoles.includes(newRole)) {
+                return { success: false, error: `Invalid role. Must be one of: ${validRoles.join(', ')}` };
+            }
+            
+            await targetRef.update({
+                role: newRole,
+                updated_at: firebase.firestore.FieldValue.serverTimestamp(),
+                promoted_by: this.uuid,
+                promoted_at: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            return { success: true, data: { target_uuid: targetUUID, new_role: newRole } };
+        } catch (error) {
+            console.error('promoteUser error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Ban or unban a user
+     */
+    async banUser(targetUUID, banned) {
+        try {
+            if (this.role !== 'sim_admin' && this.role !== 'sys_admin') {
+                return { success: false, error: 'Unauthorized: Admin access required' };
+            }
+            
+            // Super admin cannot be banned
+            if (targetUUID === this.SUPER_ADMIN_UUID) {
+                return { success: false, error: 'Cannot ban the Super Admin' };
+            }
+            
+            await db.collection('users').doc(targetUUID).update({
+                banned: banned === true,
+                updated_at: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            return { success: true, data: { target_uuid: targetUUID, banned: banned === true } };
+        } catch (error) {
+            console.error('banUser error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Initialize super admin (call this once to set up the super admin)
+     */
+    async initializeSuperAdmin() {
+        try {
+            const superAdminRef = db.collection('users').doc(this.SUPER_ADMIN_UUID);
+            const superAdminDoc = await superAdminRef.get();
+            
+            if (!superAdminDoc.exists) {
+                // Create super admin user
+                await superAdminRef.set({
+                    uuid: this.SUPER_ADMIN_UUID,
+                    username: 'Super Admin',
+                    display_name: 'Super Admin',
+                    role: 'sys_admin',
+                    is_super_admin: true,
+                    created_at: firebase.firestore.FieldValue.serverTimestamp(),
+                    last_login: firebase.firestore.FieldValue.serverTimestamp(),
+                    banned: false
+                });
+                console.log('Super Admin created!');
+            } else {
+                // Update existing user to super admin
+                await superAdminRef.update({
+                    role: 'sys_admin',
+                    is_super_admin: true,
+                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log('Super Admin updated!');
+            }
+            
+            return { success: true };
+        } catch (error) {
+            console.error('initializeSuperAdmin error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    // =========================== ADMIN: TEMPLATE MANAGEMENT ===================
+    
+    /**
+     * Save a template (create or update)
+     */
+    async saveTemplate(type, id, templateData, isNew = false) {
+        try {
+            if (!['species', 'classes', 'genders'].includes(type)) {
+                throw new Error('Invalid template type');
+            }
+            
+            // Ensure ID matches
+            templateData.id = id;
+            
+            const ref = db.collection(type).doc(id);
+            
+            // Sanitize data before sending to Firestore (for both create and update)
+            const sanitizedData = { ...templateData };
+            
+            // Ensure all array fields contain only strings
+            if (Array.isArray(sanitizedData.prerequisites)) {
+                sanitizedData.prerequisites = sanitizedData.prerequisites
+                    .map(p => String(p).trim())
+                    .filter(p => p);
+            } else if (sanitizedData.prerequisites != null) {
+                sanitizedData.prerequisites = [String(sanitizedData.prerequisites)].filter(p => p);
+            } else {
+                sanitizedData.prerequisites = [];
+            }
+            
+            if (Array.isArray(sanitizedData.free_advances)) {
+                sanitizedData.free_advances = sanitizedData.free_advances
+                    .map(f => String(f).trim())
+                    .filter(f => f);
+            } else if (sanitizedData.free_advances != null) {
+                sanitizedData.free_advances = [String(sanitizedData.free_advances)].filter(f => f);
+            } else {
+                sanitizedData.free_advances = [];
+            }
+            
+            // Ensure stat objects are plain objects (not class instances)
+            if (sanitizedData.stat_minimums && typeof sanitizedData.stat_minimums === 'object') {
+                sanitizedData.stat_minimums = JSON.parse(JSON.stringify(sanitizedData.stat_minimums));
+            }
+            if (sanitizedData.stat_maximums && typeof sanitizedData.stat_maximums === 'object') {
+                sanitizedData.stat_maximums = JSON.parse(JSON.stringify(sanitizedData.stat_maximums));
+            }
+            
+            if (isNew) {
+                // Check if already exists
+                const existing = await ref.get();
+                if (existing.exists) {
+                    throw new Error(`A ${type.slice(0, -1)} with ID "${id}" already exists`);
+                }
+                await ref.set({
+                    ...sanitizedData,
+                    created_at: firebase.firestore.FieldValue.serverTimestamp(),
+                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                // Use the already-sanitized data from above
+                // Log the complete data structure before sending
+                console.log(`[saveTemplate] Complete data structure for ${type}/${id}:`, JSON.stringify(sanitizedData, null, 2));
+                
+                // Validate each field type before sending
+                const finalData = {};
+                for (const [key, value] of Object.entries(sanitizedData)) {
+                    // Skip Firestore-specific fields
+                    if (key === 'created_at' || key === 'updated_at' || key === 'deleted_at') {
+                        continue;
+                    }
+                    
+                    // Validate and convert each field
+                    if (Array.isArray(value)) {
+                        finalData[key] = value.map(v => {
+                            const str = String(v);
+                            if (typeof v !== 'string') {
+                                console.warn(`[saveTemplate] Converting non-string array element in ${key}:`, typeof v, v);
+                            }
+                            return str;
+                        });
+                    } else if (value === null || value === undefined) {
+                        // Skip null/undefined
+                        continue;
+                    } else if (typeof value === 'object') {
+                        // Deep clone objects to ensure they're plain
+                        try {
+                            finalData[key] = JSON.parse(JSON.stringify(value));
+                        } catch (e) {
+                            console.error(`[saveTemplate] Failed to clone object for ${key}:`, e, value);
+                            finalData[key] = {};
+                        }
+                    } else {
+                        // Primitive types - ensure they're the right type
+                        if (key === 'enabled') {
+                            finalData[key] = Boolean(value);
+                        } else if (key === 'xp_cost') {
+                            finalData[key] = Number(value) || 0;
+                        } else {
+                            finalData[key] = String(value);
+                        }
+                    }
+                }
+                
+                // Add timestamp
+                finalData.updated_at = firebase.firestore.FieldValue.serverTimestamp();
+                
+                console.log(`[saveTemplate] Final data to send for ${type}/${id}:`, JSON.stringify(finalData, (key, value) => {
+                    if (value && typeof value === 'object' && value.constructor && value.constructor.name === 'FieldValue') {
+                        return '[FieldValue]';
+                    }
+                    return value;
+                }, 2));
+                
+                await ref.update(finalData);
+            }
+            
+            return { success: true, data: { id } };
+        } catch (error) {
+            console.error(`saveTemplate error (${type}):`, error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Delete a template (actually just disables it)
+     */
+    async deleteTemplate(type, id) {
+        try {
+            if (!['species', 'classes', 'genders'].includes(type)) {
+                throw new Error('Invalid template type');
+            }
+            
+            const ref = db.collection(type).doc(id);
+            await ref.update({
+                enabled: false,
+                deleted_at: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            return { success: true };
+        } catch (error) {
+            console.error(`deleteTemplate error (${type}):`, error);
+            return { success: false, error: error.message };
+        }
     },
     
     // =========================== LSL COMMUNICATION ============================

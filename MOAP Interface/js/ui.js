@@ -75,6 +75,7 @@ const UI = {
             // Character tab
             charName: document.getElementById('char-name'),
             charTitle: document.getElementById('char-title'),
+            genderGallery: document.getElementById('gender-gallery'),
             genderBtns: document.querySelectorAll('[data-gender]'),
             speciesGallery: document.getElementById('species-gallery'),
             charSummary: document.getElementById('char-summary'),
@@ -88,6 +89,17 @@ const UI = {
             currentCareer: document.getElementById('current-career'),
             careerGallery: document.getElementById('career-gallery'),
             careerPath: document.getElementById('career-path'),
+            
+            // Players HUD tab
+            resourceBars: document.getElementById('resource-bars'),
+            healthValue: document.getElementById('health-value'),
+            staminaValue: document.getElementById('stamina-value'),
+            manaValue: document.getElementById('mana-value'),
+            actionSlots: document.getElementById('action-slots'),
+            btnAddActionSlot: document.getElementById('btn-add-action-slot'),
+            btnRest: document.getElementById('btn-rest'),
+            btnReset: document.getElementById('btn-reset'),
+            btnMode: document.getElementById('btn-mode'),
             
             // Inventory tab
             currencyAmount: document.getElementById('currency-amount'),
@@ -196,7 +208,11 @@ const UI = {
      * @param {string} selectedId - Currently selected species ID
      */
     renderSpeciesGallery(species, selectedId = null) {
-        if (!this.elements.speciesGallery) return;
+        console.log('[DEBUG] renderSpeciesGallery() called with', species?.length || 0, 'species');
+        if (!this.elements.speciesGallery) {
+            console.log('[DEBUG] renderSpeciesGallery() - speciesGallery element not found!');
+            return;
+        }
         
         this.elements.speciesGallery.innerHTML = species.map(sp => {
             const icon = sp.icon || this.speciesIcons[sp.id] || '👤';
@@ -382,50 +398,84 @@ const UI = {
      * @param {object} character - Character data for prerequisite checking
      */
     renderCareerGallery(classes, currentClassId, character = null) {
-        if (!this.elements.careerGallery) return;
+        console.log('[DEBUG] renderCareerGallery() called with', classes?.length || 0, 'classes');
+        if (!this.elements.careerGallery) {
+            console.log('[DEBUG] renderCareerGallery() - careerGallery element not found!');
+            return;
+        }
+        
+        // Check if character has no class (new character)
+        const hasNoClass = !character || !character.class_id || character.class_id === 'commoner' || character.class_id === '';
         
         // Get completed classes from character history
         const completedClasses = character ? (API.getCompletedClasses?.(character) || []) : [];
         const careerHistory = character?.career_history || [];
         
-        this.elements.careerGallery.innerHTML = classes.map(cls => {
-            const isSelected = cls.id === currentClassId;
-            const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
-            const isCompleted = completedClasses.includes(cls.id);
-            const wasVisited = careerHistory.some(h => h.class_id === cls.id);
-            const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
-            const hasImage = cls.image ? true : false;
+        // List of classes that require mana
+        const manaRequiredClasses = [
+            'cleric', 'cultist', 'druid', 'enchanter', 'footwizard', 'hedgemage', 
+            'mage', 'necromancer', 'priest', 'seer', 'shadowmage', 'shaman', 
+            'sorcerer', 'spellmonger', 'thaumaturge', 'warlock', 'warmage', 
+            'witch', 'wizard'
+        ];
+        
+        // Check if character has mana
+        const hasMana = character?.has_mana === true;
+        
+        // Separate classes into beginner and advanced, filtering mana-required classes
+        const beginnerClasses = [];
+        const advancedClasses = [];
+        
+        classes.forEach(cls => {
+            // Filter out mana-required classes if character doesn't have mana
+            if (manaRequiredClasses.includes(cls.id) && !hasMana) {
+                return; // Skip this class
+            }
             
-            // Determine card classes
-            const cardClasses = [
-                'gallery-card', 'career-card',
-                isSelected ? 'selected' : '',
-                isLocked ? 'locked' : '',
-                isCompleted ? 'completed' : '',
-                wasVisited && !isCompleted ? 'visited' : '',
-                cls.is_beginner ? 'beginner' : ''
-            ].filter(Boolean).join(' ');
+            const prerequisites = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
+            const isBeginnerClass = prerequisites.length === 0;
             
-            return `
-                <div class="${cardClasses}" 
-                     data-class-id="${cls.id}"
-                     title="${cls.description || ''}">
-                    ${hasImage ? `
-                        <div class="card-image">
-                            <img src="${cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image}" alt="${cls.name}" 
-                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                            <span class="card-icon-fallback" style="display:none;">${icon}</span>
-                            ${isLocked ? '<span class="card-lock-overlay">🔒</span>' : ''}
-                            ${isCompleted ? '<span class="card-complete-overlay">✓</span>' : ''}
-                        </div>
-                    ` : `
-                        <div class="card-icon">${icon}</div>
-                    `}
-                    <div class="card-name">${cls.name}</div>
-                    <div class="card-desc">${isLocked ? 'Locked' : (cls.xp_cost ? cls.xp_cost + ' XP' : 'Free')}</div>
+            if (isBeginnerClass) {
+                beginnerClasses.push(cls);
+            } else {
+                advancedClasses.push(cls);
+            }
+        });
+        
+        // If character has no class, show beginner classes first, then grayed-out advanced classes
+        if (hasNoClass) {
+            const beginnerHtml = beginnerClasses.length > 0 ? `
+                <div class="career-section">
+                    <h3 class="section-title" style="margin-bottom: var(--space-md); color: var(--gold-light); font-size: 1.2em;">
+                        🎓 Beginner Classes
+                    </h3>
+                    <div class="gallery-grid">
+                        ${this.renderClassCards(beginnerClasses, currentClassId, character, completedClasses, careerHistory)}
+                    </div>
                 </div>
-            `;
-        }).join('');
+            ` : '';
+            
+            const advancedHtml = advancedClasses.length > 0 ? `
+                <div class="career-section" style="margin-top: var(--space-lg); opacity: 0.5;">
+                    <h3 class="section-title" style="margin-bottom: var(--space-md); color: var(--text-muted); font-size: 1.1em;">
+                        🔒 Advanced Classes (Select a Beginner Class first)
+                    </h3>
+                    <div class="gallery-grid" style="pointer-events: none;">
+                        ${this.renderClassCards(advancedClasses, currentClassId, character, completedClasses, careerHistory, true)}
+                    </div>
+                </div>
+            ` : '';
+            
+            // Add class to indicate sections are present
+            this.elements.careerGallery.classList.add('career-gallery-with-sections');
+            this.elements.careerGallery.innerHTML = beginnerHtml + advancedHtml;
+        } else {
+            // Character has a class - show all classes normally
+            // Remove sections class if it exists
+            this.elements.careerGallery.classList.remove('career-gallery-with-sections');
+            // Render directly into the gallery (no wrapper div needed - career-gallery is already a grid)
+            this.elements.careerGallery.innerHTML = this.renderClassCards(classes, currentClassId, character, completedClasses, careerHistory);
+        }
         
         // Bind click events - locked cards open modal too (to show requirements)
         this.elements.careerGallery.querySelectorAll('.gallery-card').forEach(card => {
@@ -437,6 +487,81 @@ const UI = {
                 }
             });
         });
+    },
+    
+    /**
+     * Render class cards (helper function for renderCareerGallery)
+     */
+    renderClassCards(classes, currentClassId, character, completedClasses, careerHistory, forceDisabled = false) {
+        // List of classes that require mana
+        const manaRequiredClasses = [
+            'cleric', 'cultist', 'druid', 'enchanter', 'footwizard', 'hedgemage', 
+            'mage', 'necromancer', 'priest', 'seer', 'shadowmage', 'shaman', 
+            'sorcerer', 'spellmonger', 'thaumaturge', 'warlock', 'warmage', 
+            'witch', 'wizard'
+        ];
+        
+        const hasMana = character?.has_mana === true;
+        
+        return classes.map(cls => {
+            // Check if this class requires mana and character doesn't have it
+            const requiresMana = manaRequiredClasses.includes(cls.id);
+            const manaLocked = requiresMana && !hasMana;
+            
+            const isSelected = cls.id === currentClassId;
+            const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+            const isCompleted = completedClasses.includes(cls.id);
+            const wasVisited = careerHistory.some(h => h.class_id === cls.id);
+            const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
+            const hasImage = cls.image ? true : false;
+            // Support both single prerequisite (backward compat) and multiple prerequisites
+            const prerequisites = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
+            const isBeginnerClass = prerequisites.length === 0;
+            
+            // If forceDisabled or mana-locked, treat as locked
+            const isDisabled = forceDisabled || isLocked || manaLocked;
+            
+            // Determine card classes
+            const cardClasses = [
+                'gallery-card', 'career-card',
+                isSelected ? 'selected' : '',
+                isDisabled ? 'locked' : '',
+                isCompleted ? 'completed' : '',
+                wasVisited && !isCompleted ? 'visited' : '',
+                isBeginnerClass ? 'beginner' : ''
+            ].filter(Boolean).join(' ');
+            
+            // Build tooltip
+            let tooltip = cls.description || '';
+            if (manaLocked) {
+                tooltip = '🔒 This class requires magical ability. Your species did not receive mana.';
+            } else if (isLocked) {
+                tooltip = '🔒 Prerequisites not met. ' + (tooltip || '');
+            } else if (isDisabled && !manaLocked) {
+                tooltip = 'Select a Beginner Class first';
+            }
+            
+            return `
+                <div class="${cardClasses}${isDisabled ? ' disabled' : ''}" 
+                     data-class-id="${cls.id}"
+                     title="${tooltip}"
+                     style="${isDisabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}">
+                    ${hasImage ? `
+                        <div class="card-image">
+                            <img src="${cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image}" alt="${cls.name}" 
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                            <span class="card-icon-fallback" style="display:none;">${icon}</span>
+                            ${isDisabled ? '<span class="card-lock-overlay">🔒</span>' : ''}
+                            ${isCompleted ? '<span class="card-complete-overlay">✓</span>' : ''}
+                        </div>
+                    ` : `
+                        <div class="card-icon">${icon}</div>
+                    `}
+                    <div class="card-name">${cls.name}</div>
+                    <div class="card-desc">${isDisabled ? 'Locked' : (isBeginnerClass ? 'Free' : (cls.xp_cost ? cls.xp_cost + ' XP' : 'Free'))}</div>
+                </div>
+            `;
+        }).join('');
     },
     
     /**
@@ -457,22 +582,31 @@ const UI = {
         const allClasses = App.state.classes || [];
         
         // Check if player can change to this class
+        const isBeginnerClass = !cls.prerequisite || cls.prerequisite === null;
+        const defaultXpCost = isBeginnerClass ? 0 : (cls.xp_cost || 0);
         const canChangeInfo = character && typeof API !== 'undefined' && API.canChangeToClass 
             ? API.canChangeToClass(character, cls, allClasses)
-            : { canChange: true, isFreeAdvance: false, xpCost: cls.xp_cost || 0, reason: '' };
+            : { canChange: true, isFreeAdvance: false, xpCost: defaultXpCost, reason: '' };
         
         // Check if player has completed this class before
         const completedClasses = character ? API.getCompletedClasses(character) : [];
         const isCompleted = completedClasses.includes(cls.id);
         
-        // Get prerequisite class name
-        const prereqClass = cls.prerequisite ? allClasses.find(c => c.id === cls.prerequisite) : null;
-        const prereqName = prereqClass ? prereqClass.name : null;
+        // Get prerequisites (support both single and multiple)
+        const prerequisites = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
+        const prereqNames = prerequisites
+            .map(id => allClasses.find(c => c.id === id)?.name || id)
+            .filter(Boolean);
         
         // Get free advance class names
         const freeAdvanceNames = (cls.free_advances || [])
             .map(id => allClasses.find(c => c.id === id)?.name || id)
             .slice(0, 5); // Limit to 5 for display
+        
+        // Format stat minimums for display
+        const statMinHtml = cls.stat_minimums ? Object.entries(cls.stat_minimums)
+            .map(([stat, min]) => `<span class="stat-min-requirement" style="color: var(--gold-light);">${this.formatStatName(stat)}: ${min}+</span>`)
+            .join('') : '';
         
         // Format stat maximums for display
         const statMaxHtml = cls.stat_maximums ? Object.entries(cls.stat_maximums)
@@ -494,14 +628,16 @@ const UI = {
                 </div>
                 <div class="species-detail-info">
                     <h2 class="species-detail-name">${cls.name}</h2>
-                    ${cls.is_beginner ? '<span class="class-badge beginner">Beginner Class</span>' : ''}
+                    ${prerequisites.length === 0 ? '<span class="class-badge beginner">Beginner Class</span>' : ''}
                     <p class="species-detail-description">${cls.description || 'No description available.'}</p>
                     
                     <div class="class-requirements">
-                        ${prereqName ? `
+                        ${prereqNames.length > 0 ? `
                             <div class="class-prereq">
-                                <span class="prereq-label">🔗 Requires:</span>
-                                <span class="prereq-value">${prereqName}</span>
+                                <span class="prereq-label">🔗 Prerequisites (any one):</span>
+                                <div class="prereq-list" style="display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-xs);">
+                                    ${prereqNames.map(name => `<span class="prereq-value" style="background: var(--bg-dark); padding: 2px 8px; border-radius: 4px;">${name}</span>`).join(' or ')}
+                                </div>
                             </div>
                         ` : `
                             <div class="class-prereq none">
@@ -530,9 +666,16 @@ const UI = {
                         </div>
                     ` : ''}
                     
+                    ${statMinHtml ? `
+                        <div class="class-detail-stats">
+                            <h4>📊 Minimum Stat Requirements</h4>
+                            <div class="stat-caps-grid" style="margin-bottom: var(--space-md);">${statMinHtml}</div>
+                        </div>
+                    ` : ''}
+                    
                     ${statMaxHtml ? `
                         <div class="class-detail-stats">
-                            <h4>📊 Stat Caps</h4>
+                            <h4>📈 Stat Caps</h4>
                             <div class="stat-caps-grid">${statMaxHtml}</div>
                         </div>
                     ` : ''}
@@ -571,17 +714,23 @@ const UI = {
     
     /**
      * Check if character meets class prerequisites
+     * Supports both single prerequisite (backward compat) and multiple prerequisites
      */
     checkPrerequisites(classTemplate, character) {
-        // Beginner classes have no prerequisite
-        if (!classTemplate.prerequisite) return true;
+        // Support both single prerequisite (backward compat) and multiple prerequisites
+        const prerequisites = classTemplate.prerequisites || (classTemplate.prerequisite ? [classTemplate.prerequisite] : []);
         
-        // Check if character has had the prerequisite class (current or in history)
+        // Beginner classes have no prerequisites
+        if (prerequisites.length === 0) return true;
+        
+        // Check if character has had ANY of the prerequisite classes (current or in history)
         const careerHistory = character.career_history || [];
-        const hasPrereq = character.class_id === classTemplate.prerequisite ||
-            careerHistory.some(h => h.class_id === classTemplate.prerequisite && !h.abandoned);
+        const hasAnyPrereq = prerequisites.some(prereqId => {
+            return character.class_id === prereqId ||
+                careerHistory.some(h => h.class_id === prereqId && !h.abandoned);
+        });
         
-        return hasPrereq;
+        return hasAnyPrereq;
     },
     
     /**
@@ -728,9 +877,139 @@ const UI = {
     
     /**
      * Format stat name for display
+     * Abbreviates long stat names to fit in the UI
      */
     formatStatName(stat) {
-        return stat.charAt(0).toUpperCase() + stat.slice(1);
+        // Abbreviate long stat names for display
+        const abbreviations = {
+            'marksmanship': 'Marksman'
+        };
+        
+        // Check if we have an abbreviation for this stat
+        if (abbreviations[stat]) {
+            return abbreviations[stat];
+        }
+        
+        // Default: capitalize first letter and replace underscores with spaces
+        return stat.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    },
+    
+    // =========================== RESOURCE BARS (PLAYERS HUD) ===========
+    
+    /**
+     * Render resource spheres (Health, Stamina, Mana) with liquid fill
+     */
+    renderResourceBars(character) {
+        if (!this.elements.resourceBars || !character) return;
+        
+        const health = character.health || { current: 100, max: 100 };
+        const stamina = character.stamina || { current: 100, max: 100 };
+        const mana = character.mana || { current: 50, max: 50 };
+        
+        // Update health sphere (RED)
+        const healthPercent = Math.max(0, Math.min(100, (health.current / health.max) * 100));
+        this.elements.healthValue.textContent = `${health.current} / ${health.max}`;
+        const healthLiquid = document.getElementById('health-liquid');
+        if (healthLiquid) {
+            healthLiquid.style.height = `${healthPercent}%`;
+        }
+        const healthBar = this.elements.resourceBars.querySelector('.health-bar');
+        if (healthBar) {
+            healthBar.classList.remove('low', 'critical');
+            if (healthPercent < 25) {
+                healthBar.classList.add('critical');
+            } else if (healthPercent < 50) {
+                healthBar.classList.add('low');
+            }
+        }
+        
+        // Update stamina sphere (BLUE)
+        const staminaPercent = Math.max(0, Math.min(100, (stamina.current / stamina.max) * 100));
+        this.elements.staminaValue.textContent = `${stamina.current} / ${stamina.max}`;
+        const staminaLiquid = document.getElementById('stamina-liquid');
+        if (staminaLiquid) {
+            staminaLiquid.style.height = `${staminaPercent}%`;
+        }
+        const staminaBar = this.elements.resourceBars.querySelector('.stamina-bar');
+        if (staminaBar) {
+            staminaBar.classList.remove('low', 'critical');
+            if (staminaPercent < 25) {
+                staminaBar.classList.add('critical');
+            } else if (staminaPercent < 50) {
+                staminaBar.classList.add('low');
+            }
+        }
+        
+        // Update mana sphere (GREEN)
+        const manaPercent = Math.max(0, Math.min(100, (mana.current / mana.max) * 100));
+        this.elements.manaValue.textContent = `${mana.current} / ${mana.max}`;
+        const manaLiquid = document.getElementById('mana-liquid');
+        if (manaLiquid) {
+            manaLiquid.style.height = `${manaPercent}%`;
+        }
+        const manaBar = this.elements.resourceBars.querySelector('.mana-bar');
+        if (manaBar) {
+            manaBar.classList.remove('low', 'critical');
+            if (manaPercent < 25) {
+                manaBar.classList.add('critical');
+            } else if (manaPercent < 50) {
+                manaBar.classList.add('low');
+            }
+        }
+    },
+    
+    /**
+     * Calculate XP milestone (nonlinear scaling)
+     * XP milestones increase exponentially: 100, 250, 500, 1000, 2000, 4000, 8000, etc.
+     */
+    calculateXPMilestone(xp) {
+        if (xp < 100) return { current: xp, next: 100, progress: xp / 100 };
+        if (xp < 250) return { current: xp, next: 250, progress: (xp - 100) / 150 };
+        if (xp < 500) return { current: xp, next: 500, progress: (xp - 250) / 250 };
+        if (xp < 1000) return { current: xp, next: 1000, progress: (xp - 500) / 500 };
+        if (xp < 2000) return { current: xp, next: 2000, progress: (xp - 1000) / 1000 };
+        if (xp < 4000) return { current: xp, next: 4000, progress: (xp - 2000) / 2000 };
+        if (xp < 8000) return { current: xp, next: 8000, progress: (xp - 4000) / 4000 };
+        if (xp < 16000) return { current: xp, next: 16000, progress: (xp - 8000) / 8000 };
+        if (xp < 32000) return { current: xp, next: 32000, progress: (xp - 16000) / 16000 };
+        // Beyond 32000, use linear progression with larger steps
+        const base = 32000;
+        const step = 16000;
+        const level = Math.floor((xp - base) / step);
+        const next = base + (level + 1) * step;
+        return { current: xp, next: next, progress: ((xp - base) % step) / step };
+    },
+    
+    /**
+     * Render XP progress bar with nonlinear scaling
+     */
+    renderXPProgress(character) {
+        if (!character) return;
+        
+        const xpCurrent = document.getElementById('xp-current');
+        const xpNextMilestone = document.getElementById('xp-next-milestone');
+        const xpPercentage = document.getElementById('xp-percentage');
+        const xpProgressFill = document.getElementById('xp-progress-fill');
+        const xpMilestoneText = document.getElementById('xp-milestone-text');
+        
+        if (!xpCurrent || !xpNextMilestone || !xpPercentage || !xpProgressFill || !xpMilestoneText) return;
+        
+        const totalXP = character.xp_total || 0;
+        const milestone = this.calculateXPMilestone(totalXP);
+        
+        const progressPercent = Math.max(0, Math.min(100, milestone.progress * 100));
+        
+        xpCurrent.textContent = totalXP.toLocaleString();
+        xpNextMilestone.textContent = milestone.next.toLocaleString();
+        xpPercentage.textContent = `${Math.round(progressPercent)}%`;
+        xpProgressFill.style.width = `${progressPercent}%`;
+        
+        const remaining = milestone.next - totalXP;
+        if (remaining > 0) {
+            xpMilestoneText.textContent = `${remaining.toLocaleString()} XP until next milestone`;
+        } else {
+            xpMilestoneText.textContent = 'Milestone reached!';
+        }
     },
     
     // =========================== VOCATION DISPLAY =======================
@@ -764,12 +1043,126 @@ const UI = {
     // =========================== GENDER SELECTION =======================
     
     /**
-     * Select a gender
+     * Render gender selection gallery with images
+     */
+    renderGenderSelection(genders, selectedGender) {
+        console.log('[DEBUG] renderGenderSelection() called with', genders?.length || 0, 'genders');
+        if (!this.elements.genderGallery) {
+            console.log('[DEBUG] renderGenderSelection() - genderGallery element not found!');
+            return;
+        }
+        
+        if (!genders || genders.length === 0) {
+            console.log('[DEBUG] renderGenderSelection() - No genders, showing loading spinner');
+            this.elements.genderGallery.innerHTML = '<div class="loading-spinner">Loading genders...</div>';
+            return;
+        }
+        
+        this.elements.genderGallery.innerHTML = genders.map(gender => {
+            const icon = gender.icon || '👤';
+            const imagePath = gender.image ? 
+                (gender.image.startsWith('images/') ? gender.image : 'images/' + gender.image) : null;
+            const isSelected = selectedGender === gender.id;
+            
+            return `
+                <button class="choice-btn gender-btn ${isSelected ? 'selected' : ''}" 
+                        data-gender="${gender.id}" 
+                        title="${gender.description || gender.name}">
+                    ${imagePath ? `
+                        <div class="gender-image-container">
+                            <img src="${imagePath}" alt="${gender.name}" 
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <span class="gender-icon-fallback" style="display:none;">${icon}</span>
+                        </div>
+                    ` : `
+                        <span class="gender-icon">${icon}</span>
+                    `}
+                    <span class="gender-label">${gender.name}</span>
+                </button>
+            `;
+        }).join('');
+        
+        // Re-bind click events - open modal instead of direct selection
+        this.elements.genderGallery.querySelectorAll('[data-gender]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const genderBtn = e.target.closest('[data-gender]');
+                if (genderBtn) {
+                    const genderId = genderBtn.dataset.gender;
+                    const genderData = genders.find(g => g.id === genderId);
+                    if (genderData) {
+                        this.showGenderDetailModal(genderData);
+                    }
+                }
+            });
+        });
+    },
+    
+    /**
+     * Show gender detail modal with large image
+     * @param {object} gender - Gender data object
+     */
+    showGenderDetailModal(gender) {
+        const modal = document.getElementById('modal');
+        const modalBody = document.getElementById('modal-body');
+        if (!modal || !modalBody) return;
+        
+        const icon = gender.icon || '👤';
+        const imagePath = gender.image ? 
+            (gender.image.startsWith('images/') ? gender.image : 'images/' + gender.image) : null;
+        
+        const isSelected = App.state.character?.gender === gender.id;
+        
+        modalBody.innerHTML = `
+            <div class="species-detail gender-detail">
+                <div class="species-detail-image">
+                    ${imagePath ? `
+                        <img src="${imagePath}" alt="${gender.name}" 
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="species-detail-icon-fallback" style="display:none;">${icon}</div>
+                    ` : `
+                        <div class="species-detail-icon">${icon}</div>
+                    `}
+                </div>
+                <div class="species-detail-info">
+                    <h2 class="species-detail-name">${gender.name}</h2>
+                    <p class="species-detail-description">${gender.description || 'No description available.'}</p>
+                    
+                    <div class="species-detail-actions">
+                        <button class="action-btn primary gender-select-btn" data-gender-id="${gender.id}">
+                            ${isSelected ? '✓ Selected' : '✓ Select This Gender'}
+                        </button>
+                        <button class="action-btn modal-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Bind select button
+        modalBody.querySelector('.gender-select-btn')?.addEventListener('click', () => {
+            if (typeof window.onGenderSelected === 'function') {
+                window.onGenderSelected(gender.id);
+            }
+            this.hideModal();
+            this.showToast(`Selected: ${gender.name}`, 'success', 2000);
+        });
+        
+        // Bind cancel button
+        modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', () => {
+            this.hideModal();
+        });
+        
+        modal.classList.remove('hidden');
+    },
+    
+    /**
+     * Select a gender (update visual state)
      */
     selectGender(gender) {
-        this.elements.genderBtns.forEach(btn => {
-            btn.classList.toggle('selected', btn.dataset.gender === gender);
-        });
+        if (this.elements.genderGallery) {
+            this.elements.genderGallery.querySelectorAll('[data-gender]').forEach(btn => {
+                btn.classList.toggle('selected', btn.dataset.gender === gender);
+            });
+        }
     },
     
     // =========================== CHARACTER SUMMARY ======================
@@ -836,6 +1229,13 @@ const UI = {
         this.elements.modal.classList.add('hidden');
     },
     
+    /**
+     * Hide modal (alias for closeModal)
+     */
+    hideModal() {
+        this.closeModal();
+    },
+    
     // =========================== TOAST NOTIFICATIONS ====================
     
     /**
@@ -889,6 +1289,149 @@ const UI = {
     showError(container, message = 'An error occurred') {
         if (!container) return;
         container.innerHTML = `<p class="placeholder-text" style="color: var(--error);">⚠️ ${message}</p>`;
+    },
+    
+    // =========================== ACTION SLOTS ===========================
+    
+    /**
+     * Render action slots
+     */
+    renderActionSlots(character) {
+        if (!this.elements.actionSlots) return;
+        
+        const slots = character?.action_slots || [];
+        const maxSlots = 12; // Maximum number of action slots
+        
+        // Generate slot HTML
+        let html = '';
+        for (let i = 0; i < maxSlots; i++) {
+            const slot = slots[i];
+            if (slot) {
+                // Slot has an item/spell/buff
+                const slotType = slot.type || 'item'; // 'item', 'spell', 'buff'
+                const icon = slot.icon || '⚔️';
+                const name = slot.name || 'Unknown';
+                const cooldown = slot.cooldown || 0;
+                
+                html += `
+                    <div class="action-slot ${slotType} ${cooldown > 0 ? 'on-cooldown' : ''}" 
+                         data-slot-index="${i}" 
+                         data-slot-id="${slot.id || ''}">
+                        ${cooldown > 0 ? `<div class="action-slot-cooldown">${cooldown}s</div>` : ''}
+                        <div class="action-slot-icon">${icon}</div>
+                        <div class="action-slot-name">${name}</div>
+                    </div>
+                `;
+            } else {
+                // Empty slot
+                html += `
+                    <div class="action-slot empty" data-slot-index="${i}">
+                    </div>
+                `;
+            }
+        }
+        
+        this.elements.actionSlots.innerHTML = html;
+        
+        // Bind click events
+        this.elements.actionSlots.querySelectorAll('.action-slot').forEach(slot => {
+            slot.addEventListener('click', () => {
+                const index = parseInt(slot.dataset.slotIndex);
+                if (slot.classList.contains('empty')) {
+                    // Open dialog to add item/spell/buff
+                    this.showAddActionSlotDialog(index);
+                } else {
+                    // Activate/use the item/spell/buff
+                    this.activateActionSlot(index, slot.dataset.slotId);
+                }
+            });
+        });
+    },
+    
+    /**
+     * Show dialog to add item/spell/buff to action slot
+     */
+    showAddActionSlotDialog(slotIndex) {
+        const content = `
+            <h2>Add to Action Slot</h2>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="action-slot-type">
+                    <option value="item">Item</option>
+                    <option value="spell">Spell</option>
+                    <option value="buff">Buff</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="action-slot-name" placeholder="Enter name...">
+            </div>
+            <div class="form-group">
+                <label>Icon (emoji or text)</label>
+                <input type="text" id="action-slot-icon" placeholder="⚔️" maxlength="2">
+            </div>
+            <button class="action-btn primary" id="btn-confirm-action-slot">Add</button>
+        `;
+        
+        this.showModal(content);
+        
+        document.getElementById('btn-confirm-action-slot')?.addEventListener('click', () => {
+            const type = document.getElementById('action-slot-type').value;
+            const name = document.getElementById('action-slot-name').value;
+            const icon = document.getElementById('action-slot-icon').value || '⚔️';
+            
+            if (!name) {
+                this.showToast('Please enter a name', 'warning');
+                return;
+            }
+            
+            // Add to character's action slots
+            if (!App.state.character.action_slots) {
+                App.state.character.action_slots = [];
+            }
+            
+            App.state.character.action_slots[slotIndex] = {
+                id: `slot_${Date.now()}`,
+                type: type,
+                name: name,
+                icon: icon,
+                cooldown: 0
+            };
+            
+            this.renderActionSlots(App.state.character);
+            this.hideModal();
+            this.showToast(`Added ${name} to action slot`, 'success');
+        });
+    },
+    
+    /**
+     * Activate an action slot
+     */
+    activateActionSlot(slotIndex, slotId) {
+        const slot = App.state.character?.action_slots?.[slotIndex];
+        if (!slot) return;
+        
+        if (slot.cooldown > 0) {
+            this.showToast(`${slot.name} is on cooldown (${slot.cooldown}s remaining)`, 'warning');
+            return;
+        }
+        
+        // TODO: Implement actual activation logic
+        // This will depend on the type (item, spell, buff)
+        this.showToast(`Activated ${slot.name}`, 'success');
+        
+        // Example: Set cooldown (this would be based on the item/spell/buff properties)
+        slot.cooldown = 5; // 5 second cooldown
+        this.renderActionSlots(App.state.character);
+        
+        // Countdown cooldown
+        const cooldownInterval = setInterval(() => {
+            slot.cooldown--;
+            this.renderActionSlots(App.state.character);
+            if (slot.cooldown <= 0) {
+                clearInterval(cooldownInterval);
+            }
+        }, 1000);
     }
 };
 

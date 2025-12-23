@@ -7,6 +7,7 @@
 // Default starting values
 const STARTING_XP = 100;
 const STARTING_CURRENCY = 50;
+const STARTING_STAT_POINTS = 5;  // Points players can allocate to stats during character creation
 
 // =========================== CHARACTER CRUD =================================
 

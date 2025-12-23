@@ -680,12 +680,152 @@ const F4_SEED_DATA = {
         return caps;
     },
     
+    /**
+     * Get minimum stat requirements for a class
+     */
+    getClassStatMinimums(className) {
+        // Define minimum stat requirements by class
+        const minimums = {
+            // ========== BEGINNER CLASSES ==========
+            peasant: {},
+            villager: {},
+            beggar: {},
+            slave: {},
+            student: {},
+            apprentice: {},
+            servant: {},
+            tribesman: {},
+            wildling: {},
+            
+            // ========== COMBAT CLASSES ==========
+            soldier: { fighting: 3, endurance: 2 },
+            guard: { fighting: 2, awareness: 2 },
+            warrior: { fighting: 4, endurance: 3 },
+            mercenary: { fighting: 4, athletics: 2 },
+            spearman: { fighting: 3, athletics: 2 },
+            squire: { fighting: 3, agility: 2 },
+            knight: { fighting: 5, endurance: 3, influence: 2 },
+            paladin: { fighting: 6, will: 4, healing: 2 },
+            cavalry: { fighting: 4, agility: 3, animal_handling: 2 },
+            hedgeknight: { fighting: 5, endurance: 3 },
+            barbarian: { fighting: 4, endurance: 4, survival: 2 },
+            gladiator: { fighting: 5, athletics: 3, entertaining: 2 },
+            pitfighter: { fighting: 4, athletics: 3 },
+            raider: { fighting: 4, survival: 2 },
+            bountyhunter: { fighting: 3, awareness: 3, marksmanship: 2 },
+            swornsword: { fighting: 4, will: 2 },
+            swordmaster: { fighting: 6, agility: 4 },
+            footwizard: { fighting: 3, intelligence: 4, knowledge: 3 },
+            warmage: { fighting: 3, intelligence: 5, knowledge: 4 },
+            royalguard: { fighting: 6, awareness: 4, influence: 2 },
+            marshal: { fighting: 5, influence: 4, knowledge: 3 },
+            sentinel: { fighting: 3, awareness: 4 },
+            watchman: { fighting: 2, awareness: 3 },
+            
+            // ========== STEALTH/CRIMINAL CLASSES ==========
+            thief: { stealth: 3, thievery: 2 },
+            cutpurse: { stealth: 2, thievery: 3, agility: 2 },
+            burglar: { stealth: 4, thievery: 3, agility: 3 },
+            bandit: { fighting: 3, stealth: 2, survival: 2 },
+            outlaw: { fighting: 3, stealth: 3 },
+            highwayman: { fighting: 3, marksmanship: 3, agility: 2 },
+            fence: { thievery: 3, persuasion: 2 },
+            smuggler: { stealth: 3, deception: 2 },
+            assassin: { stealth: 5, fighting: 4, thievery: 3 },
+            rogue: { stealth: 4, thievery: 3, deception: 2 },
+            pirate: { fighting: 3, athletics: 3, survival: 2 },
+            spy: { stealth: 3, awareness: 3, deception: 3 },
+            whisperer: { stealth: 4, deception: 4, influence: 2 },
+            
+            // ========== CRAFTING CLASSES ==========
+            craftsman: { crafting: 3 },
+            artisan: { crafting: 4, intelligence: 2 },
+            artist: { crafting: 3, entertaining: 2 },
+            smith: { crafting: 4, endurance: 2 },
+            engineer: { crafting: 4, intelligence: 4, knowledge: 3 },
+            architect: { crafting: 3, intelligence: 3, knowledge: 3 },
+            artillerist: { crafting: 4, intelligence: 3, knowledge: 3 },
+            miner: { endurance: 3, athletics: 2 },
+            
+            // ========== MAGIC CLASSES ==========
+            hedgemage: { intelligence: 3, will: 2 },
+            mage: { intelligence: 4, will: 3, knowledge: 2 },
+            wizard: { intelligence: 5, will: 4, knowledge: 4 },
+            sorcerer: { intelligence: 4, will: 4 },
+            warlock: { intelligence: 4, will: 5, knowledge: 3 },
+            necromancer: { intelligence: 5, will: 6, knowledge: 4 },
+            enchanter: { intelligence: 4, crafting: 2, knowledge: 3 },
+            spellmonger: { intelligence: 3, persuasion: 3 },
+            witch: { intelligence: 3, will: 3, knowledge: 2 },
+            shadowmage: { intelligence: 5, will: 5, knowledge: 3 },
+            thaumaturge: { intelligence: 5, will: 5, knowledge: 4 },
+            seer: { intelligence: 4, awareness: 4, will: 3 },
+            
+            // ========== DIVINE CLASSES ==========
+            acolyte: { will: 2 },
+            cleric: { will: 3, healing: 2 },
+            priest: { will: 4, healing: 3, influence: 2 },
+            monk: { will: 3, endurance: 2 },
+            nun: { will: 3, healing: 2 },
+            zealot: { will: 5, fighting: 3 },
+            healer: { will: 3, healing: 4, intelligence: 2 },
+            
+            // ========== NATURE/SURVIVAL CLASSES ==========
+            farmer: { survival: 2, animal_handling: 2 },
+            herder: { animal_handling: 3, survival: 2 },
+            hunter: { marksmanship: 3, survival: 3, awareness: 2 },
+            forager: { survival: 3, awareness: 2 },
+            woodsman: { survival: 3, athletics: 2, endurance: 2 },
+            ranger: { marksmanship: 4, survival: 4, awareness: 3 },
+            scout: { awareness: 4, survival: 3, agility: 2 },
+            druid: { will: 4, knowledge: 3, survival: 3 },
+            shaman: { will: 3, knowledge: 2, survival: 2 },
+            
+            // ========== SCHOLAR/LEARNING CLASSES ==========
+            scholar: { intelligence: 3, knowledge: 3 },
+            sage: { intelligence: 4, knowledge: 5, wisdom: 3 },
+            physician: { intelligence: 4, healing: 4, knowledge: 3 },
+            investigator: { intelligence: 3, awareness: 3, knowledge: 2 },
+            interrogator: { intelligence: 3, deception: 3, influence: 2 },
+            
+            // ========== SOCIAL/COMMERCE CLASSES ==========
+            merchant: { persuasion: 3, awareness: 2 },
+            pedlar: { persuasion: 2, athletics: 2 },
+            courtesan: { entertaining: 3, persuasion: 2, influence: 2 },
+            entertainer: { entertaining: 4, agility: 2 },
+            bard: { entertaining: 4, knowledge: 2, persuasion: 2 },
+            courtier: { influence: 4, persuasion: 3, awareness: 2 },
+            noble: { influence: 4, persuasion: 3 },
+            royal: { influence: 5, persuasion: 4, awareness: 3 },
+            steward: { influence: 3, knowledge: 2, awareness: 2 },
+            
+            // ========== SERVICE CLASSES ==========
+            tavernhelp: {},
+            whore: { entertaining: 2 },
+            
+            // ========== LAW/ADMINISTRATION CLASSES ==========
+            lawyer: { knowledge: 3, persuasion: 3, influence: 2 },
+            sheriff: { fighting: 3, influence: 3, awareness: 2 },
+            jailer: { fighting: 2, awareness: 2 },
+            castellan: { influence: 4, knowledge: 3, awareness: 3 },
+            
+            // ========== SPECIALIZED CLASSES ==========
+            messenger: { athletics: 2, awareness: 2 },
+            sailor: { athletics: 3, survival: 2, awareness: 2 },
+            yeoman: { survival: 2, animal_handling: 2 },
+            witchhunter: { fighting: 4, awareness: 4, will: 3 }
+        };
+        
+        return minimums[className] || {};
+    },
+    
     getFullClassData() {
         const classes = [];
         this.classNames.forEach((name, index) => {
             const descData = this.classDescriptions[name] || { desc: 'No description', icon: '❓', vocation: 'unknown' };
             const advData = this.classAdvancement[name] || { prerequisite: null, free_advances: [], xp_cost: 0 };
             const statCaps = this.parseStatCaps(this.classStatCaps[index]);
+            const statMinimums = this.getClassStatMinimums(name);
             
             classes.push({
                 id: name,
@@ -694,6 +834,7 @@ const F4_SEED_DATA = {
                 icon: descData.icon,
                 vocation: descData.vocation,
                 image: `classes/Class_Overview_${name}.png`,
+                stat_minimums: statMinimums,
                 stat_maximums: statCaps,
                 prerequisite: advData.prerequisite,
                 free_advances: advData.free_advances || [],
@@ -719,6 +860,17 @@ const F4_SEED_DATA = {
             ...g,
             image: `genders/${g.id}.png`
         }));
+    },
+    
+    /**
+     * Get default stats object with all stats at default value (2)
+     */
+    getDefaultStats() {
+        const stats = {};
+        this.statNames.forEach(stat => {
+            stats[stat] = this.defaultStatValue;
+        });
+        return stats;
     }
 };
 
