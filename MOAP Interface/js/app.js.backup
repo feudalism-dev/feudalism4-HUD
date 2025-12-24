@@ -81,8 +81,9 @@ var DebugLog = {
             this.content.scrollTop = this.content.scrollHeight;
         }
         
-        // Don't call console.log here to avoid recursion - DebugLog is fallback only
-        // If simpleDebug exists, it already logged to console
+        // Also log to console for Chrome
+        var consoleMethod = type === 'error' ? 'error' : type === 'warn' ? 'warn' : 'log';
+        console[consoleMethod](message);
     }
 };
 
@@ -106,9 +107,7 @@ var originalWarn = console.warn;
 
 console.log = function() {
     var args = Array.prototype.slice.call(arguments);
-    // Call original first to avoid recursion
     originalLog.apply(console, args);
-    // Then update debug panel if available
     if (window.simpleDebug) {
         window.simpleDebug(args.join(' '), 'info');
     } else if (typeof DebugLog !== 'undefined' && DebugLog.enabled) {
@@ -118,9 +117,7 @@ console.log = function() {
 
 console.error = function() {
     var args = Array.prototype.slice.call(arguments);
-    // Call original first to avoid recursion
     originalError.apply(console, args);
-    // Then update debug panel if available
     if (window.simpleDebug) {
         window.simpleDebug('ERROR: ' + args.join(' '), 'error');
     } else if (typeof DebugLog !== 'undefined' && DebugLog.enabled) {
@@ -130,9 +127,7 @@ console.error = function() {
 
 console.warn = function() {
     var args = Array.prototype.slice.call(arguments);
-    // Call original first to avoid recursion
     originalWarn.apply(console, args);
-    // Then update debug panel if available
     if (window.simpleDebug) {
         window.simpleDebug('WARN: ' + args.join(' '), 'warn');
     } else if (typeof DebugLog !== 'undefined' && DebugLog.enabled) {
@@ -210,13 +205,6 @@ try {
         
         UI.init();
         
-        // Remove EXIT button if it exists (safety check for deployed versions)
-        const exitBtn = document.getElementById('btn-exit-setup');
-        if (exitBtn) {
-            exitBtn.remove();
-            console.log('[App] Removed EXIT button');
-        }
-        
         // Initialize debug panel (if not already initialized)
         if (typeof DebugLog !== 'undefined' && !DebugLog.panel) {
             DebugLog.init();
@@ -287,18 +275,7 @@ try {
                         charData += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
                         charData += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
                         charData += "xp:" + (this.state.character.xp_total || 0) + "|";
-                        // Get class_id - check both character.class_id and currentClass.id
-                        let classId = this.state.character.class_id || "";
-                        if (!classId && this.state.currentClass) {
-                            classId = this.state.currentClass.id || "";
-                            console.log('[Players HUD] Using currentClass.id as fallback: ' + classId);
-                        }
-                        if (!classId) {
-                            console.warn('[Players HUD] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-                        } else {
-                            console.log('[Players HUD] Including class in CHARACTER_DATA: ' + classId);
-                        }
-                        charData += "class:" + classId + "|";
+                        charData += "class:" + (this.state.character.class_id || "") + "|";
                         charData += "factors:" + factors.health_factor + "," + factors.stamina_factor + "," + factors.mana_factor + "|";
                         charData += "has_mana:" + (this.state.character.has_mana ? "1" : "0");
                         
@@ -707,13 +684,6 @@ try {
         // Render character summary
         UI.renderCharacterSummary(char, this.state.currentSpecies, this.state.currentClass);
         
-        // Recalculate resource pools based on current stats before rendering
-        if (char) {
-            this.recalculateResourcePools();
-            // Broadcast updated character data to Players HUD so globes update
-            this.broadcastCharacterToPlayersHUD(char);
-        }
-        
         // Render Players HUD (resource bars, XP progress, and action slots)
         UI.renderResourceBars(char);
         UI.renderXPProgress(char);
@@ -800,6 +770,11 @@ try {
             });
         });
         
+        // EXIT Setup HUD button
+        document.getElementById('btn-exit-setup')?.addEventListener('click', () => {
+            this.exitSetupHUD();
+        });
+        
         // New Character button (old location - keep for compatibility)
         document.getElementById('btn-new-character')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
@@ -846,8 +821,61 @@ try {
         });
     },
     
-    // exitSetupHUD() and sendCloseSetupMessage() removed - exit button no longer exists
-    // Use rp_options prim in Second Life to toggle Setup HUD visibility
+    /**
+     * Exit Setup HUD - sends CLOSE_SETUP message to LSL
+     */
+    exitSetupHUD() {
+        // Save any pending changes first
+        if (Object.keys(this.state.pendingChanges).length > 0) {
+            this.saveCharacter().then(() => {
+                this.sendCloseSetupMessage();
+            }).catch(() => {
+                // Even if save fails, close the HUD
+                this.sendCloseSetupMessage();
+            });
+        } else {
+            this.sendCloseSetupMessage();
+        }
+    },
+    
+    /**
+     * Send CLOSE_SETUP message to LSL
+     * In MOAP, we use llRegionSay through a workaround
+     * Store message in a way LSL can detect via URL polling or direct channel access
+     */
+    sendCloseSetupMessage() {
+        if (!this.lsl.channel) {
+            console.error('No LSL channel available');
+            return;
+        }
+        
+        // Try to send via the channel using the same mechanism as other messages
+        // The Combined HUD Controller listens on hudChannel for CLOSE_SETUP
+        // Note: In MOAP, JavaScript can't directly call llRegionSay, but we can
+        // trigger it through URL changes that LSL can detect
+        
+        // Store the message for LSL to retrieve
+        sessionStorage.setItem('lsl_close_setup', 'true');
+        sessionStorage.setItem('lsl_close_setup_timestamp', Date.now().toString());
+        
+        // Update URL to signal LSL (if LSL is polling)
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('close_setup', Date.now().toString());
+        
+        try {
+            window.history.replaceState({}, '', currentUrl.toString());
+            console.log('[Exit Setup] CLOSE_SETUP message queued for LSL');
+            
+            // Also try direct communication if available (may not work in all MOAP implementations)
+            // Some MOAP implementations allow JavaScript to send messages
+            if (window.llRegionSay) {
+                window.llRegionSay(this.lsl.channel, 'CLOSE_SETUP');
+                console.log('[Exit Setup] CLOSE_SETUP sent directly via llRegionSay');
+            }
+        } catch (e) {
+            console.log('[Exit Setup] Using fallback method');
+        }
+    },
     
     /**
      * Recalculate resource pools (Health, Stamina, Mana) from stats and species
@@ -1133,83 +1161,16 @@ try {
                 UI.showToast('Character created!', 'success');
             } else {
                 // Update existing character
-                // Ensure class_id is included - use currentClass.id as fallback
-                let classId = char.class_id;
-                if (!classId && this.state.currentClass) {
-                    classId = this.state.currentClass.id;
-                    console.log('[Save] Using currentClass.id as fallback for class_id: ' + classId);
-                    char.class_id = classId;  // Update character state too
-                }
-                if (!classId) {
-                    console.warn('[Save] WARNING: class_id is empty when saving character!');
-                } else {
-                    console.log('[Save] Saving class_id: ' + classId);
-                }
-                
                 const result = await API.updateCharacter({
                     name: char.name,
                     title: char.title,
                     gender: char.gender,
                     stats: char.stats,
-                    class_id: classId
+                    class_id: char.class_id
                 });
                 
                 this.state.character = result.data.character;
-                // Update currentClass after save to ensure it's in sync
-                if (this.state.character.class_id) {
-                    this.state.currentClass = this.state.classes.find(c => c.id === this.state.character.class_id);
-                }
                 UI.showToast('Character saved!', 'success');
-                
-                // Force update CHARACTER_DATA in URL after save to ensure LSL gets the class
-                // Wait a moment for state to update, then trigger heartbeat
-                setTimeout(() => {
-                    if (this.state.character) {
-                        // Trigger the heartbeat update manually
-                        const stats = this.state.character.stats || {};
-                        const statsList = [
-                            stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
-                            stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
-                            stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
-                            stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
-                            stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
-                            stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
-                            stats.will || 2, stats.wisdom || 2
-                        ];
-                        const health = this.state.character.health || { current: 0, base: 0, max: 0 };
-                        const stamina = this.state.character.stamina || { current: 0, base: 0, max: 0 };
-                        const mana = this.state.character.mana || { current: 0, base: 0, max: 0 };
-                        const factors = this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 };
-                        
-                        let charData = "CHARACTER_DATA|";
-                        charData += "stats:" + statsList.join(",") + "|";
-                        charData += "health:" + health.current + "," + health.base + "," + health.max + "|";
-                        charData += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
-                        charData += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
-                        charData += "xp:" + (this.state.character.xp_total || 0) + "|";
-                        // Get class_id - check both character.class_id and currentClass.id
-                        let classId = this.state.character.class_id || "";
-                        if (!classId && this.state.currentClass) {
-                            classId = this.state.currentClass.id || "";
-                            console.log('[Save] Using currentClass.id as fallback: ' + classId);
-                        }
-                        if (!classId) {
-                            console.warn('[Save] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-                        } else {
-                            console.log('[Save] Including class in CHARACTER_DATA: ' + classId);
-                        }
-                        charData += "class:" + classId + "|";
-                        charData += "factors:" + factors.health_factor + "," + factors.stamina_factor + "," + factors.mana_factor + "|";
-                        charData += "has_mana:" + (this.state.character.has_mana ? "1" : "0");
-                        
-                        const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(charData.substring(0, 1800));
-                        currentUrl.searchParams.set('char_data', encodedData);
-                        currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                        window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Save] Updated CHARACTER_DATA in URL with class: ' + classId);
-                    }
-                }, 500);
             }
             
             this.state.pendingChanges = {};
@@ -2611,18 +2572,7 @@ try {
         message += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
         message += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
         message += "xp:" + (character.xp_total || 0) + "|";
-        // Get class_id - check both character.class_id and currentClass.id
-        let classId = character.class_id || "";
-        if (!classId && this.state.currentClass) {
-            classId = this.state.currentClass.id || "";
-            console.log('[Broadcast] Using currentClass.id as fallback: ' + classId);
-        }
-        if (!classId) {
-            console.warn('[Broadcast] WARNING: class_id is empty! character.class_id=' + character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-        } else {
-            console.log('[Broadcast] Including class in CHARACTER_DATA: ' + classId);
-        }
-        message += "class:" + classId + "|";
+        message += "class:" + (character.class_id || "") + "|";
         // Add species factors
         const factors = character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 };
         message += "factors:" + factors.health_factor + "," + factors.stamina_factor + "," + factors.mana_factor + "|";
@@ -2660,16 +2610,6 @@ try {
             // Update URL - this will be detected by LSL polling
             window.history.replaceState({}, '', currentUrl.toString());
             console.log('[Players HUD Sync] Character data encoded in URL for LSL to read');
-            
-            // Also try to send via llRegionSay if available (some MOAP implementations expose this)
-            if (window.llRegionSay && typeof window.llRegionSay === 'function') {
-                try {
-                    window.llRegionSay(this.lsl.channel, message);
-                    console.log('[Players HUD Sync] Character data sent via llRegionSay');
-                } catch (e) {
-                    console.log('[Players HUD Sync] llRegionSay not available, using URL polling only');
-                }
-            }
         } catch (e) {
             console.log('[Players HUD Sync] URL update failed:', e);
         }
@@ -2755,6 +2695,7 @@ window.onSpeciesSelected = function(speciesId) {
     
     // Recalculate resource pools with new species modifiers
     App.recalculateResourcePools();
+    }
     
     // Recalculate resource pools based on current stats
     App.recalculateResourcePools();
@@ -2763,6 +2704,8 @@ window.onSpeciesSelected = function(speciesId) {
     UI.showToast(`Selected: ${species?.name || speciesId}`, 'info', 1500);
 };
 
+// Close App object here
+};
 } catch (e) {
     if (window.simpleDebug) {
         window.simpleDebug('ERROR creating App object: ' + e.message, 'error');

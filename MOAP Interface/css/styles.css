@@ -275,29 +275,7 @@ body {
     transform: translateY(0);
 }
 
-.tab-btn.exit-btn {
-    background: #dc2626;
-    color: white;
-    font-weight: 700;
-    font-size: 1.1em;
-    padding: var(--space-sm) var(--space-lg);
-    border: 2px solid #991b1b;
-    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.tab-btn.exit-btn:hover {
-    background: #ef4444;
-    border-color: #dc2626;
-    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.6);
-    transform: translateY(-1px);
-}
-
-.tab-btn.exit-btn:active {
-    background: #b91c1c;
-    transform: translateY(0);
-}
+/* EXIT Button styles removed - button no longer exists */
 
 /* === Content Area === */
 .content-area {

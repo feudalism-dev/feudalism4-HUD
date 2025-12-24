@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
-    <link rel="stylesheet" href="css/styles.css?v=21">
+    <link rel="stylesheet" href="css/styles.css?v=22">
 </head>
 <body>
     <!-- Invisible autoplay video to force MOAP initialization -->
@@ -13,11 +13,6 @@
         <source src="https://raw.githubusercontent.com/esc0rtd3w/blank-intro-videos/master/blank.mp4" type="video/mp4">
     </video>
 
-    <!-- TEST: Simple visible message to confirm page loads -->
-    <div style="position: fixed; top: 10px; left: 10px; background: red; color: white; padding: 10px; z-index: 999999; font-size: 16px; font-weight: bold; border: 3px solid yellow;">
-        ⚠️ PAGE LOADED - If you see this, JavaScript is working
-    </div>
-    
     <div id="app">
         <!-- Header -->
         <header class="hud-header">
@@ -43,7 +38,6 @@
             <button class="tab-btn" data-tab="inventory">Inventory</button>
             <button class="tab-btn" data-tab="options">Options</button>
             <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
-            <button id="btn-exit-setup" class="tab-btn exit-btn">❌ EXIT</button>
         </nav>
 
         <!-- Main Content Area -->
@@ -337,21 +331,38 @@
 
     <!-- Polyfills for SL browser compatibility -->
     <script>
+        // Store original console.log before it gets overridden
+        var originalConsoleLog = console.log;
+        var simpleDebugInProgress = false;
+        
         // Simple debug log that works immediately
         window.simpleDebug = function(msg, type) {
-            const panel = document.getElementById('debug-panel');
-            const content = document.getElementById('debug-content');
-            if (panel && content) {
-                const timestamp = new Date().toLocaleTimeString();
-                const colors = { info: '#0f0', error: '#f00', warn: '#ff0', debug: '#0ff' };
-                const color = colors[type] || '#0f0';
-                const line = document.createElement('div');
-                line.style.color = color;
-                line.textContent = '[' + timestamp + '] ' + msg;
-                content.appendChild(line);
-                content.scrollTop = content.scrollHeight;
+            // Prevent infinite recursion
+            if (simpleDebugInProgress) {
+                return;
             }
-            console.log('[' + type + '] ' + msg);
+            simpleDebugInProgress = true;
+            
+            try {
+                const panel = document.getElementById('debug-panel');
+                const content = document.getElementById('debug-content');
+                if (panel && content) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    const colors = { info: '#0f0', error: '#f00', warn: '#ff0', debug: '#0ff' };
+                    const color = colors[type] || '#0f0';
+                    const line = document.createElement('div');
+                    line.style.color = color;
+                    line.textContent = '[' + timestamp + '] ' + msg;
+                    content.appendChild(line);
+                    content.scrollTop = content.scrollHeight;
+                }
+                // Use original console.log to avoid infinite recursion
+                if (originalConsoleLog) {
+                    originalConsoleLog.call(console, '[' + type + '] ' + msg);
+                }
+            } finally {
+                simpleDebugInProgress = false;
+            }
         };
         
         // Test immediately
