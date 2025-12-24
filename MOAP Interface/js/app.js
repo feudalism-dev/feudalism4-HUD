@@ -275,18 +275,6 @@ try {
                             stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
                             stats.will || 2, stats.wisdom || 2
                         ];
-                        const health = this.state.character.health || { current: 0, base: 0, max: 0 };
-                        const stamina = this.state.character.stamina || { current: 0, base: 0, max: 0 };
-                        const mana = this.state.character.mana || { current: 0, base: 0, max: 0 };
-                        const factors = this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 };
-                        
-                        // Build compact character data string for URL
-                        let charData = "CHARACTER_DATA|";
-                        charData += "stats:" + statsList.join(",") + "|";
-                        charData += "health:" + health.current + "," + health.base + "," + health.max + "|";
-                        charData += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
-                        charData += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
-                        charData += "xp:" + (this.state.character.xp_total || 0) + "|";
                         // Get class_id - check both character.class_id and currentClass.id
                         let classId = this.state.character.class_id || "";
                         if (!classId && this.state.currentClass) {
@@ -296,21 +284,31 @@ try {
                         if (!classId) {
                             console.warn('[Players HUD] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
                         } else {
-                            console.log('[Players HUD] Including class in CHARACTER_DATA: ' + classId);
+                            console.log('[Players HUD] Including class in JSON: ' + classId);
                         }
-                        charData += "class:" + classId + "|";
-                        charData += "factors:" + factors.health_factor + "," + factors.stamina_factor + "," + factors.mana_factor + "|";
-                        charData += "has_mana:" + (this.state.character.has_mana ? "1" : "0");
                         
-                        // Update current URL with character data (keep request_data for now)
+                        // Build character data as JSON object
+                        const characterJSON = {
+                            class_id: classId,
+                            stats: this.state.character.stats || {},
+                            health: this.state.character.health || { current: 0, base: 0, max: 0 },
+                            stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
+                            mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
+                            xp_total: this.state.character.xp_total || 0,
+                            has_mana: this.state.character.has_mana || false,
+                            species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
+                        };
+                        
+                        // Convert to JSON string and encode for URL
+                        const jsonString = JSON.stringify(characterJSON);
                         const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(charData.substring(0, 1800));
+                        const encodedData = encodeURIComponent(jsonString);
                         currentUrl.searchParams.set('char_data', encodedData);
                         currentUrl.searchParams.set('char_data_ts', Date.now().toString());
                         
                         // Update URL without reloading - LSL will poll and see this
                         window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Players HUD] Updated URL with character data (length: ' + charData.length + ')');
+                        console.log('[Players HUD] Updated URL with character data as JSON (length: ' + jsonString.length + ')');
                         console.log('[Players HUD] Character data in URL: ' + encodedData.substring(0, 100) + '...');
                     } catch (e) {
                         console.error('[Players HUD] Failed to update URL with character data:', e);
@@ -1176,17 +1174,6 @@ try {
                             stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
                             stats.will || 2, stats.wisdom || 2
                         ];
-                        const health = this.state.character.health || { current: 0, base: 0, max: 0 };
-                        const stamina = this.state.character.stamina || { current: 0, base: 0, max: 0 };
-                        const mana = this.state.character.mana || { current: 0, base: 0, max: 0 };
-                        const factors = this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 };
-                        
-                        let charData = "CHARACTER_DATA|";
-                        charData += "stats:" + statsList.join(",") + "|";
-                        charData += "health:" + health.current + "," + health.base + "," + health.max + "|";
-                        charData += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
-                        charData += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
-                        charData += "xp:" + (this.state.character.xp_total || 0) + "|";
                         // Get class_id - check both character.class_id and currentClass.id
                         let classId = this.state.character.class_id || "";
                         if (!classId && this.state.currentClass) {
@@ -1196,18 +1183,29 @@ try {
                         if (!classId) {
                             console.warn('[Save] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
                         } else {
-                            console.log('[Save] Including class in CHARACTER_DATA: ' + classId);
+                            console.log('[Save] Including class in JSON: ' + classId);
                         }
-                        charData += "class:" + classId + "|";
-                        charData += "factors:" + factors.health_factor + "," + factors.stamina_factor + "," + factors.mana_factor + "|";
-                        charData += "has_mana:" + (this.state.character.has_mana ? "1" : "0");
                         
+                        // Build character data as JSON object
+                        const characterJSON = {
+                            class_id: classId,
+                            stats: this.state.character.stats || {},
+                            health: this.state.character.health || { current: 0, base: 0, max: 0 },
+                            stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
+                            mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
+                            xp_total: this.state.character.xp_total || 0,
+                            has_mana: this.state.character.has_mana || false,
+                            species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
+                        };
+                        
+                        // Convert to JSON string and encode for URL
+                        const jsonString = JSON.stringify(characterJSON);
                         const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(charData.substring(0, 1800));
+                        const encodedData = encodeURIComponent(jsonString);
                         currentUrl.searchParams.set('char_data', encodedData);
                         currentUrl.searchParams.set('char_data_ts', Date.now().toString());
                         window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Save] Updated CHARACTER_DATA in URL with class: ' + classId);
+                        console.log('[Save] Updated CHARACTER_DATA in URL as JSON with class: ' + classId);
                     }
                 }, 500);
             }
@@ -2588,29 +2586,7 @@ try {
             return; // No character or no channel available
         }
         
-        // Build character data message for Players HUD
-        const stats = character.stats || {};
-        const statsList = [
-            stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
-            stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
-            stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
-            stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
-            stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
-            stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
-            stats.will || 2, stats.wisdom || 2
-        ];
-        
-        const health = character.health || { current: 0, base: 0, max: 0 };
-        const stamina = character.stamina || { current: 0, base: 0, max: 0 };
-        const mana = character.mana || { current: 0, base: 0, max: 0 };
-        
-        // Format: CHARACTER_DATA|stats:...|health:current,base,max|stamina:...|mana:...|xp:...|class:...|modifiers:healthMod,staminaMod|has_mana:1|0
-        let message = "CHARACTER_DATA|";
-        message += "stats:" + statsList.join(",") + "|";
-        message += "health:" + health.current + "," + health.base + "," + health.max + "|";
-        message += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
-        message += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
-        message += "xp:" + (character.xp_total || 0) + "|";
+        // Build character data as JSON object
         // Get class_id - check both character.class_id and currentClass.id
         let classId = character.class_id || "";
         if (!classId && this.state.currentClass) {
@@ -2620,46 +2596,37 @@ try {
         if (!classId) {
             console.warn('[Broadcast] WARNING: class_id is empty! character.class_id=' + character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
         } else {
-            console.log('[Broadcast] Including class in CHARACTER_DATA: ' + classId);
+            console.log('[Broadcast] Including class in JSON: ' + classId);
         }
-        message += "class:" + classId + "|";
-        // Add species factors
-        const factors = character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 };
-        message += "factors:" + factors.health_factor + "," + factors.stamina_factor + "," + factors.mana_factor + "|";
-        message += "has_mana:" + (character.has_mana ? "1" : "0");
         
-        // Send via the channel (LSL will forward to Players HUD)
-        // Note: JavaScript can't directly call llRegionSay, so we use a workaround
-        // The Setup HUD LSL script will listen for this and forward it
-        console.log('[Players HUD Sync] Broadcasting character data:', message);
+        // Create JSON object with all character data
+        const characterJSON = {
+            class_id: classId,
+            stats: character.stats || {},
+            health: character.health || { current: 0, base: 0, max: 0 },
+            stamina: character.stamina || { current: 0, base: 0, max: 0 },
+            mana: character.mana || { current: 0, base: 0, max: 0 },
+            xp_total: character.xp_total || 0,
+            has_mana: character.has_mana || false,
+            species_factors: character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
+        };
         
-        // In Second Life MOAP, we can't directly send to LSL channels from JavaScript
-        // However, we can trigger a URL change that LSL can detect, or use llOpenURL
-        // For now, we'll store the message in a way that the Setup HUD can retrieve it
-        // The Setup HUD will poll or request this data when it receives a LOAD request
+        // Convert to JSON string
+        const jsonString = JSON.stringify(characterJSON);
+        console.log('[Players HUD Sync] Broadcasting character data as JSON:', jsonString);
         
-        // Send to LSL via the channel
-        // Note: In Second Life MOAP, JavaScript can't directly call llRegionSay
-        // However, we can use window.postMessage or a similar mechanism
-        // The Combined HUD Controller listens on hudChannel and will receive this
-        // For now, we'll use a workaround: store in a way LSL can detect
-        
-        // Store the message in sessionStorage
-        sessionStorage.setItem('character_data_sync', message);
-        sessionStorage.setItem('character_data_timestamp', Date.now().toString());
-        
-        // Encode character data in URL so LSL can read it via llGetPrimMediaParams
+        // Encode JSON in URL so LSL can read it via llGetPrimMediaParams
         // LSL will poll the MOAP URL and extract the data
         try {
             const currentUrl = new URL(window.location.href);
-            // Encode the message (truncate if too long for URL)
-            const encodedData = encodeURIComponent(message.substring(0, 2000)); // URL has limits
+            // Encode the JSON (URL-encode it)
+            const encodedData = encodeURIComponent(jsonString);
             currentUrl.searchParams.set('char_data', encodedData);
             currentUrl.searchParams.set('char_data_ts', Date.now().toString());
             
             // Update URL - this will be detected by LSL polling
             window.history.replaceState({}, '', currentUrl.toString());
-            console.log('[Players HUD Sync] Character data encoded in URL for LSL to read');
+            console.log('[Players HUD Sync] Character data encoded as JSON in URL for LSL to read');
             
             // Also try to send via llRegionSay if available (some MOAP implementations expose this)
             if (window.llRegionSay && typeof window.llRegionSay === 'function') {

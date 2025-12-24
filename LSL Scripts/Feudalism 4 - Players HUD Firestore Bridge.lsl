@@ -1,20 +1,11 @@
-// ============================================================================
 // Feudalism 4 - Players HUD Firestore Bridge
 // ============================================================================
-// Handles HTTP/JSON communication between LSL and Firestore backend
-// Uses HTTP requests to load/save character data independently of MOAP
+// Direct Firestore REST API access - no middleware, no redirects, no OAuth
+// Uses field masks to retrieve only needed fields, avoiding truncation
 // ============================================================================
 
-// =========================== CONFIGURATION ==================================
-// Firebase project configuration
-// TODO: Replace with your actual Firebase project details
+// Firebase Project Configuration
 string FIREBASE_PROJECT_ID = "feudalism4-rpg";
-string FIREBASE_API_KEY = "";  // Get from Firebase Console > Project Settings > General > Web API Key
-
-// For now, we'll use a Cloud Function or HTTP endpoint
-// If you have Firebase Functions set up, use that URL
-// Otherwise, we can use Firestore REST API directly (requires auth token)
-string BACKEND_API_URL = "";  // e.g., "https://us-central1-feudalism4-rpg.cloudfunctions.net/api"
 
 // Communication - using link_message for Data Manager (same linkset)
 // No channel needed
@@ -24,287 +15,170 @@ key ownerKey;
 string ownerUUID;
 string ownerUsername;
 string ownerDisplayName;
-key httpRequestId;
-string sessionToken;
-integer authenticated = FALSE;
+key httpRequestId;  // For deprecated full character load only
+string firestoreRestBase;
+
+// Request tracking for concurrent field requests
+// Format: [requestId1, fieldName1, senderLink1, requestId2, fieldName2, senderLink2, ...]
+list pendingRequests;  // Stores: requestId, fieldName, senderLink for each pending request
 
 // =========================== UTILITY FUNCTIONS ==============================
 
-// Generate JSON request for backend
-string buildJSONRequest(string action, list data) {
-    string json = "{\"action\":\"" + action + "\"";
-    json += ",\"uuid\":\"" + ownerUUID + "\"";
-    if (sessionToken != "") {
-        json += ",\"token\":\"" + sessionToken + "\"";
+// Helper to determine which UUID to use (provided target or owner's UUID)
+string getUUIDToUse(string targetUUID) {
+    if (targetUUID != "") {
+        return targetUUID;
+    } else {
+        return ownerUUID;
     }
-    if (llGetListLength(data) > 0) {
-        json += ",\"data\":" + llList2String(data, 0);
-    }
-    json += "}";
-    return json;
 }
 
-// Convert character JSON object to CHARACTER_DATA format
-// Input: JSON string like {"class_id":"squire","stats":{"agility":2,...},"health":{"current":100,"base":100,"max":100},...}
-// Output: CHARACTER_DATA|stats:2,2,2,...|health:100,100,100|class:squire|...
-string convertCharacterJSONToCHARACTER_DATA(string charJson) {
-    string charData = "CHARACTER_DATA|";
+// Extract value from Firestore field format
+// Handles: {"stringValue":"value"}, {"integerValue":123}, {"booleanValue":true}, {"mapValue":{...}}
+string extractFirestoreValue(string fieldData) {
+    if (fieldData == JSON_INVALID || fieldData == "") {
+        return "";
+    }
     
-    // Extract class_id
-    integer classPos = llSubStringIndex(charJson, "\"class_id\":");
-    if (classPos != -1) {
-        string afterClass = llGetSubString(charJson, classPos + 11, -1);
-        integer quote1 = llSubStringIndex(afterClass, "\"");
-        if (quote1 != -1) {
-            string afterQuote1 = llGetSubString(afterClass, quote1 + 1, -1);
-            integer quote2 = llSubStringIndex(afterQuote1, "\"");
-            if (quote2 != -1) {
-                string classId = llGetSubString(afterQuote1, 0, quote2 - 1);
-                charData += "class:" + classId + "|";
-            }
+    // Try stringValue first (most common)
+    string stringVal = llJsonGetValue(fieldData, ["stringValue"]);
+    if (stringVal != JSON_INVALID && stringVal != "") {
+        return stringVal;
+    }
+    
+    // Try integerValue
+    string intVal = llJsonGetValue(fieldData, ["integerValue"]);
+    if (intVal != JSON_INVALID && intVal != "") {
+        return intVal;
+    }
+    
+    // Try booleanValue
+    string boolVal = llJsonGetValue(fieldData, ["booleanValue"]);
+    if (boolVal != JSON_INVALID && boolVal != "") {
+        return boolVal;
+    }
+    
+    // For mapValue (complex objects like stats, health, etc.), return the nested fields
+    string mapValue = llJsonGetValue(fieldData, ["mapValue"]);
+    if (mapValue != JSON_INVALID && mapValue != "") {
+        string mapFields = llJsonGetValue(mapValue, ["fields"]);
+        if (mapFields != JSON_INVALID && mapFields != "") {
+            return mapFields;
         }
     }
     
-    // Extract stats - need to parse stats object
-    // Stats format: {"agility":2,"athletics":2,...}
-    integer statsPos = llSubStringIndex(charJson, "\"stats\":");
-    if (statsPos != -1) {
-        string afterStats = llGetSubString(charJson, statsPos + 9, -1);
-        integer braceStart = llSubStringIndex(afterStats, "{");
-        if (braceStart != -1) {
-            integer braceCount = 1;
-            integer i = braceStart + 1;
-            integer statsEnd = -1;
-            while (i < llStringLength(afterStats) && braceCount > 0) {
-                string char = llGetSubString(afterStats, i, i);
-                if (char == "{") braceCount++;
-                else if (char == "}") {
-                    braceCount--;
-                    if (braceCount == 0) {
-                        statsEnd = i;
-                        jump statsDone;
-                    }
-                }
-                i++;
-            }
-            @statsDone;
-            if (statsEnd != -1) {
-                string statsJson = llGetSubString(afterStats, braceStart, statsEnd);
-                // Parse stats in order: agility, animal_handling, athletics, awareness, crafting, deception, endurance, entertaining, fighting, healing, influence, intelligence, knowledge, marksmanship, persuasion, stealth, survival, thievery, will, wisdom
-                list statNames = ["agility", "animal_handling", "athletics", "awareness", "crafting", "deception", "endurance", "entertaining", "fighting", "healing", "influence", "intelligence", "knowledge", "marksmanship", "persuasion", "stealth", "survival", "thievery", "will", "wisdom"];
-                list statValues = [];
-                integer j;
-                for (j = 0; j < llGetListLength(statNames); j++) {
-                    string statName = llList2String(statNames, j);
-                    integer statPos = llSubStringIndex(statsJson, "\"" + statName + "\":");
-                    if (statPos != -1) {
-                        string afterStat = llGetSubString(statsJson, statPos + llStringLength(statName) + 3, -1);
-                        // Find the number value
-                        integer numStart = -1;
-                        integer numEnd = -1;
-                        integer k;
-                        for (k = 0; k < llStringLength(afterStat); k++) {
-                            string c = llGetSubString(afterStat, k, k);
-                            if (llSubStringIndex("0123456789", c) != -1) {
-                                if (numStart == -1) numStart = k;
-                                numEnd = k;
-                            } else if (numStart != -1) {
-                                jump numDone;
-                            }
-                        }
-                        @numDone;
-                        if (numStart != -1) {
-                            string statValue = llGetSubString(afterStat, numStart, numEnd);
-                            statValues += [(integer)statValue];
-                        } else {
-                            statValues += [2]; // Default
-                        }
-                    } else {
-                        statValues += [2]; // Default if not found
-                    }
-                }
-                charData += "stats:" + llList2CSV(statValues) + "|";
-            }
-        }
-    }
-    
-    // Extract health, stamina, mana
-    // Format: {"current":100,"base":100,"max":100}
-    list resources = ["health", "stamina", "mana"];
-    integer r;
-    for (r = 0; r < llGetListLength(resources); r++) {
-        string resName = llList2String(resources, r);
-        integer resPos = llSubStringIndex(charJson, "\"" + resName + "\":");
-        if (resPos != -1) {
-            string afterRes = llGetSubString(charJson, resPos + llStringLength(resName) + 3, -1);
-            integer braceStart = llSubStringIndex(afterRes, "{");
-            if (braceStart != -1) {
-                integer braceCount = 1;
-                integer i = braceStart + 1;
-                integer resEnd = -1;
-                while (i < llStringLength(afterRes) && braceCount > 0) {
-                    string char = llGetSubString(afterRes, i, i);
-                    if (char == "{") braceCount++;
-                    else if (char == "}") {
-                        braceCount--;
-                        if (braceCount == 0) {
-                            resEnd = i;
-                            jump resDone;
-                        }
-                    }
-                    i++;
-                }
-                @resDone;
-                if (resEnd != -1) {
-                    string resJson = llGetSubString(afterRes, braceStart, resEnd);
-                    // Extract current, base, max
-                    integer current = extractIntFromJSON(resJson, "current");
-                    integer base = extractIntFromJSON(resJson, "base");
-                    integer max = extractIntFromJSON(resJson, "max");
-                    if (current == 0) current = base; // Default to base if current is 0
-                    if (max == 0) max = base; // Default to base if max is 0
-                    charData += resName + ":" + (string)current + "," + (string)base + "," + (string)max + "|";
-                }
-            }
-        }
-    }
-    
-    // Extract xp_total
-    integer xpPos = llSubStringIndex(charJson, "\"xp_total\":");
-    if (xpPos != -1) {
-        string afterXp = llGetSubString(charJson, xpPos + 11, -1);
-        integer numStart = -1;
-        integer numEnd = -1;
-        integer i;
-        for (i = 0; i < llStringLength(afterXp); i++) {
-            string c = llGetSubString(afterXp, i, i);
-            if (llSubStringIndex("0123456789", c) != -1) {
-                if (numStart == -1) numStart = i;
-                numEnd = i;
-            } else if (numStart != -1) {
-                jump xpDone;
-            }
-        }
-        @xpDone;
-        if (numStart != -1) {
-            string xpValue = llGetSubString(afterXp, numStart, numEnd);
-            charData += "xp:" + xpValue + "|";
-        }
-    }
-    
-    // Extract has_mana
-    integer hasManaPos = llSubStringIndex(charJson, "\"has_mana\":");
-    if (hasManaPos != -1) {
-        string afterHasMana = llGetSubString(charJson, hasManaPos + 11, -1);
-        integer boolEnd = llSubStringIndex(afterHasMana, ",");
-        if (boolEnd == -1) boolEnd = llSubStringIndex(afterHasMana, "}");
-        if (boolEnd == -1) boolEnd = llStringLength(afterHasMana);
-        string hasManaStr = llGetSubString(afterHasMana, 0, boolEnd - 1);
-        integer hasMana = (integer)hasManaStr;
-        charData += "has_mana:" + (string)hasMana;
-    }
-    
-    return charData;
-}
-
-// Helper function to extract integer from JSON object
-integer extractIntFromJSON(string json, string key) {
-    integer keyPos = llSubStringIndex(json, "\"" + key + "\":");
-    if (keyPos != -1) {
-        string afterKey = llGetSubString(json, keyPos + llStringLength(key) + 3, -1);
-        integer numStart = -1;
-        integer numEnd = -1;
-        integer i;
-        for (i = 0; i < llStringLength(afterKey); i++) {
-            string c = llGetSubString(afterKey, i, i);
-            if (llSubStringIndex("0123456789", c) != -1) {
-                if (numStart == -1) numStart = i;
-                numEnd = i;
-            } else if (numStart != -1) {
-                jump extractDone;
-            }
-        }
-        @extractDone;
-        if (numStart != -1) {
-            return (integer)llGetSubString(afterKey, numStart, numEnd);
-        }
-    }
-    return 0;
+    return "";
 }
 
 // =========================== HTTP HANDLERS ==================================
 
-// Authenticate with backend and get session token
-authenticate() {
-    if (BACKEND_API_URL == "") {
-        // Silently fail if not configured - this is expected until backend is set up
+// Get a single field from Firestore by UUID
+// Used for individual field lookups via link messages
+getFieldByUUID(string fieldName, string targetUUID, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llOwnerSay("[Firestore Bridge] ERROR: FIREBASE_PROJECT_ID not configured");
+        llMessageLinked(senderLink, 0, fieldName + "_ERROR", "Project ID not configured");
         return;
     }
     
-    string json = "{\"action\":\"auth.login\",\"uuid\":\"" + ownerUUID + "\",\"username\":\"" + llEscapeURL(ownerUsername) + "\",\"displayname\":\"" + llEscapeURL(ownerDisplayName) + "\"}";
+    // Firestore REST API query endpoint with field mask for just this field
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents:runQuery";
     
-    httpRequestId = llHTTPRequest(
-        BACKEND_API_URL,
+    // Build structured query with field mask for just this field
+    string queryJson = "{\"structuredQuery\":{\"from\":[{\"collectionId\":\"characters\"}],\"where\":{\"fieldFilter\":{\"field\":{\"fieldPath\":\"owner_uuid\"},\"op\":\"EQUAL\",\"value\":{\"stringValue\":\"" + targetUUID + "\"}}},\"select\":{\"fields\":[{\"fieldPath\":\"" + fieldName + "\"}]},\"limit\":1}}";
+    
+    key requestId = llHTTPRequest(
+        url,
         [
             HTTP_METHOD, "POST",
             HTTP_MIMETYPE, "application/json"
         ],
-        json
+        queryJson
     );
     
-    llOwnerSay("[Firestore Bridge] Authenticating with backend...");
+    // Store request tracking info: requestId, fieldName, senderLink
+    pendingRequests += [requestId, fieldName, senderLink];
+    
+    llOwnerSay("[Firestore Bridge] Querying " + fieldName + " for UUID: " + targetUUID + " (request ID: " + (string)requestId + ")");
 }
 
-// Load character data from backend
+// Load character data directly from Firestore (full character load)
+// NOTE: Response may be truncated if requesting too many fields at once
+// If truncation occurs, individual field requests should be used instead
+// Uses field mask to retrieve only needed fields, but 10 fields may still be too large
 loadCharacterData() {
-    if (BACKEND_API_URL == "") {
-        // Silently fail if not configured - this is expected until backend is set up
+    if (FIREBASE_PROJECT_ID == "") {
+        llOwnerSay("[Firestore Bridge] ERROR: FIREBASE_PROJECT_ID not configured");
         return;
     }
     
-    if (!authenticated) {
-        authenticate();
-        return;
-    }
+    // Firestore REST API query: POST to runQuery endpoint
+    // Query for character where owner_uuid == ownerUUID
+    // Use field mask to get only the fields we need
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents:runQuery";
     
-    string json = buildJSONRequest("character.get", []);
+    // Build structured query with field mask for CRITICAL fields only (6 fields)
+    // Requesting all 10 fields causes truncation at 2048 chars
+    // So we only request: class_id, stats, health, stamina, mana, xp_total
+    // Other fields (gender, species_id, has_mana, species_factors) are requested individually
+    string queryJson = "{\"structuredQuery\":{\"from\":[{\"collectionId\":\"characters\"}],\"where\":{\"fieldFilter\":{\"field\":{\"fieldPath\":\"owner_uuid\"},\"op\":\"EQUAL\",\"value\":{\"stringValue\":\"" + ownerUUID + "\"}}},\"select\":{\"fields\":[{\"fieldPath\":\"class_id\"},{\"fieldPath\":\"stats\"},{\"fieldPath\":\"health\"},{\"fieldPath\":\"stamina\"},{\"fieldPath\":\"mana\"},{\"fieldPath\":\"xp_total\"}]},\"limit\":1}}";
     
     httpRequestId = llHTTPRequest(
-        BACKEND_API_URL,
+        url,
         [
             HTTP_METHOD, "POST",
             HTTP_MIMETYPE, "application/json"
         ],
-        json
+        queryJson
     );
     
-    llOwnerSay("[Firestore Bridge] Requesting character data from backend...");
+    llOwnerSay("[Firestore Bridge] Querying character data from Firestore for UUID: " + ownerUUID);
 }
 
-// Save character data to backend
+// Save character data directly to Firestore
 saveCharacterData(string characterData) {
-    if (BACKEND_API_URL == "") {
-        // Silently fail if not configured - this is expected until backend is set up
+    if (FIREBASE_PROJECT_ID == "") {
+        llOwnerSay("[Firestore Bridge] ERROR: FIREBASE_PROJECT_ID not configured");
         return;
     }
     
-    if (!authenticated) {
-        authenticate();
-        return;
-    }
+    // Direct Firestore REST API call: PATCH /documents/characters/{uuid}
+    string url = firestoreRestBase + "/characters/" + llEscapeURL(ownerUUID);
     
-    string json = buildJSONRequest("character.update", [characterData]);
+    // Parse characterData (pipe-delimited format) and convert to Firestore document format
+    // Format: stats:...|health:...|stamina:...|mana:...|xp:...|class:...
+    // Firestore REST API format: {"fields":{"fieldName":{"stringValue":"value"}}}
+    string firestoreJson = "{\"fields\":{";
+    
+    list parts = llParseString2List(characterData, ["|"], []);
+    integer i;
+    integer firstField = TRUE;
+    for (i = 0; i < llGetListLength(parts); i++) {
+        string part = llList2String(parts, i);
+        list keyValue = llParseString2List(part, [":"], []);
+        if (llGetListLength(keyValue) >= 2) {
+            string fieldName = llList2String(keyValue, 0);
+            string fieldValue = llList2String(keyValue, 1);
+            
+            if (!firstField) firestoreJson += ",";
+            firstField = FALSE;
+            
+            // Add field to Firestore document format
+            firestoreJson += "\"" + fieldName + "\":{\"stringValue\":\"" + llEscapeURL(fieldValue) + "\"}";
+        }
+    }
+    firestoreJson += "}}";
     
     httpRequestId = llHTTPRequest(
-        BACKEND_API_URL,
+        url,
         [
-            HTTP_METHOD, "POST",
+            HTTP_METHOD, "PATCH",
             HTTP_MIMETYPE, "application/json"
         ],
-        json
+        firestoreJson
     );
     
-    llOwnerSay("[Firestore Bridge] Saving character data to backend...");
+    llOwnerSay("[Firestore Bridge] Saving character data to Firestore: " + ownerUUID);
 }
 
 // =========================== MAIN STATE =====================================
@@ -316,163 +190,220 @@ default {
         ownerUsername = llGetUsername(ownerKey);
         ownerDisplayName = llGetDisplayName(ownerKey);
         
+        // Build Firestore REST API base URL
+        firestoreRestBase = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents";
+        
         llOwnerSay("[Firestore Bridge] Initialized for " + ownerDisplayName);
-        if (BACKEND_API_URL == "") {
-            llOwnerSay("[Firestore Bridge] NOTE: BACKEND_API_URL not configured - using local data only");
-        } else {
-            // Authenticate on startup if backend is configured
-            authenticate();
+        if (FIREBASE_PROJECT_ID == "") {
+            llOwnerSay("[Firestore Bridge] NOTE: FIREBASE_PROJECT_ID not configured");
         }
     }
     
-    // Handle link messages from Data Manager
+    // Handle link messages from other scripts
     link_message(integer sender_num, integer num, string msg, key id) {
+        string targetUUID = (string)id;
+        
+        // NOTE: firestore_load is deprecated - use individual field requests instead (getClass, getStats, etc.)
+        // Keeping for backward compatibility, but individual field requests are preferred
         if (msg == "firestore_load") {
+            llOwnerSay("[Firestore Bridge] WARNING: firestore_load is deprecated, use individual field requests instead");
             loadCharacterData();
         }
+        // Save character data
         else if (msg == "firestore_save") {
-            string data = (string)id;
+            string data = targetUUID;
             saveCharacterData(data);
+        }
+        // Individual field lookups
+        else if (msg == "getClass" || msg == "getClass_id") {
+            getFieldByUUID("class_id", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getStats") {
+            getFieldByUUID("stats", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getGender") {
+            getFieldByUUID("gender", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getSpecies" || msg == "getSpecies_id") {
+            getFieldByUUID("species_id", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getHasMana" || msg == "getHas_mana") {
+            getFieldByUUID("has_mana", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getHealth") {
+            getFieldByUUID("health", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getStamina") {
+            getFieldByUUID("stamina", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getMana") {
+            getFieldByUUID("mana", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getXP" || msg == "getXP_total") {
+            getFieldByUUID("xp_total", getUUIDToUse(targetUUID), sender_num);
+        }
+        else if (msg == "getSpeciesFactors" || msg == "getSpecies_factors") {
+            getFieldByUUID("species_factors", getUUIDToUse(targetUUID), sender_num);
         }
     }
     
-    // Handle HTTP responses
+    // Handle HTTP responses from Firestore REST API
     http_response(key request_id, integer status, list metadata, string body) {
-        if (request_id != httpRequestId) return;
+        // Check if this is a tracked field request
+        integer requestIndex = llListFindList(pendingRequests, [request_id]);
         
-        if (status == 200) {
-            // Parse JSON response
-            // Note: LSL doesn't have native JSON parsing, so we'll do basic string parsing
-            integer successPos = llSubStringIndex(body, "\"success\":");
-            if (successPos != -1) {
-                // Extract success value
-                string successStr = llGetSubString(body, successPos + 10, successPos + 14);
-                integer success = (integer)successStr;
+        if (requestIndex != -1) {
+            // This is a field request - extract tracking info
+            string fieldName = llList2String(pendingRequests, requestIndex + 1);
+            integer senderLink = llList2Integer(pendingRequests, requestIndex + 2);
+            
+            // Remove from tracking list
+            pendingRequests = llDeleteSubList(pendingRequests, requestIndex, requestIndex + 2);
+            
+            if (status == 200) {
+                llOwnerSay("[Firestore Bridge] Response received for " + fieldName + " (length: " + (string)llStringLength(body) + ")");
                 
-                if (success) {
-                    // Extract action to determine what this response is for
-                    integer actionPos = llSubStringIndex(body, "\"action\":");
-                    if (actionPos != -1) {
-                        // Find the opening quote after "action":"
-                        string afterAction = llGetSubString(body, actionPos + 9, -1);
-                        integer quotePos1 = llSubStringIndex(afterAction, "\"");
-                        if (quotePos1 != -1) {
-                            string afterQuote1 = llGetSubString(afterAction, quotePos1 + 1, -1);
-                            integer quotePos2 = llSubStringIndex(afterQuote1, "\"");
-                            if (quotePos2 != -1) {
-                                string action = llGetSubString(afterQuote1, 0, quotePos2 - 1);
-                        
-                                if (action == "auth.login") {
-                                    // Extract token
-                                    integer tokenPos = llSubStringIndex(body, "\"token\":");
-                                    if (tokenPos != -1) {
-                                        string afterToken = llGetSubString(body, tokenPos + 8, -1);
-                                        integer tokenQuote1 = llSubStringIndex(afterToken, "\"");
-                                        if (tokenQuote1 != -1) {
-                                            string afterTokenQuote1 = llGetSubString(afterToken, tokenQuote1 + 1, -1);
-                                            integer tokenQuote2 = llSubStringIndex(afterTokenQuote1, "\"");
-                                            if (tokenQuote2 != -1) {
-                                                                sessionToken = llGetSubString(afterTokenQuote1, 0, tokenQuote2 - 1);
-                                                authenticated = TRUE;
-                                                llOwnerSay("[Firestore Bridge] Authenticated successfully");
-                                                
-                                                // Auto-load character data after authentication
-                                                loadCharacterData();
-                                            }
-                                        }
-                                    }
-                                }
-                                else if (action == "character.get") {
-                                    // Extract character data from JSON response
-                                    // Response format: {"success":true,"action":"character.get","data":{"character":{...}}}
-                                    // We need to extract the character object and convert to CHARACTER_DATA format
-                                    integer charPos = llSubStringIndex(body, "\"character\":");
-                                    if (charPos != -1) {
-                                        // Find the character object
-                                        string afterChar = llGetSubString(body, charPos + 12, -1);
-                                        // Find opening brace
-                                        integer braceStart = llSubStringIndex(afterChar, "{");
-                                        if (braceStart != -1) {
-                                            // Find matching closing brace (simplified - assumes no nested objects)
-                                            integer braceCount = 1;
-                                            integer i = braceStart + 1;
-                                            integer charEnd = -1;
-                                            while (i < llStringLength(afterChar) && braceCount > 0) {
-                                                string char = llGetSubString(afterChar, i, i);
-                                                if (char == "{") braceCount++;
-                                                else if (char == "}") {
-                                                    braceCount--;
-                                                    if (braceCount == 0) {
-                                                        charEnd = i;
-                                                        jump done;
-                                                    }
-                                                }
-                                                i++;
-                                            }
-                                            @done;
-                                            if (charEnd != -1) {
-                                                string charJson = llGetSubString(afterChar, braceStart, charEnd);
-                                                // Convert JSON character object to CHARACTER_DATA format
-                                                string charData = convertCharacterJSONToCHARACTER_DATA(charJson);
-                                                if (charData != "") {
-                                                    llMessageLinked(LINK_SET, 0, "CHARACTER_DATA", charData);
-                                                    llOwnerSay("[Firestore Bridge] Character data loaded and converted from backend");
-                                                } else {
-                                                    llOwnerSay("[Firestore Bridge] ERROR: Failed to convert character JSON to CHARACTER_DATA format");
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        llOwnerSay("[Firestore Bridge] ERROR: No character object found in response");
-                                    }
-                                }
-                                else if (action == "character.update") {
-                                    llMessageLinked(LINK_SET, 0, "SAVE_CONFIRMED", "");
-                                    llOwnerSay("[Firestore Bridge] Character data saved to backend");
-                                }
-                            }
-                        }
-                    }
+                // Parse EXACTLY like the standalone script: [0].document.fields.fieldName
+                string firstResult = llJsonGetValue(body, [0]);
+                if (firstResult == JSON_INVALID) {
+                    llOwnerSay("[Firestore Bridge] ERROR: Response is not a valid JSON array or is empty for field '" + fieldName + "'");
+                    llOwnerSay("[Firestore Bridge] Response preview: " + llGetSubString(body, 0, 500));
+                    llMessageLinked(senderLink, 0, fieldName + "_ERROR", "NOT_FOUND");
+                    return;
+                }
+                
+                string document = llJsonGetValue(firstResult, ["document"]);
+                if (document == JSON_INVALID) {
+                    llOwnerSay("[Firestore Bridge] ERROR: No document found in query result for field '" + fieldName + "'");
+                    llMessageLinked(senderLink, 0, fieldName + "_ERROR", "NO_DOCUMENT");
+                    return;
+                }
+                
+                string fields = llJsonGetValue(document, ["fields"]);
+                if (fields == JSON_INVALID) {
+                    llOwnerSay("[Firestore Bridge] ERROR: No fields found in document for field '" + fieldName + "'");
+                    llMessageLinked(senderLink, 0, fieldName + "_ERROR", "NO_FIELDS");
+                    return;
+                }
+                
+                // Extract the requested field (exactly like standalone)
+                string fieldData = llJsonGetValue(fields, [fieldName]);
+                
+                if (fieldData == JSON_INVALID || fieldData == "") {
+                    llOwnerSay("[Firestore Bridge] ERROR: Field '" + fieldName + "' not found in response");
+                    llOwnerSay("[Firestore Bridge] Fields preview: " + llGetSubString(fields, 0, 500));
+                    llMessageLinked(senderLink, 0, fieldName + "_ERROR", "FIELD_NOT_FOUND");
+                    return;
+                }
+                
+                // Extract value using extractFirestoreValue (same as standalone)
+                string value = extractFirestoreValue(fieldData);
+                
+                if (value != "" && value != JSON_INVALID) {
+                    // Send field value back to requesting script
+                    llMessageLinked(senderLink, 0, fieldName, value);
+                    llOwnerSay("[Firestore Bridge] ✓ SUCCESS! " + fieldName + " = " + llGetSubString(value, 0, 100));
                 } else {
-                    // Extract error message
-                    integer errorPos = llSubStringIndex(body, "\"error\":");
-                    if (errorPos != -1) {
-                        string afterError = llGetSubString(body, errorPos + 8, -1);
-                        integer errorQuote1 = llSubStringIndex(afterError, "\"");
-                        if (errorQuote1 != -1) {
-                            string afterErrorQuote1 = llGetSubString(afterError, errorQuote1 + 1, -1);
-                            integer errorQuote2 = llSubStringIndex(afterErrorQuote1, "\"");
-                            if (errorQuote2 != -1) {
-                                string error = llGetSubString(afterErrorQuote1, 0, errorQuote2 - 1);
-                                llOwnerSay("[Firestore Bridge] ERROR: " + error);
+                    llOwnerSay("[Firestore Bridge] ERROR: Could not extract value from field data for '" + fieldName + "'");
+                    llOwnerSay("[Firestore Bridge] Field data structure: " + llGetSubString(fieldData, 0, 200));
+                    llMessageLinked(senderLink, 0, fieldName + "_ERROR", "EXTRACTION_FAILED");
+                }
+            } else {
+                llOwnerSay("[Firestore Bridge] HTTP ERROR for field '" + fieldName + "': Status " + (string)status);
+                llOwnerSay("[Firestore Bridge] Response: " + llGetSubString(body, 0, 500));
+                llMessageLinked(senderLink, 0, fieldName + "_ERROR", "HTTP_" + (string)status);
+            }
+            return;
+        }
+        
+        // Check if this is the full character load
+        if (request_id == httpRequestId) {
+            if (status == 200) {
+                llOwnerSay("[Firestore Bridge] Full character load response received (length: " + (string)llStringLength(body) + ")");
+                
+                // Check if response was truncated (LSL HTTP limit is 2048 chars)
+                if (llStringLength(body) >= 2048) {
+                    llOwnerSay("[Firestore Bridge] WARNING: Response is truncated at 2048 characters!");
+                    llOwnerSay("[Firestore Bridge] Response ends with: " + llGetSubString(body, -200, -1));
+                    llOwnerSay("[Firestore Bridge] Full response is too large - consider requesting fewer fields or using individual field requests");
+                    // Try to parse what we have anyway - it might still be valid JSON up to the truncation point
+                }
+                
+                // Try to parse the response - even if truncated, we might be able to get some fields
+                // Navigate JSON: [0].document.fields
+                string firstResult = llJsonGetValue(body, [0]);
+                if (firstResult == JSON_INVALID) {
+                    llOwnerSay("[Firestore Bridge] ERROR: Could not parse response JSON for UUID: " + ownerUUID);
+                    llOwnerSay("[Firestore Bridge] Response starts with: " + llGetSubString(body, 0, 300));
+                    llOwnerSay("[Firestore Bridge] Response ends with: " + llGetSubString(body, -300, -1));
+                    // If response is truncated, fall back to individual field requests
+                    llOwnerSay("[Firestore Bridge] Falling back to individual field requests due to truncation");
+                    // Don't return - let the code continue to try individual requests
+                    // Actually, we can't do that here - we need to return and let Data Manager request fields individually
+                    return;
+                }
+                
+                string document = llJsonGetValue(firstResult, ["document"]);
+                if (document == JSON_INVALID) {
+                    llOwnerSay("[Firestore Bridge] ERROR: No document in query result");
+                    return;
+                }
+                
+                string fields = llJsonGetValue(document, ["fields"]);
+                if (fields == JSON_INVALID) {
+                    llOwnerSay("[Firestore Bridge] ERROR: No fields in document");
+                    return;
+                }
+                
+                // Full character load - extract all fields and send to Data Manager
+                string characterJson = "{";
+                integer firstField = TRUE;
+                
+                // List of fields to extract (only critical fields requested to avoid truncation)
+                list fieldNames = ["class_id", "stats", "health", "stamina", "mana", "xp_total"];
+                integer i;
+                for (i = 0; i < llGetListLength(fieldNames); i++) {
+                    string fieldName = llList2String(fieldNames, i);
+                    string fieldData = llJsonGetValue(fields, [fieldName]);
+                    
+                    if (fieldData != JSON_INVALID && fieldData != "") {
+                        // Extract value using helper function
+                        string value = extractFirestoreValue(fieldData);
+                        
+                        if (value != "") {
+                            if (!firstField) characterJson += ",";
+                            firstField = FALSE;
+                            
+                            // For complex objects (stats, health, etc.), don't add quotes
+                            if (llSubStringIndex(fieldData, "\"mapValue\"") != -1) {
+                                characterJson += "\"" + fieldName + "\":" + value;
+                            } else {
+                                characterJson += "\"" + fieldName + "\":\"" + value + "\"";
                             }
                         }
                     }
                 }
+                characterJson += "}";
+                
+                // Send to Data Manager (deprecated format - kept for backward compatibility)
+                // New code should use individual field requests instead
+                if (characterJson != "{}") {
+                    llMessageLinked(LINK_SET, 0, "CHARACTER_DATA", characterJson);
+                    llOwnerSay("[Firestore Bridge] Character data sent to Data Manager (deprecated full load format)");
+                } else {
+                    llOwnerSay("[Firestore Bridge] WARNING: No fields extracted from response");
+                }
             }
         } else {
             llOwnerSay("[Firestore Bridge] HTTP ERROR: Status " + (string)status);
-            llOwnerSay("[Firestore Bridge] Response: " + llGetSubString(body, 0, 500));
+            llOwnerSay("[Firestore Bridge] Response: " + llGetSubString(body, 0, 1000));
         }
     }
     
     attach(key id) {
         if (id != NULL_KEY) {
-            llSleep(1.0);
-            if (BACKEND_API_URL != "") {
-                authenticate();
-            }
-        }
-    }
-    
-    on_rez(integer start_param) {
-        llResetScript();
-    }
-    
-    changed(integer change) {
-        if (change & CHANGED_OWNER) {
-            llResetScript();
+            // Note: Character data loading is now handled by Data Manager via individual field requests
+            // No need to auto-load here - Data Manager will request fields as needed
         }
     }
 }
-

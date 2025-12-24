@@ -680,7 +680,7 @@ default {
             list mediaParams = llGetLinkPrimitiveParams(moapPrimLink, [PRIM_MEDIA_CURRENT_URL]);
             string currentUrl = llList2String(mediaParams, 0);
             
-            // Check for CHARACTER_DATA first (sent via char_data URL parameter)
+            // Check for CHARACTER_DATA (now in JSON format, sent via char_data URL parameter)
             integer charDataPos = llSubStringIndex(currentUrl, "char_data=");
             if (charDataPos != -1) {
                 // Extract CHARACTER_DATA from URL
@@ -690,10 +690,10 @@ default {
                 if (endPos == -1) endPos = llStringLength(dataPart);
                 string encodedData = llGetSubString(dataPart, 0, endPos - 1);
                 
-                // Decode and forward to Data Manager
+                // Decode JSON and forward to Data Manager
                 string charData = llUnescapeURL(encodedData);
                 if (charData != "") {
-                    llOwnerSay("[HUD] Received CHARACTER_DATA from MOAP, forwarding to Data Manager");
+                    llOwnerSay("[HUD] Received CHARACTER_DATA (JSON) from MOAP, forwarding to Data Manager");
                     llMessageLinked(LINK_SET, 0, "CHARACTER_DATA", charData);
                     
                     // Remove char_data from URL to prevent reprocessing
