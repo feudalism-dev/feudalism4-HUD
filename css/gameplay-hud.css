@@ -1,0 +1,228 @@
+/* ============================================================================
+   Feudalism 4 - Gameplay HUD Styles
+   Compact, real-time gameplay UI components
+   ============================================================================ */
+
+/* === CSS Variables === */
+:root {
+    --bg-dark: #1a1612;
+    --bg-medium: #2a2420;
+    --bg-light: #3a332c;
+    --text-primary: #e8dcc8;
+    --text-secondary: #a89880;
+    --crimson: #8b1a1a;
+    --crimson-light: #b32828;
+    --azure: #1a4a6b;
+    --azure-light: #2a7a8b;
+    --emerald: #1a6b4a;
+    --emerald-light: #28a06b;
+    --gold: #c9a227;
+    --border-color: #4a4238;
+    --shadow-color: rgba(0, 0, 0, 0.5);
+}
+
+/* === Reset === */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: transparent;
+    color: var(--text-primary);
+    overflow: hidden;
+}
+
+/* === Resource Meters Component === */
+#component-meters {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 8px;
+    background: rgba(26, 22, 18, 0.8);
+    border-radius: 8px;
+    min-height: 64px;
+}
+
+.resource-meter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.resource-meter-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.resource-sphere {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid var(--border-color);
+    background: linear-gradient(135deg, 
+        rgba(255, 255, 255, 0.1) 0%, 
+        rgba(0, 0, 0, 0.2) 100%);
+    box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.3),
+        0 2px 4px rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+}
+
+.resource-liquid {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    transition: height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 0 0 50% 50%;
+}
+
+.resource-liquid.health {
+    background: linear-gradient(180deg, var(--crimson-light) 0%, var(--crimson) 100%);
+}
+
+.resource-liquid.stamina {
+    background: linear-gradient(180deg, var(--azure-light) 0%, var(--azure) 100%);
+}
+
+.resource-liquid.mana {
+    background: linear-gradient(180deg, var(--emerald-light) 0%, var(--emerald) 100%);
+}
+
+.resource-value {
+    font-size: 9px;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* === Action Bar Component === */
+#component-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    background: rgba(26, 22, 18, 0.8);
+    border-radius: 8px;
+    min-height: 80px;
+    flex-wrap: wrap;
+}
+
+.action-slot {
+    width: 56px;
+    height: 56px;
+    background: var(--bg-light);
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.action-slot:hover {
+    border-color: var(--gold);
+    transform: translateY(-2px);
+}
+
+.action-slot.empty {
+    border-style: dashed;
+    opacity: 0.5;
+}
+
+.action-slot.empty::before {
+    content: '+';
+    font-size: 24px;
+    color: var(--text-secondary);
+}
+
+.action-slot-icon {
+    font-size: 24px;
+    margin-bottom: 2px;
+}
+
+.action-slot-name {
+    font-size: 8px;
+    text-align: center;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+    padding: 0 2px;
+}
+
+.action-btn {
+    padding: 6px 12px;
+    background: var(--bg-light);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+    background: var(--bg-medium);
+    border-color: var(--gold);
+}
+
+/* === Status Bar Component === */
+#component-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(26, 22, 18, 0.8);
+    border-radius: 4px;
+    min-width: 128px;
+}
+
+.xp-progress {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-light);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.xp-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 100%);
+    transition: width 0.3s ease;
+}
+
+.status-text {
+    font-size: 9px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* === Responsive Adjustments === */
+@media (max-width: 300px) {
+    /* Vertical layout adjustments */
+    #component-meters {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    #component-actions {
+        flex-direction: column;
+    }
+}
+
