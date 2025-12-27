@@ -265,19 +265,28 @@ const API = {
                 console.log('[listCharacters] Query with orderBy succeeded');
             } catch (orderByError) {
                 // If orderBy fails (likely missing index), try without it
-                if (orderByError.code === 'failed-precondition' || orderByError.message.includes('index')) {
-                    console.warn('[listCharacters] orderBy failed (missing index), trying without orderBy:', orderByError.message);
+                // Check error code or message for index-related errors
+                const errorMessage = orderByError.message || String(orderByError);
+                const isIndexError = orderByError.code === 'failed-precondition' || 
+                                    errorMessage.includes('index') || 
+                                    errorMessage.includes('Index') ||
+                                    errorMessage.includes('requires an index');
+                
+                if (isIndexError) {
+                    console.warn('[listCharacters] orderBy failed (missing index), trying without orderBy. Error:', errorMessage);
                     try {
                         snapshot = await db.collection('characters')
                             .where('owner_uuid', '==', this.uuid)
                             .get();
-                        console.log('[listCharacters] Query without orderBy succeeded');
+                        usedOrderBy = false;
+                        console.log('[listCharacters] Fallback query without orderBy succeeded');
                     } catch (fallbackError) {
                         console.error('[listCharacters] Fallback query also failed:', fallbackError);
                         throw fallbackError;
                     }
                 } else {
                     // Some other error, re-throw it
+                    console.error('[listCharacters] orderBy failed with non-index error:', orderByError);
                     throw orderByError;
                 }
             }
