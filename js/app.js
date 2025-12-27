@@ -470,36 +470,37 @@ try {
                         } else {
                             this.state.character = character;
                             this.state.isNewCharacter = false;
-                        
-                        // Ensure resource pools are properly structured
-                        if (!this.state.character.health || typeof this.state.character.health !== 'object') {
-                            this.state.character.health = { current: 100, base: 100, max: 100 };
+                            
+                            // Ensure resource pools are properly structured
+                            if (!this.state.character.health || typeof this.state.character.health !== 'object') {
+                                this.state.character.health = { current: 100, base: 100, max: 100 };
+                            }
+                            if (!this.state.character.stamina || typeof this.state.character.stamina !== 'object') {
+                                this.state.character.stamina = { current: 100, base: 100, max: 100 };
+                            }
+                            if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
+                                this.state.character.mana = { current: 50, base: 50, max: 50 };
+                            }
+                            
+                            // Initialize action_slots if missing
+                            if (!this.state.character.action_slots) {
+                                this.state.character.action_slots = [];
+                            }
+                            
+                            // Initialize mode if missing
+                            if (!this.state.character.mode) {
+                                this.state.character.mode = 'roleplay';
+                            }
+                            
+                            // Recalculate resource pools to ensure they're correct
+                            this.recalculateResourcePools();
+                            
+                            console.log('Character loaded:', this.state.character);
+                            
+                            // Broadcast character data to Players HUD via Setup HUD
+                            // This happens automatically when character loads
+                            this.broadcastCharacterToPlayersHUD(this.state.character);
                         }
-                        if (!this.state.character.stamina || typeof this.state.character.stamina !== 'object') {
-                            this.state.character.stamina = { current: 100, base: 100, max: 100 };
-                        }
-                        if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
-                            this.state.character.mana = { current: 50, base: 50, max: 50 };
-                        }
-                        
-                        // Initialize action_slots if missing
-                        if (!this.state.character.action_slots) {
-                            this.state.character.action_slots = [];
-                        }
-                        
-                        // Initialize mode if missing
-                        if (!this.state.character.mode) {
-                            this.state.character.mode = 'roleplay';
-                        }
-                        
-                        // Recalculate resource pools to ensure they're correct
-                        this.recalculateResourcePools();
-                        
-                        console.log('Character loaded:', this.state.character);
-                        
-                        // Broadcast character data to Players HUD via Setup HUD
-                        // This happens automatically when character loads
-                        this.broadcastCharacterToPlayersHUD(this.state.character);
                     }
                 } else {
                     // No character found - ready for creation
