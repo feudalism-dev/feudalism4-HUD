@@ -793,6 +793,12 @@ try {
         UI.renderXPProgress(char);
         UI.renderActionSlots(char);
         
+        // Load and render inventory if inventory tab is active
+        const inventoryTab = document.getElementById('tab-inventory');
+        if (inventoryTab && inventoryTab.classList.contains('active')) {
+            await this.loadInventory();
+        }
+        
         // Update active mode button in Options tab
         const currentMode = char?.mode || 'roleplay';
         document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -805,6 +811,34 @@ try {
             UI.elements.charTitle.value = char.title || '';
             UI.selectGender(char.gender || 'unspecified');
             UI.elements.currencyAmount.textContent = char.currency || 0;
+        }
+    },
+    
+    /**
+     * Load and display inventory (read-only)
+     */
+    async loadInventory() {
+        try {
+            console.log('[loadInventory] Calling API.getInventory()...');
+            const result = await API.getInventory();
+            console.log('[loadInventory] Result:', result);
+            if (result.success) {
+                console.log('[loadInventory] Success! Inventory data:', result.data);
+                console.log('[loadInventory] Inventory object:', result.data.inventory);
+                console.log('[loadInventory] Inventory type:', typeof result.data.inventory);
+                console.log('[loadInventory] Inventory keys:', Object.keys(result.data.inventory || {}));
+                UI.renderInventory(result.data.inventory);
+            } else {
+                console.error('[loadInventory] Failed to load inventory:', result.error);
+                if (UI.elements.inventoryGrid) {
+                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Failed to load inventory: ' + result.error + '</p>';
+                }
+            }
+        } catch (error) {
+            console.error('[loadInventory] Error loading inventory:', error);
+            if (UI.elements.inventoryGrid) {
+                UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Error loading inventory</p>';
+            }
         }
     },
     

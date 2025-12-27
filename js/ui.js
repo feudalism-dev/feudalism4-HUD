@@ -167,6 +167,11 @@ const UI = {
         this.elements.tabContents.forEach(content => {
             content.classList.toggle('active', content.id === `tab-${tabId}`);
         });
+        
+        // Load inventory when inventory tab is shown
+        if (tabId === 'inventory' && typeof App !== 'undefined' && App.loadInventory) {
+            App.loadInventory();
+        }
     },
     
     /**
@@ -1451,6 +1456,52 @@ const UI = {
                 clearInterval(cooldownInterval);
             }
         }, 1000);
+    },
+    
+    // =========================== INVENTORY DISPLAY ========================
+    
+    /**
+     * Render inventory list (read-only)
+     * @param {Object} inventory - Inventory object {itemName: quantity}
+     */
+    renderInventory(inventory) {
+        if (!this.elements.inventoryGrid) {
+            console.warn('[renderInventory] Inventory grid element not found');
+            return;
+        }
+        
+        console.log('[renderInventory] Received inventory:', inventory);
+        console.log('[renderInventory] Inventory type:', typeof inventory);
+        console.log('[renderInventory] Inventory is array?', Array.isArray(inventory));
+        console.log('[renderInventory] Inventory keys:', inventory ? Object.keys(inventory) : 'null/undefined');
+        
+        if (!inventory || Object.keys(inventory).length === 0) {
+            console.log('[renderInventory] Inventory is empty or null');
+            this.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Your inventory is empty...</p>';
+            return;
+        }
+        
+        // Sort items alphabetically by name
+        const items = Object.entries(inventory)
+            .map(([name, quantity]) => ({ name, quantity }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        
+        // Build simple list HTML
+        let html = '<div style="display: flex; flex-direction: column; gap: var(--space-xs);">';
+        html += '<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); padding: var(--space-sm); background: var(--bg-medium); border-radius: 4px; font-weight: bold; border-bottom: 2px solid var(--border-color);">';
+        html += '<div>Item</div>';
+        html += '<div style="text-align: right;">Quantity</div>';
+        html += '</div>';
+        
+        items.forEach(item => {
+            html += `<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); padding: var(--space-sm); border-bottom: 1px solid var(--border-color);">`;
+            html += `<div style="word-break: break-word;">${item.name}</div>`;
+            html += `<div style="text-align: right; font-weight: 500;">${item.quantity}</div>`;
+            html += `</div>`;
+        });
+        
+        html += '</div>';
+        this.elements.inventoryGrid.innerHTML = html;
     }
 };
 

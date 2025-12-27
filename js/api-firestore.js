@@ -2096,6 +2096,126 @@ const API = {
             console.error('ensureDefaultUniverse error:', error);
             return { success: false, error: error.message };
         }
+    },
+    
+    // =========================== INVENTORY API (READ-ONLY) =====================
+    // Note: Inventory modifications are done via LSL → Firestore REST API
+    // JS functions here are read-only for display in Setup HUD
+    
+    /**
+     * Get full inventory as {itemName: quantity} map
+     * Returns empty object if inventory doesn't exist
+     */
+    async getInventory() {
+        if (!this.uuid) {
+            console.error('[getInventory] No UUID - access denied');
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            console.log('[getInventory] Reading from users collection, UUID:', this.uuid);
+            const userDoc = await db.collection('users').doc(this.uuid).get();
+            
+            if (!userDoc.exists) {
+                console.log('[getInventory] User document does not exist');
+                return { success: true, data: { inventory: {} } };
+            }
+            
+            const userData = userDoc.data();
+            console.log('[getInventory] User data keys:', Object.keys(userData || {}));
+            console.log('[getInventory] User data:', userData);
+            console.log('[getInventory] Inventory field:', userData?.inventory);
+            console.log('[getInventory] Inventory field type:', typeof userData?.inventory);
+            
+            // Get inventory - Firebase JS SDK automatically converts mapValue to plain object
+            let inventory = userData?.inventory || {};
+            
+            // Safety check: if inventory is null/undefined, use empty object
+            if (!inventory || typeof inventory !== 'object') {
+                console.warn('[getInventory] Inventory is not an object, using empty object');
+                inventory = {};
+            }
+            
+            // If inventory is an array (shouldn't happen), convert to object
+            if (Array.isArray(inventory)) {
+                console.warn('[getInventory] Inventory is an array, converting to object');
+                inventory = {};
+            }
+            
+            console.log('[getInventory] Final inventory:', inventory);
+            console.log('[getInventory] Inventory keys:', Object.keys(inventory));
+            console.log('[getInventory] Inventory entries:', Object.entries(inventory));
+            console.log('[getInventory] Inventory banana value:', inventory.banana);
+            
+            return { success: true, data: { inventory } };
+        } catch (error) {
+            console.error('getInventory error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get quantity of a specific item
+     * @param {string} name - Item name (will be normalized to lowercase)
+     */
+    async getItemQuantity(name) {
+        if (!name || typeof name !== 'string') {
+            return { success: false, error: 'Invalid item name' };
+        }
+        
+        const normalizedName = name.toLowerCase().trim();
+        const inventoryResult = await this.getInventory();
+        
+        if (!inventoryResult.success) {
+            return inventoryResult;
+        }
+        
+        const quantity = inventoryResult.data.inventory[normalizedName] || 0;
+        return { success: true, data: { quantity } };
+    },
+    
+    /**
+     * Check if required items are available
+     * @param {Array<{name: string, qty: number}>} items - Array of {name, qty} objects
+     * @returns {Promise<{success: boolean, data?: {allAvailable: boolean, missing?: Array}, error?: string}>}
+     */
+    async checkItems(items) {
+        if (!Array.isArray(items)) {
+            return { success: false, error: 'Items must be an array' };
+        }
+        
+        const inventoryResult = await this.getInventory();
+        if (!inventoryResult.success) {
+            return inventoryResult;
+        }
+        
+        const inventory = inventoryResult.data.inventory;
+        const missing = [];
+        
+        for (const item of items) {
+            if (!item.name || typeof item.qty !== 'number') {
+                return { success: false, error: 'Invalid item format - must have name (string) and qty (number)' };
+            }
+            
+            const normalizedName = item.name.toLowerCase().trim();
+            const available = inventory[normalizedName] || 0;
+            
+            if (available < item.qty) {
+                missing.push({
+                    name: normalizedName,
+                    required: item.qty,
+                    available: available
+                });
+            }
+        }
+        
+        return {
+            success: true,
+            data: {
+                allAvailable: missing.length === 0,
+                missing: missing.length > 0 ? missing : undefined
+            }
+        };
     }
 };
 
