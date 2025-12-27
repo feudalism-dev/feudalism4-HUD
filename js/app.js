@@ -1132,11 +1132,7 @@ try {
             this.showNewCharacterDialog();
         });
         
-        // Open in Browser link
-        document.getElementById('open-in-browser-link')?.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.openInBrowser();
-        });
+        // Open in Browser link - no event listener needed, target="_blank" handles it
         
         // New Character button (old location - keep for compatibility)
         document.getElementById('btn-new-character')?.addEventListener('click', () => {

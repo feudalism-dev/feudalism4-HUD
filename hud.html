@@ -25,7 +25,7 @@
                 <h1 class="brand-title">Feudalism 4 Setup</h1>
             </div>
             <div class="header-info">
-                <a id="open-in-browser-link" href="#" style="display: none; margin-right: var(--space-md); padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); text-decoration: none; font-size: 0.9em; transition: all 0.2s ease;" title="Open Setup HUD in external browser">🌐 Open in Browser</a>
+                <a id="open-in-browser-link" href="#" target="_blank" rel="noopener noreferrer" style="display: none; margin-right: var(--space-md); padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); text-decoration: none; font-size: 0.9em; transition: all 0.2s ease;" title="Open Setup HUD in external browser">🌐 Open in Browser</a>
                 <span id="user-role" class="role-badge">Player</span>
                 <span id="connection-status" class="status-dot online"></span>
             </div>
@@ -437,7 +437,7 @@
     <script>
         window.simpleDebug('About to load app.js', 'info');
     </script>
-    <script src="js/app.js?v=42" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
+    <script src="js/app.js?v=43" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
     <script>
         window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
         // Try to call init after a short delay
