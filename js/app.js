@@ -1528,6 +1528,17 @@ try {
                     has_mana: hasMana
                 });
                 
+                if (!result.success) {
+                    UI.showToast('Failed to create character: ' + (result.error || 'Unknown error'), 'error');
+                    return;
+                }
+                
+                if (!result.data || !result.data.character) {
+                    UI.showToast('Failed to create character: Invalid response from server', 'error');
+                    console.error('createCharacter returned success but no character data:', result);
+                    return;
+                }
+                
                 this.state.character = result.data.character;
                 this.state.isNewCharacter = false;
                 UI.showToast('Character created!', 'success');
@@ -1553,6 +1564,17 @@ try {
                     stats: char.stats,
                     class_id: classId
                 });
+                
+                if (!result.success) {
+                    UI.showToast('Failed to update character: ' + (result.error || 'Unknown error'), 'error');
+                    return;
+                }
+                
+                if (!result.data || !result.data.character) {
+                    UI.showToast('Failed to update character: Invalid response from server', 'error');
+                    console.error('updateCharacter returned success but no character data:', result);
+                    return;
+                }
                 
                 this.state.character = result.data.character;
                 // Update currentClass after save to ensure it's in sync
