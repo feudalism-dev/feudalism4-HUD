@@ -237,6 +237,9 @@ try {
         this.lsl.channel = API.hudChannel;
         this.lsl.connected = !!API.uuid;
         
+        // Setup "Open in Browser" link
+        this.setupOpenInBrowserLink();
+        
         // Initialize super admin if this is the super admin UUID
         if (API.uuid === API.SUPER_ADMIN_UUID) {
             await API.initializeSuperAdmin();
