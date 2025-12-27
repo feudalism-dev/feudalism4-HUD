@@ -2247,7 +2247,8 @@ const API = {
     /**
      * Get full inventory as {itemName: quantity} map for a specific universe
      * Returns empty object if inventory doesn't exist
-     * @param {string} universeId - The universe ID to get inventory for
+     * Filters items by universe_id - only returns items for the specified universe
+     * @param {string} universeId - The universe ID to filter inventory by
      */
     async getInventory(universeId = 'default') {
         if (!this.uuid) {
@@ -2261,7 +2262,7 @@ const API = {
         }
         
         try {
-            console.log('[getInventory] Reading from users collection, UUID:', this.uuid, 'Universe:', universeId);
+            console.log('[getInventory] Reading from users collection, UUID:', this.uuid, 'Filtering by Universe:', universeId);
             const userDoc = await db.collection('users').doc(this.uuid).get();
             
             if (!userDoc.exists) {
@@ -2271,26 +2272,45 @@ const API = {
             
             const userData = userDoc.data();
             
-            // Get inventory for this specific universe: inventory.{universeId}
-            // Firebase JS SDK automatically converts mapValue to plain object
-            let inventory = userData?.inventory?.[universeId] || {};
+            // Get full inventory (all items for all universes)
+            let fullInventory = userData?.inventory || {};
             
             // Safety check: if inventory is null/undefined, use empty object
-            if (!inventory || typeof inventory !== 'object') {
+            if (!fullInventory || typeof fullInventory !== 'object') {
                 console.warn('[getInventory] Inventory is not an object, using empty object');
-                inventory = {};
+                fullInventory = {};
             }
             
             // If inventory is an array (shouldn't happen), convert to object
-            if (Array.isArray(inventory)) {
+            if (Array.isArray(fullInventory)) {
                 console.warn('[getInventory] Inventory is an array, converting to object');
-                inventory = {};
+                fullInventory = {};
             }
             
-            console.log('[getInventory] Final inventory for universe', universeId + ':', inventory);
-            console.log('[getInventory] Inventory keys:', Object.keys(inventory));
+            // Filter inventory to only include items for this universe
+            // Structure: {itemName: {universe1: qty1, universe2: qty2, ...}}
+            // OR legacy: {itemName: quantity} (migrate on access)
+            const filteredInventory = {};
+            for (const [itemName, itemData] of Object.entries(fullInventory)) {
+                if (typeof itemData === 'number' || typeof itemData === 'string') {
+                    // Legacy format: simple quantity - migrate to universe structure
+                    // For now, only include if universe is "default" (assume legacy items are default)
+                    if (universeId === 'default') {
+                        filteredInventory[itemName] = typeof itemData === 'number' ? itemData : parseInt(itemData) || 0;
+                    }
+                } else if (itemData && typeof itemData === 'object') {
+                    // New format: {universe1: qty1, universe2: qty2, ...}
+                    if (itemData[universeId] !== undefined) {
+                        filteredInventory[itemName] = itemData[universeId];
+                    }
+                }
+            }
             
-            return { success: true, data: { inventory } };
+            console.log('[getInventory] Full inventory items:', Object.keys(fullInventory).length);
+            console.log('[getInventory] Filtered inventory for universe', universeId + ':', Object.keys(filteredInventory).length, 'items');
+            console.log('[getInventory] Filtered inventory:', filteredInventory);
+            
+            return { success: true, data: { inventory: filteredInventory } };
         } catch (error) {
             console.error('getInventory error:', error);
             return { success: false, error: error.message };
