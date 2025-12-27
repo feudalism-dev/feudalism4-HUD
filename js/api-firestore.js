@@ -422,10 +422,14 @@ const API = {
             
             const docRef = await db.collection('characters').add(character);
             
+            // Fetch the created document to get actual server timestamp values
+            const createdDoc = await docRef.get();
+            const createdCharacter = { id: createdDoc.id, ...createdDoc.data() };
+            
             return { 
                 success: true, 
                 data: { 
-                    character: { id: docRef.id, ...character },
+                    character: createdCharacter,
                     message: 'Character created!' 
                 } 
             };

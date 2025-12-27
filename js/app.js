@@ -1514,6 +1514,16 @@ try {
                 const hasMana = universe.manaEnabled && species && App.rollManaChance(species);
                 
                 // Create new character
+                console.log('[saveCharacter] Creating new character with data:', {
+                    name: char.name,
+                    title: char.title,
+                    gender: char.gender,
+                    species_id: char.species_id,
+                    class_id: char.class_id,
+                    universe_id: this.state.selectedUniverseId,
+                    has_mana: hasMana
+                });
+                
                 const result = await API.createCharacter({
                     name: char.name,
                     title: char.title,
@@ -1524,14 +1534,29 @@ try {
                     has_mana: hasMana
                 });
                 
-                if (!result.success) {
-                    UI.showToast('Failed to create character: ' + (result.error || 'Unknown error'), 'error');
+                console.log('[saveCharacter] createCharacter result:', result);
+                
+                if (!result) {
+                    UI.showToast('Failed to create character: No response from server', 'error');
+                    console.error('[saveCharacter] createCharacter returned null/undefined');
                     return;
                 }
                 
-                if (!result.data || !result.data.character) {
-                    UI.showToast('Failed to create character: Invalid response from server', 'error');
-                    console.error('createCharacter returned success but no character data:', result);
+                if (!result.success) {
+                    UI.showToast('Failed to create character: ' + (result.error || 'Unknown error'), 'error');
+                    console.error('[saveCharacter] createCharacter failed:', result.error);
+                    return;
+                }
+                
+                if (!result.data) {
+                    UI.showToast('Failed to create character: Invalid response from server (no data)', 'error');
+                    console.error('[saveCharacter] createCharacter returned success but no data:', result);
+                    return;
+                }
+                
+                if (!result.data.character) {
+                    UI.showToast('Failed to create character: Invalid response from server (no character)', 'error');
+                    console.error('[saveCharacter] createCharacter returned success but no character:', result);
                     return;
                 }
                 
@@ -1553,6 +1578,14 @@ try {
                     console.log('[Save] Saving class_id: ' + classId);
                 }
                 
+                console.log('[saveCharacter] Updating character with data:', {
+                    name: char.name,
+                    title: char.title,
+                    gender: char.gender,
+                    stats: char.stats,
+                    class_id: classId
+                });
+                
                 const result = await API.updateCharacter({
                     name: char.name,
                     title: char.title,
@@ -1561,14 +1594,29 @@ try {
                     class_id: classId
                 });
                 
-                if (!result.success) {
-                    UI.showToast('Failed to update character: ' + (result.error || 'Unknown error'), 'error');
+                console.log('[saveCharacter] updateCharacter result:', result);
+                
+                if (!result) {
+                    UI.showToast('Failed to update character: No response from server', 'error');
+                    console.error('[saveCharacter] updateCharacter returned null/undefined');
                     return;
                 }
                 
-                if (!result.data || !result.data.character) {
-                    UI.showToast('Failed to update character: Invalid response from server', 'error');
-                    console.error('updateCharacter returned success but no character data:', result);
+                if (!result.success) {
+                    UI.showToast('Failed to update character: ' + (result.error || 'Unknown error'), 'error');
+                    console.error('[saveCharacter] updateCharacter failed:', result.error);
+                    return;
+                }
+                
+                if (!result.data) {
+                    UI.showToast('Failed to update character: Invalid response from server (no data)', 'error');
+                    console.error('[saveCharacter] updateCharacter returned success but no data:', result);
+                    return;
+                }
+                
+                if (!result.data.character) {
+                    UI.showToast('Failed to update character: Invalid response from server (no character)', 'error');
+                    console.error('[saveCharacter] updateCharacter returned success but no character:', result);
                     return;
                 }
                 
