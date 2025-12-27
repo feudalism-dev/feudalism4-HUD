@@ -455,8 +455,20 @@ try {
             // Try to load existing characters
             // SECURITY: listCharacters() validates owner_uuid matches API.uuid
             try {
+                console.log('[loadData] Loading characters for UUID:', API.uuid);
                 const charsResult = await API.listCharacters();
-                if (charsResult.success && charsResult.data.characters.length > 0) {
+                console.log('[loadData] listCharacters result:', charsResult);
+                
+                if (!charsResult.success) {
+                    console.error('[loadData] listCharacters failed:', charsResult.error);
+                    UI.showToast('Failed to load characters: ' + (charsResult.error || 'Unknown error'), 'error');
+                    this.state.character = null;
+                    this.state.isNewCharacter = true;
+                    return;
+                }
+                
+                if (charsResult.data && charsResult.data.characters && charsResult.data.characters.length > 0) {
+                    console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
                     const characters = charsResult.data.characters;
                     
                     // If user has multiple characters, show selector
@@ -514,15 +526,35 @@ try {
                     }
                 } else {
                     // No character found - ready for creation
+                    console.log('[loadData] No characters found in result. charsResult.data:', charsResult.data);
                     this.state.character = null;
                     this.state.isNewCharacter = true;
                     console.log('No existing character, ready for creation');
                 }
             } catch (error) {
-                // No character exists, prepare for creation
-                console.log('No existing character, ready for creation');
-                this.state.isNewCharacter = true;
-                this.state.character = this.createDefaultCharacter();
+                // Error loading characters - log it but don't assume no character exists
+                console.error('[loadData] Error loading characters:', error);
+                console.error('[loadData] Error stack:', error.stack);
+                UI.showToast('Error loading character data: ' + error.message, 'error');
+                // Don't set isNewCharacter = true here - let the user try to refresh
+                // Instead, try to load using getCharacter() as fallback
+                try {
+                    console.log('[loadData] Trying fallback: getCharacter()');
+                    const fallbackResult = await API.getCharacter();
+                    if (fallbackResult.success && fallbackResult.data.character) {
+                        console.log('[loadData] Fallback getCharacter() succeeded');
+                        this.state.character = fallbackResult.data.character;
+                        this.state.isNewCharacter = false;
+                    } else {
+                        console.log('[loadData] Fallback getCharacter() failed:', fallbackResult.error);
+                        this.state.character = null;
+                        this.state.isNewCharacter = true;
+                    }
+                } catch (fallbackError) {
+                    console.error('[loadData] Fallback getCharacter() also failed:', fallbackError);
+                    this.state.character = null;
+                    this.state.isNewCharacter = true;
+                }
             }
             
             // Render UI
