@@ -715,6 +715,13 @@ input::placeholder {
     gap: var(--space-sm);
 }
 
+/* Override grid layout when using list-based inventory container */
+.inventory-container {
+    grid-column: 1 / -1; /* Span all columns */
+    width: 100%;
+    max-width: 100%;
+}
+
 .inventory-slot {
     aspect-ratio: 1;
     background: var(--bg-dark);
@@ -745,6 +752,9 @@ input::placeholder {
     border-radius: 8px;
     overflow: hidden;
     border: 1px solid var(--border-color);
+    width: 100%;
+    max-width: 100%;
+    grid-column: 1 / -1; /* Span all columns in parent grid */
 }
 
 .inventory-header {
@@ -770,6 +780,8 @@ input::placeholder {
     transition: background-color 0.2s ease;
     min-height: 44px;
     align-items: center;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .inventory-row:hover {
@@ -788,6 +800,9 @@ input::placeholder {
     hyphens: auto;
     min-width: 0; /* Allows text to wrap properly */
     text-transform: capitalize;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .inventory-quantity {
