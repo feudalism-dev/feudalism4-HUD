@@ -246,6 +246,12 @@ try {
             console.log('Super Admin initialized');
         }
         
+        // Update displayName from user document if available (syncUser() may have updated it)
+        if (API.user && API.user.display_name) {
+            this.lsl.displayName = API.user.display_name;
+            API.displayName = API.user.display_name;
+        }
+        
         // Update header with player name
         this.updatePlayerInfo();
         

@@ -92,6 +92,11 @@ const API = {
             
             this.role = this.user.role || 'player';
             
+            // Update displayName from user document if available (prefer Firestore over URL param)
+            if (this.user.display_name) {
+                this.displayName = this.user.display_name;
+            }
+            
             // Update last login and refresh name from LSL
             await userRef.update({
                 last_login: firebase.firestore.FieldValue.serverTimestamp(),
@@ -116,6 +121,7 @@ const API = {
             await userRef.set(newUser);
             this.user = newUser;
             this.role = isSuperAdmin ? 'sys_admin' : 'player';
+            // For new users, displayName is already set from URL params or default
         }
         
         console.log('User synced:', this.role, '- Display:', this.displayName, isSuperAdmin ? '(Super Admin)' : '');
