@@ -720,6 +720,7 @@ input::placeholder {
     grid-column: 1 / -1; /* Span all columns */
     width: 100%;
     max-width: 100%;
+    min-width: 100%;
 }
 
 .inventory-slot {
@@ -754,7 +755,9 @@ input::placeholder {
     border: 1px solid var(--border-color);
     width: 100%;
     max-width: 100%;
+    min-width: 100%;
     grid-column: 1 / -1; /* Span all columns in parent grid */
+    box-sizing: border-box;
 }
 
 .inventory-header {
