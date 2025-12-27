@@ -70,6 +70,8 @@ const API = {
     async syncUser() {
         if (!this.uuid) return;
         
+        // IMPORTANT: UUID is the unique identifier - used as the Firestore document ID
+        // Display name is ONLY for UI display purposes, never used for identification
         const userRef = db.collection('users').doc(this.uuid);
         const userDoc = await userRef.get();
         
@@ -92,7 +94,7 @@ const API = {
             
             this.role = this.user.role || 'player';
             
-            // Update displayName from user document if available (prefer Firestore over URL param)
+            // Update displayName from user document if available (UI display only, not used for identification)
             if (this.user.display_name) {
                 this.displayName = this.user.display_name;
             }

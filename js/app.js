@@ -231,9 +231,10 @@ try {
         }
         
         // Store LSL data for quick access
+        // NOTE: UUID is the unique identifier - all queries and security checks use UUID, not displayName
         this.lsl.uuid = API.uuid;
         this.lsl.username = API.username;
-        this.lsl.displayName = API.displayName;
+        this.lsl.displayName = API.displayName; // Display name is UI-only, never used for identification
         this.lsl.channel = API.hudChannel;
         this.lsl.connected = !!API.uuid;
         
@@ -246,7 +247,7 @@ try {
             console.log('Super Admin initialized');
         }
         
-        // Update displayName from user document if available (syncUser() may have updated it)
+        // Update displayName from user document if available (UI display only, syncUser() may have updated it)
         if (API.user && API.user.display_name) {
             this.lsl.displayName = API.user.display_name;
             API.displayName = API.user.display_name;
