@@ -1061,12 +1061,23 @@ try {
     },
     
     /**
-     * Load and display inventory (read-only)
+     * Load and display inventory (read-only) for the current character's universe
      */
     async loadInventory() {
         try {
-            console.log('[loadInventory] Calling API.getInventory()...');
-            const result = await API.getInventory();
+            // Get universe_id from current character, or use selectedUniverseId for new characters
+            const universeId = this.state.character?.universe_id || this.state.selectedUniverseId || 'default';
+            
+            if (!universeId) {
+                console.error('[loadInventory] No universe ID available');
+                if (UI.elements.inventoryGrid) {
+                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">No universe selected</p>';
+                }
+                return;
+            }
+            
+            console.log('[loadInventory] Calling API.getInventory() for universe:', universeId);
+            const result = await API.getInventory(universeId);
             console.log('[loadInventory] Result:', result);
             if (result.success) {
                 console.log('[loadInventory] Success! Inventory data:', result.data);

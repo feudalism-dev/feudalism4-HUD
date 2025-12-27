@@ -2245,17 +2245,23 @@ const API = {
     // JS functions here are read-only for display in Setup HUD
     
     /**
-     * Get full inventory as {itemName: quantity} map
+     * Get full inventory as {itemName: quantity} map for a specific universe
      * Returns empty object if inventory doesn't exist
+     * @param {string} universeId - The universe ID to get inventory for
      */
-    async getInventory() {
+    async getInventory(universeId = 'default') {
         if (!this.uuid) {
             console.error('[getInventory] No UUID - access denied');
             return { success: false, error: 'No UUID - access denied' };
         }
         
+        if (!universeId) {
+            console.error('[getInventory] No universeId provided');
+            return { success: false, error: 'No universeId provided' };
+        }
+        
         try {
-            console.log('[getInventory] Reading from users collection, UUID:', this.uuid);
+            console.log('[getInventory] Reading from users collection, UUID:', this.uuid, 'Universe:', universeId);
             const userDoc = await db.collection('users').doc(this.uuid).get();
             
             if (!userDoc.exists) {
@@ -2264,13 +2270,10 @@ const API = {
             }
             
             const userData = userDoc.data();
-            console.log('[getInventory] User data keys:', Object.keys(userData || {}));
-            console.log('[getInventory] User data:', userData);
-            console.log('[getInventory] Inventory field:', userData?.inventory);
-            console.log('[getInventory] Inventory field type:', typeof userData?.inventory);
             
-            // Get inventory - Firebase JS SDK automatically converts mapValue to plain object
-            let inventory = userData?.inventory || {};
+            // Get inventory for this specific universe: inventory.{universeId}
+            // Firebase JS SDK automatically converts mapValue to plain object
+            let inventory = userData?.inventory?.[universeId] || {};
             
             // Safety check: if inventory is null/undefined, use empty object
             if (!inventory || typeof inventory !== 'object') {
@@ -2284,10 +2287,8 @@ const API = {
                 inventory = {};
             }
             
-            console.log('[getInventory] Final inventory:', inventory);
+            console.log('[getInventory] Final inventory for universe', universeId + ':', inventory);
             console.log('[getInventory] Inventory keys:', Object.keys(inventory));
-            console.log('[getInventory] Inventory entries:', Object.entries(inventory));
-            console.log('[getInventory] Inventory banana value:', inventory.banana);
             
             return { success: true, data: { inventory } };
         } catch (error) {
