@@ -32,12 +32,22 @@
 
         <!-- Navigation Tabs -->
         <nav class="tab-nav">
-            <button class="tab-btn active" data-tab="character">Character</button>
-            <button class="tab-btn" data-tab="stats">Stats</button>
-            <button class="tab-btn" data-tab="career">Career</button>
-            <button class="tab-btn" data-tab="inventory">Inventory</button>
-            <button class="tab-btn" data-tab="options">Options</button>
-            <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+            <div style="display: flex; align-items: center; gap: var(--space-sm); flex: 1;">
+                <button class="tab-btn active" data-tab="character">Character</button>
+                <button class="tab-btn" data-tab="stats">Stats</button>
+                <button class="tab-btn" data-tab="career">Career</button>
+                <button class="tab-btn" data-tab="inventory">Inventory</button>
+                <button class="tab-btn" data-tab="options">Options</button>
+                <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                <!-- Character Selector (shown when user has multiple characters) -->
+                <select id="character-selector" style="display: none; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 0.9em;">
+                    <option value="">Loading characters...</option>
+                </select>
+                <!-- New Character Button -->
+                <button id="btn-new-character-nav" class="tab-btn" style="background: var(--gold-dark); color: var(--bg-dark); font-weight: bold;">🆕 New Character</button>
+            </div>
         </nav>
 
         <!-- Main Content Area -->
@@ -50,7 +60,7 @@
                         <span style="font-size: 2em;">ℹ️</span>
                         <div style="flex: 1;">
                             <h3 style="margin: 0 0 var(--space-xs) 0; color: #fff; font-size: 1.2em;">You do not have a character yet.</h3>
-                            <p style="margin: 0; color: #e0e0e0; font-size: 1em;">Click <strong style="color: #10b981;">NEW CHARACTER</strong> to create one.</p>
+                            <p style="margin: 0; color: #e0e0e0; font-size: 1em;">Click <strong id="new-character-link" style="color: #10b981; cursor: pointer; text-decoration: underline;">NEW CHARACTER</strong> to create one.</p>
                         </div>
                     </div>
                 </div>
@@ -62,6 +72,11 @@
                         <select id="char-universe" style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
                             <option value="default">Loading universes...</option>
                         </select>
+                        <div id="universe-registration-group" style="display: none; margin-top: var(--space-xs);">
+                            <label for="universe-registration-code" style="font-size: 0.9em; color: var(--text-muted);">Registration Code</label>
+                            <input type="text" id="universe-registration-code" placeholder="Enter registration code..." style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                            <small style="color: var(--text-muted); display: block; margin-top: var(--space-xxs);">This universe requires a registration code</small>
+                        </div>
                         <small style="color: var(--text-muted);">Choose the universe for your character</small>
                     </div>
                     <div class="form-group">

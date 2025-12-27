@@ -211,8 +211,9 @@ const UI = {
      * Render species selection gallery with images
      * @param {Array} species - Array of species templates
      * @param {string} selectedId - Currently selected species ID
+     * @param {boolean} universeManaEnabled - Whether the universe allows mana
      */
-    renderSpeciesGallery(species, selectedId = null) {
+    renderSpeciesGallery(species, selectedId = null, universeManaEnabled = true) {
         console.log('[DEBUG] renderSpeciesGallery() called with', species?.length || 0, 'species');
         if (!this.elements.speciesGallery) {
             console.log('[DEBUG] renderSpeciesGallery() - speciesGallery element not found!');
@@ -222,6 +223,12 @@ const UI = {
         this.elements.speciesGallery.innerHTML = species.map(sp => {
             const icon = sp.icon || this.speciesIcons[sp.id] || '👤';
             const hasImage = sp.image ? true : false;
+            
+            // Show mana chance only if universe allows mana
+            let manaInfo = '';
+            if (universeManaEnabled && sp.mana_chance && sp.mana_chance > 0) {
+                manaInfo = `<div class="card-meta" style="font-size: 0.85em; color: var(--azure); margin-top: var(--space-xxs);">✨ ${sp.mana_chance}% chance for mana</div>`;
+            }
             
             return `
                 <div class="gallery-card ${sp.id === selectedId ? 'selected' : ''}" 
@@ -237,6 +244,7 @@ const UI = {
                         <div class="card-icon">${icon}</div>
                     `}
                     <div class="card-name">${sp.name}</div>
+                    ${manaInfo}
                 </div>
             `;
         }).join('');
@@ -247,7 +255,7 @@ const UI = {
                 const speciesId = card.dataset.speciesId;
                 const speciesData = App.state.species.find(s => s.id === speciesId);
                 if (speciesData) {
-                    this.showSpeciesDetailModal(speciesData);
+                    this.showSpeciesDetailModal(speciesData, universeManaEnabled);
                 }
             });
         });
@@ -256,8 +264,9 @@ const UI = {
     /**
      * Show species detail modal with large image, stat ranges, and resource pools
      * @param {object} species - Species data object
+     * @param {boolean} universeManaEnabled - Whether the universe allows mana
      */
-    showSpeciesDetailModal(species) {
+    showSpeciesDetailModal(species, universeManaEnabled = true) {
         const modal = document.getElementById('modal');
         const modalBody = document.getElementById('modal-body');
         if (!modal || !modalBody) return;
@@ -289,6 +298,12 @@ const UI = {
         const health = species.health || 100;
         const stamina = species.stamina || 100;
         const mana = species.mana || 50;
+        
+        // Show mana info only if universe allows it
+        const manaChanceInfo = universeManaEnabled && species.mana_chance && species.mana_chance > 0 
+            ? `<div style="margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(16, 185, 129, 0.1); border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                <strong style="color: var(--azure);">✨ Magical Potential:</strong> This species has a ${species.mana_chance}% chance to gain magical ability when creating a character.
+            </div>` : '';
         
         modalBody.innerHTML = `
             <div class="species-detail">
@@ -322,6 +337,7 @@ const UI = {
                                 </div>
                                 <span class="resource-value">${stamina}</span>
                             </div>
+                            ${universeManaEnabled ? `
                             <div class="resource-item mana">
                                 <span class="resource-label">✨ Mana</span>
                                 <div class="resource-bar">
@@ -329,8 +345,10 @@ const UI = {
                                 </div>
                                 <span class="resource-value">${mana}</span>
                             </div>
+                            ` : ''}
                         </div>
                     </div>
+                    ${manaChanceInfo}
                     
                     ${statBonuses ? `
                         <div class="species-stat-bonuses">

@@ -160,6 +160,7 @@ try {
         currentVocation: null,
         currentUniverse: null,
         selectedUniverseId: 'default',
+        selectedCharacterId: null,
         pendingChanges: {},
         isNewCharacter: false
     },
@@ -442,22 +443,34 @@ try {
                 return;
             }
             
-            // Try to load existing character
-            // SECURITY: getCharacter() validates owner_uuid matches API.uuid
+            // Try to load existing characters
+            // SECURITY: listCharacters() validates owner_uuid matches API.uuid
             try {
-                const charResult = await API.getCharacter();
-                if (charResult.success) {
-                    const character = charResult.data.character;
+                const charsResult = await API.listCharacters();
+                if (charsResult.success && charsResult.data.characters.length > 0) {
+                    const characters = charsResult.data.characters;
                     
-                    // SECURITY: Double-check ownership before using character data
-                    if (character.owner_uuid !== API.uuid) {
-                        console.error('SECURITY VIOLATION: Character owner_uuid does not match current user');
-                        UI.showToast('Access denied: Character ownership mismatch', 'error');
-                        this.state.character = null;
-                        this.state.isNewCharacter = true;
-                    } else {
-                        this.state.character = character;
-                        this.state.isNewCharacter = false;
+                    // If user has multiple characters, show selector
+                    if (characters.length > 1) {
+                        await this.loadCharacterSelector(characters);
+                    }
+                    
+                    // Load first character by default (or selected character)
+                    const characterId = this.state.selectedCharacterId || characters[0].id;
+                    const charResult = await API.getCharacterById(characterId);
+                    
+                    if (charResult.success) {
+                        const character = charResult.data.character;
+                        
+                        // SECURITY: Double-check ownership before using character data
+                        if (character.owner_uuid !== API.uuid) {
+                            console.error('SECURITY VIOLATION: Character owner_uuid does not match current user');
+                            UI.showToast('Access denied: Character ownership mismatch', 'error');
+                            this.state.character = null;
+                            this.state.isNewCharacter = true;
+                        } else {
+                            this.state.character = character;
+                            this.state.isNewCharacter = false;
                         
                         // Ensure resource pools are properly structured
                         if (!this.state.character.health || typeof this.state.character.health !== 'object') {
@@ -526,6 +539,139 @@ try {
     },
     
     /**
+     * Show new character dialog with universe selection
+     */
+    async showNewCharacterDialog() {
+        try {
+            // Load available universes
+            const result = await API.listAvailableUniverses();
+            if (!result.success) {
+                UI.showToast('Failed to load universes', 'error');
+                return;
+            }
+            
+            const universes = result.data.universes;
+            
+            // Build universe selection HTML
+            let universeOptions = '';
+            universes.forEach(universe => {
+                const requiresCode = universe.registrationCode && universe.registrationCode.trim() !== '';
+                universeOptions += `<option value="${universe.id}" data-requires-code="${requiresCode}">${universe.name}${requiresCode ? ' (Requires Code)' : ''}</option>`;
+            });
+            
+            // Show modal with universe selection
+            UI.showModal(`
+                <div class="modal-content">
+                    <h2 class="modal-title">Create New Character</h2>
+                    <p class="modal-text">Select a universe for your new character:</p>
+                    <div class="form-group" style="margin: var(--space-md) 0;">
+                        <label for="new-char-universe">Universe</label>
+                        <select id="new-char-universe" style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                            ${universeOptions}
+                        </select>
+                    </div>
+                    <div id="new-char-registration-group" class="form-group" style="display: none; margin: var(--space-md) 0;">
+                        <label for="new-char-registration-code">Registration Code</label>
+                        <input type="text" id="new-char-registration-code" placeholder="Enter registration code..." style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                        <small style="color: var(--text-muted); display: block; margin-top: var(--space-xxs);">This universe requires a registration code</small>
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-lg);">
+                        <button class="btn-secondary" onclick="UI.closeModal()">Cancel</button>
+                        <button class="btn-primary" id="btn-create-new-character">Create Character</button>
+                    </div>
+                </div>
+            `);
+            
+            // Handle universe selection change
+            const universeSelect = document.getElementById('new-char-universe');
+            const registrationGroup = document.getElementById('new-char-registration-group');
+            const registrationInput = document.getElementById('new-char-registration-code');
+            
+            universeSelect.onchange = () => {
+                const selectedOption = universeSelect.options[universeSelect.selectedIndex];
+                const requiresCode = selectedOption.dataset.requiresCode === 'true';
+                registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                if (!requiresCode) {
+                    registrationInput.value = '';
+                }
+            };
+            
+            // Trigger initial check
+            universeSelect.onchange();
+            
+            // Handle create button
+            document.getElementById('btn-create-new-character').onclick = async () => {
+                const universeId = universeSelect.value;
+                const registrationCode = registrationInput.value.trim();
+                
+                // Validate registration code if required
+                if (registrationGroup.style.display !== 'none') {
+                    if (!registrationCode) {
+                        UI.showToast('Registration code is required', 'warning');
+                        return;
+                    }
+                    
+                    // Verify registration code
+                    const universeResult = await API.getUniverse(universeId);
+                    if (!universeResult.success) {
+                        UI.showToast('Failed to verify universe', 'error');
+                        return;
+                    }
+                    
+                    const universe = universeResult.data.universe;
+                    if (universe.registrationCode !== registrationCode) {
+                        UI.showToast('Invalid registration code', 'error');
+                        return;
+                    }
+                }
+                
+                // Check character limit
+                const limitCheck = await API.validateCharacterLimit(universeId, API.uuid);
+                if (!limitCheck.success || !limitCheck.data.allowed) {
+                    UI.showToast(`Character limit reached for this universe (${limitCheck.data.currentCount}/${limitCheck.data.limit})`, 'error');
+                    return;
+                }
+                
+                // Close modal and start character creation
+                UI.closeModal();
+                this.state.selectedUniverseId = universeId;
+                this.state.isNewCharacter = true;
+                this.state.character = this.createDefaultCharacter();
+                this.state.character.universe_id = universeId;
+                
+                // Switch to Character tab and show universe selection
+                UI.switchTab('character');
+                await this.renderAll();
+            };
+        } catch (error) {
+            console.error('Failed to show new character dialog:', error);
+            UI.showToast('Failed to load universe data', 'error');
+        }
+    },
+    
+    /**
+     * Load character selector dropdown
+     */
+    async loadCharacterSelector(characters) {
+        const selector = document.getElementById('character-selector');
+        if (!selector) return;
+        
+        selector.innerHTML = '';
+        characters.forEach(char => {
+            const option = document.createElement('option');
+            option.value = char.id;
+            option.textContent = `${char.name || 'Unnamed'} (${char.universe_id || 'default'})`;
+            if (char.id === this.state.selectedCharacterId || (!this.state.selectedCharacterId && characters.indexOf(char) === 0)) {
+                option.selected = true;
+                this.state.selectedCharacterId = char.id;
+            }
+            selector.appendChild(option);
+        });
+        
+        selector.style.display = characters.length > 1 ? 'block' : 'none';
+    },
+    
+    /**
      * Load available universes for character creation
      */
     async loadAvailableUniverses() {
@@ -539,6 +685,7 @@ try {
                         const option = document.createElement('option');
                         option.value = universe.id;
                         option.textContent = universe.name;
+                        option.dataset.requiresCode = (universe.registrationCode && universe.registrationCode.trim() !== '') ? 'true' : 'false';
                         if (universe.id === this.state.selectedUniverseId || (universe.id === 'default' && !this.state.selectedUniverseId)) {
                             option.selected = true;
                             this.state.selectedUniverseId = universe.id;
@@ -551,9 +698,29 @@ try {
                         select.setAttribute('data-listener-added', 'true');
                         select.onchange = async (e) => {
                             this.state.selectedUniverseId = e.target.value;
+                            const selectedOption = e.target.options[e.target.selectedIndex];
+                            const requiresCode = selectedOption.dataset.requiresCode === 'true';
+                            const registrationGroup = document.getElementById('universe-registration-group');
+                            const registrationInput = document.getElementById('universe-registration-code');
+                            if (registrationGroup) {
+                                registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                                if (registrationInput && !requiresCode) {
+                                    registrationInput.value = '';
+                                }
+                            }
                             // Re-render to update filtered identity options
                             await this.renderAll();
                         };
+                    }
+                    
+                    // Trigger initial check for registration code requirement
+                    if (select.value) {
+                        const selectedOption = select.options[select.selectedIndex];
+                        const requiresCode = selectedOption.dataset.requiresCode === 'true';
+                        const registrationGroup = document.getElementById('universe-registration-group');
+                        if (registrationGroup) {
+                            registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                        }
                     }
                 }
             }
@@ -908,6 +1075,16 @@ try {
             });
         });
         
+        // New Character button in navigation bar
+        document.getElementById('btn-new-character-nav')?.addEventListener('click', () => {
+            this.showNewCharacterDialog();
+        });
+        
+        // New Character link in banner
+        document.getElementById('new-character-link')?.addEventListener('click', () => {
+            this.showNewCharacterDialog();
+        });
+        
         // New Character button (old location - keep for compatibility)
         document.getElementById('btn-new-character')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
@@ -916,6 +1093,15 @@ try {
         // Options tab buttons
         document.getElementById('btn-new-character-options')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
+        });
+        
+        // Character selector dropdown
+        document.getElementById('character-selector')?.addEventListener('change', async (e) => {
+            const characterId = e.target.value;
+            if (characterId) {
+                this.state.selectedCharacterId = characterId;
+                await this.loadData();
+            }
         });
         
         document.getElementById('btn-edit-character-options')?.addEventListener('click', () => {
@@ -3993,11 +4179,20 @@ window.onSpeciesSelected = async function(speciesId) {
             mana_factor: species.mana_factor || 25
         };
         
-        // Roll for mana based on species chance (only for new characters)
-        const hasMana = App.rollManaChance(species);
+        // Roll for mana based on species chance (only for new characters and if universe allows mana)
+        // Get universe to check manaEnabled
+        let universeManaEnabled = true;
+        if (App.state.isNewCharacter && App.state.selectedUniverseId) {
+            const universeResult = await API.getUniverse(App.state.selectedUniverseId);
+            if (universeResult.success) {
+                universeManaEnabled = universeResult.data.universe.manaEnabled !== false;
+            }
+        }
+        
+        const hasMana = universeManaEnabled && App.rollManaChance(species);
         App.state.character.has_mana = hasMana;
         
-        if (hasMana) {
+        if (hasMana && universeManaEnabled) {
             // Show prominent notification for mana
             UI.showModal(`
                 <div class="modal-content">

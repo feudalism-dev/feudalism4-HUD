@@ -235,7 +235,67 @@ const API = {
     // =========================== CHARACTER CRUD =============================
     
     /**
-     * Get character for current user
+     * List all characters for current user
+     */
+    async listCharacters() {
+        if (!this.uuid) {
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            // SECURITY: Always filter by owner_uuid to ensure users can only access their own characters
+            const snapshot = await db.collection('characters')
+                .where('owner_uuid', '==', this.uuid)
+                .orderBy('created_at', 'desc')
+                .get();
+            
+            const characters = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // SECURITY: Double-check ownership
+                if (data.owner_uuid === this.uuid) {
+                    characters.push({ id: doc.id, ...data });
+                }
+            });
+            
+            return { success: true, data: { characters } };
+        } catch (error) {
+            console.error('listCharacters error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get character by ID for current user
+     */
+    async getCharacterById(characterId) {
+        if (!this.uuid) {
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            const doc = await db.collection('characters').doc(characterId).get();
+            
+            if (!doc.exists) {
+                return { success: false, error: 'Character not found' };
+            }
+            
+            const character = { id: doc.id, ...doc.data() };
+            
+            // SECURITY: Verify ownership
+            if (character.owner_uuid !== this.uuid) {
+                return { success: false, error: 'Access denied: Character ownership mismatch' };
+            }
+            
+            return { success: true, data: { character } };
+        } catch (error) {
+            console.error('getCharacterById error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get character for current user (first character, for backward compatibility)
      */
     async getCharacter() {
         if (!this.uuid) {
