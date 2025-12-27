@@ -254,17 +254,32 @@ const API = {
             // SECURITY: Always filter by owner_uuid to ensure users can only access their own characters
             // Try with orderBy first, but fallback to simple query if index doesn't exist
             let snapshot;
+            let usedOrderBy = false;
+            
             try {
                 snapshot = await db.collection('characters')
                     .where('owner_uuid', '==', this.uuid)
                     .orderBy('created_at', 'desc')
                     .get();
+                usedOrderBy = true;
+                console.log('[listCharacters] Query with orderBy succeeded');
             } catch (orderByError) {
                 // If orderBy fails (likely missing index), try without it
-                console.warn('listCharacters: orderBy failed, trying without orderBy:', orderByError.message);
-                snapshot = await db.collection('characters')
-                    .where('owner_uuid', '==', this.uuid)
-                    .get();
+                if (orderByError.code === 'failed-precondition' || orderByError.message.includes('index')) {
+                    console.warn('[listCharacters] orderBy failed (missing index), trying without orderBy:', orderByError.message);
+                    try {
+                        snapshot = await db.collection('characters')
+                            .where('owner_uuid', '==', this.uuid)
+                            .get();
+                        console.log('[listCharacters] Query without orderBy succeeded');
+                    } catch (fallbackError) {
+                        console.error('[listCharacters] Fallback query also failed:', fallbackError);
+                        throw fallbackError;
+                    }
+                } else {
+                    // Some other error, re-throw it
+                    throw orderByError;
+                }
             }
             
             const characters = [];
@@ -277,10 +292,32 @@ const API = {
             });
             
             // Sort manually if we didn't use orderBy
-            if (characters.length > 1) {
+            if (!usedOrderBy && characters.length > 1) {
                 characters.sort((a, b) => {
-                    const aTime = a.created_at?.toMillis ? a.created_at.toMillis() : (a.created_at?.seconds || 0) * 1000;
-                    const bTime = b.created_at?.toMillis ? b.created_at.toMillis() : (b.created_at?.seconds || 0) * 1000;
+                    // Handle Firestore Timestamp objects
+                    let aTime = 0;
+                    let bTime = 0;
+                    
+                    if (a.created_at) {
+                        if (a.created_at.toMillis) {
+                            aTime = a.created_at.toMillis();
+                        } else if (a.created_at.seconds) {
+                            aTime = a.created_at.seconds * 1000;
+                        } else if (typeof a.created_at === 'number') {
+                            aTime = a.created_at;
+                        }
+                    }
+                    
+                    if (b.created_at) {
+                        if (b.created_at.toMillis) {
+                            bTime = b.created_at.toMillis();
+                        } else if (b.created_at.seconds) {
+                            bTime = b.created_at.seconds * 1000;
+                        } else if (typeof b.created_at === 'number') {
+                            bTime = b.created_at;
+                        }
+                    }
+                    
                     return bTime - aTime; // Descending order (newest first)
                 });
             }
@@ -288,7 +325,7 @@ const API = {
             console.log(`[listCharacters] Found ${characters.length} character(s) for UUID: ${this.uuid}`);
             return { success: true, data: { characters } };
         } catch (error) {
-            console.error('listCharacters error:', error);
+            console.error('[listCharacters] Error:', error);
             return { success: false, error: error.message };
         }
     },
