@@ -1486,22 +1486,32 @@ const UI = {
             .map(([name, quantity]) => ({ name, quantity }))
             .sort((a, b) => a.name.localeCompare(b.name));
         
-        // Build simple list HTML
-        let html = '<div style="display: flex; flex-direction: column; gap: var(--space-xs);">';
-        html += '<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); padding: var(--space-sm); background: var(--bg-medium); border-radius: 4px; font-weight: bold; border-bottom: 2px solid var(--border-color);">';
-        html += '<div>Item</div>';
-        html += '<div style="text-align: right;">Quantity</div>';
+        // Build attractive inventory list HTML
+        let html = '<div class="inventory-container">';
+        
+        // Header row
+        html += '<div class="inventory-header">';
+        html += '<div class="inventory-item-name">Item Name</div>';
+        html += '<div class="inventory-quantity">Quantity</div>';
         html += '</div>';
         
-        items.forEach(item => {
-            html += `<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); padding: var(--space-sm); border-bottom: 1px solid var(--border-color);">`;
-            html += `<div style="word-break: break-word;">${item.name}</div>`;
-            html += `<div style="text-align: right; font-weight: 500;">${item.quantity}</div>`;
-            html += `</div>`;
+        // Item rows
+        items.forEach((item, index) => {
+            const rowClass = index % 2 === 0 ? 'inventory-row' : 'inventory-row inventory-row-alt';
+            html += `<div class="${rowClass}">`;
+            html += `<div class="inventory-item-name">${this.escapeHtml(item.name)}</div>`;
+            html += `<div class="inventory-quantity">${item.quantity}</div>`;
+            html += '</div>';
         });
         
         html += '</div>';
         this.elements.inventoryGrid.innerHTML = html;
+    },
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 };
 
