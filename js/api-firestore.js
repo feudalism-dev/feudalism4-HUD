@@ -504,10 +504,14 @@ const API = {
             
             await doc.ref.update(updateData);
             
+            // Fetch the updated document to get actual server timestamp values
+            const updatedDoc = await doc.ref.get();
+            const updatedCharacter = { id: updatedDoc.id, ...updatedDoc.data() };
+            
             return { 
                 success: true, 
                 data: { 
-                    character: { id: doc.id, ...doc.data(), ...updateData },
+                    character: updatedCharacter,
                     message: 'Character saved!' 
                 } 
             };
