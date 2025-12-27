@@ -4151,6 +4151,26 @@ try {
     }
 };  // End of App object
 
+} catch (e) {
+    if (window.simpleDebug) {
+        window.simpleDebug('ERROR creating App object: ' + e.message, 'error');
+        window.simpleDebug('Stack: ' + (e.stack || 'N/A'), 'error');
+        window.simpleDebug('Line: ' + (e.lineNumber || 'N/A'), 'error');
+    }
+    console.error('App creation error:', e);
+    // Create minimal App to prevent further errors
+    App = {
+        state: { character: null, species: [], classes: [], vocations: [], genders: [] },
+        init: function() {
+            if (window.simpleDebug) {
+                window.simpleDebug('App.init() called but App is in error state', 'error');
+            }
+        },
+        renderAll: function() {},
+        loadData: function() { return Promise.resolve(); }
+    };
+}
+
 // =========================== GLOBAL CALLBACKS ===========================
 
 /**
