@@ -653,6 +653,43 @@ try {
     },
     
     /**
+     * Setup "Open in Browser" link with credentials
+     */
+    setupOpenInBrowserLink() {
+        const link = document.getElementById('open-in-browser-link');
+        if (!link) return;
+        
+        // Only show if we have credentials (UUID is required)
+        if (!API.uuid || API.uuid.trim() === '') {
+            link.style.display = 'none';
+            return;
+        }
+        
+        // Build URL with credentials
+        const baseUrl = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        params.set('uuid', API.uuid);
+        if (API.username) params.set('username', API.username);
+        if (API.displayName) params.set('displayname', API.displayName);
+        if (API.hudChannel) params.set('channel', API.hudChannel.toString());
+        
+        const fullUrl = baseUrl + '?' + params.toString();
+        link.href = fullUrl;
+        link.style.display = 'inline-block';
+    },
+    
+    /**
+     * Open Setup HUD in external browser
+     */
+    openInBrowser() {
+        const link = document.getElementById('open-in-browser-link');
+        if (!link || !link.href) return;
+        
+        // Open in new window/tab
+        window.open(link.href, '_blank', 'noopener,noreferrer');
+    },
+    
+    /**
      * Load character selector dropdown
      */
     async loadCharacterSelector(characters) {
@@ -1086,6 +1123,12 @@ try {
         // New Character link in banner
         document.getElementById('new-character-link')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
+        });
+        
+        // Open in Browser link
+        document.getElementById('open-in-browser-link')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.openInBrowser();
         });
         
         // New Character button (old location - keep for compatibility)
