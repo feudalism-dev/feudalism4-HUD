@@ -158,6 +158,8 @@ try {
         currentSpecies: null,
         currentClass: null,
         currentVocation: null,
+        currentUniverse: null,
+        selectedUniverseId: 'default',
         pendingChanges: {},
         isNewCharacter: false
     },
@@ -201,6 +203,9 @@ try {
         DebugLog.log('Calling API.init()...', 'debug');
         await API.init();
         DebugLog.log('API.init() completed', 'debug');
+        
+        // Ensure Default Universe exists
+        await API.ensureDefaultUniverse();
         
         // SECURITY: Verify UUID is still set after API init (in case it was cleared)
         if (!API.uuid || API.uuid !== uuid) {
@@ -499,7 +504,7 @@ try {
             
             // Render UI
             DebugLog.log('Calling renderAll()...', 'debug');
-            this.renderAll();
+            await this.renderAll();
             DebugLog.log('renderAll() completed', 'debug');
             
         } catch (error) {
@@ -517,6 +522,43 @@ try {
             if (error.code) {
                 console.error('Firebase error code:', error.code);
             }
+        }
+    },
+    
+    /**
+     * Load available universes for character creation
+     */
+    async loadAvailableUniverses() {
+        try {
+            const result = await API.listAvailableUniverses();
+            if (result.success) {
+                const select = document.getElementById('char-universe');
+                if (select) {
+                    select.innerHTML = '';
+                    result.data.universes.forEach(universe => {
+                        const option = document.createElement('option');
+                        option.value = universe.id;
+                        option.textContent = universe.name;
+                        if (universe.id === this.state.selectedUniverseId || (universe.id === 'default' && !this.state.selectedUniverseId)) {
+                            option.selected = true;
+                            this.state.selectedUniverseId = universe.id;
+                        }
+                        select.appendChild(option);
+                    });
+                    
+                    // Add change listener if not already added
+                    if (!select.hasAttribute('data-listener-added')) {
+                        select.setAttribute('data-listener-added', 'true');
+                        select.onchange = async (e) => {
+                            this.state.selectedUniverseId = e.target.value;
+                            // Re-render to update filtered identity options
+                            await this.renderAll();
+                        };
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load universes:', error);
         }
     },
     
@@ -652,7 +694,7 @@ try {
     /**
      * Render all UI components
      */
-    renderAll() {
+    async renderAll() {
         DebugLog.log('renderAll() called', 'debug');
         DebugLog.log(`State: ${this.state.species.length} species, ${this.state.classes.length} classes, ${this.state.genders.length} genders`, 'debug');
         const char = this.state.character;
@@ -666,23 +708,57 @@ try {
             newCharBanner.style.display = shouldShow ? 'block' : 'none';
         }
         
-        // Find current species, class, and vocation
+        // Show/hide universe selection (only for new characters)
+        const universeGroup = document.getElementById('universe-selection-group');
+        if (universeGroup) {
+            universeGroup.style.display = this.state.isNewCharacter ? 'block' : 'none';
+            
+            // Load available universes if showing
+            if (this.state.isNewCharacter) {
+                this.loadAvailableUniverses();
+            }
+        }
+        
+        // Find current species, class, and vocation (use full lists for lookup)
         this.state.currentSpecies = this.state.species.find(s => s.id === char?.species_id);
         this.state.currentClass = this.state.classes.find(c => c.id === char?.class_id);
         this.state.currentVocation = this.state.currentClass ? 
             this.state.vocations.find(v => v.id === this.state.currentClass.vocation_id) : null;
         
+        // Filter identity options by universe
+        let filteredGenders = this.state.genders;
+        let filteredSpecies = this.state.species;
+        let filteredClasses = this.state.classes;
+        
+        if (char && char.universe_id) {
+            // Get filtered options for the character's universe
+            const filteredResult = await API.getFilteredIdentityOptions(char.universe_id);
+            if (filteredResult.success) {
+                filteredGenders = filteredResult.data.genders;
+                filteredSpecies = filteredResult.data.species;
+                filteredClasses = filteredResult.data.classes;
+            }
+        } else if (this.state.isNewCharacter && this.state.selectedUniverseId) {
+            // For new characters, filter by selected universe
+            const filteredResult = await API.getFilteredIdentityOptions(this.state.selectedUniverseId);
+            if (filteredResult.success) {
+                filteredGenders = filteredResult.data.genders;
+                filteredSpecies = filteredResult.data.species;
+                filteredClasses = filteredResult.data.classes;
+            }
+        }
+        
         // Render gender selection
-        DebugLog.log(`Rendering gender selection with ${this.state.genders.length} genders`, 'debug');
-        UI.renderGenderSelection(this.state.genders, char?.gender);
+        DebugLog.log(`Rendering gender selection with ${filteredGenders.length} genders`, 'debug');
+        UI.renderGenderSelection(filteredGenders, char?.gender);
         
         // Render species gallery
-        DebugLog.log(`Rendering species gallery with ${this.state.species.length} species`, 'debug');
-        UI.renderSpeciesGallery(this.state.species, char?.species_id);
+        DebugLog.log(`Rendering species gallery with ${filteredSpecies.length} species`, 'debug');
+        UI.renderSpeciesGallery(filteredSpecies, char?.species_id);
         
         // Render career gallery
-        DebugLog.log(`Rendering career gallery with ${this.state.classes.length} classes`, 'debug');
-        UI.renderCareerGallery(this.state.classes, char?.class_id, char);
+        DebugLog.log(`Rendering career gallery with ${filteredClasses.length} classes`, 'debug');
+        UI.renderCareerGallery(filteredClasses, char?.class_id, char);
         
         // Render current career with career path
         UI.renderCurrentCareer(this.state.currentClass, this.state.currentVocation, char);
@@ -703,7 +779,7 @@ try {
         UI.renderVocation(this.state.currentVocation, stats);
         
         // Render character summary
-        UI.renderCharacterSummary(char, this.state.currentSpecies, this.state.currentClass);
+        await UI.renderCharacterSummary(char, this.state.currentSpecies, this.state.currentClass);
         
         // Recalculate resource pools based on current stats before rendering
         if (char) {
@@ -717,6 +793,12 @@ try {
         UI.renderXPProgress(char);
         UI.renderActionSlots(char);
         
+        // Load and render inventory if inventory tab is active
+        const inventoryTab = document.getElementById('tab-inventory');
+        if (inventoryTab && inventoryTab.classList.contains('active')) {
+            await this.loadInventory();
+        }
+        
         // Update active mode button in Options tab
         const currentMode = char?.mode || 'roleplay';
         document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -729,6 +811,34 @@ try {
             UI.elements.charTitle.value = char.title || '';
             UI.selectGender(char.gender || 'unspecified');
             UI.elements.currencyAmount.textContent = char.currency || 0;
+        }
+    },
+    
+    /**
+     * Load and display inventory (read-only)
+     */
+    async loadInventory() {
+        try {
+            console.log('[loadInventory] Calling API.getInventory()...');
+            const result = await API.getInventory();
+            console.log('[loadInventory] Result:', result);
+            if (result.success) {
+                console.log('[loadInventory] Success! Inventory data:', result.data);
+                console.log('[loadInventory] Inventory object:', result.data.inventory);
+                console.log('[loadInventory] Inventory type:', typeof result.data.inventory);
+                console.log('[loadInventory] Inventory keys:', Object.keys(result.data.inventory || {}));
+                UI.renderInventory(result.data.inventory);
+            } else {
+                console.error('[loadInventory] Failed to load inventory:', result.error);
+                if (UI.elements.inventoryGrid) {
+                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Failed to load inventory: ' + result.error + '</p>';
+                }
+            }
+        } catch (error) {
+            console.error('[loadInventory] Error loading inventory:', error);
+            if (UI.elements.inventoryGrid) {
+                UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Error loading inventory</p>';
+            }
         }
     },
     
@@ -753,17 +863,17 @@ try {
      */
     setupEventHandlers() {
         // Character name input
-        UI.elements.charName?.addEventListener('input', (e) => {
+        UI.elements.charName?.addEventListener('input', async (e) => {
             this.state.character.name = e.target.value;
             this.state.pendingChanges.name = e.target.value;
-            this.renderAll();
+            await this.renderAll();
         });
         
         // Character title input
-        UI.elements.charTitle?.addEventListener('input', (e) => {
+        UI.elements.charTitle?.addEventListener('input', async (e) => {
             this.state.character.title = e.target.value;
             this.state.pendingChanges.title = e.target.value;
-            this.renderAll();
+            await this.renderAll();
         });
         
         // Save button
@@ -1117,13 +1227,52 @@ try {
             UI.showToast('Saving...', 'info', 1000);
             
             if (this.state.isNewCharacter) {
+                // Validate universe selection
+                if (!this.state.selectedUniverseId) {
+                    UI.showToast('Please select a universe', 'warning');
+                    return;
+                }
+                
+                // Validate character limit
+                const limitCheck = await API.validateCharacterLimit(this.state.selectedUniverseId, API.uuid);
+                if (!limitCheck.success || !limitCheck.data.allowed) {
+                    UI.showToast(`Character limit reached for this universe (${limitCheck.data.currentCount}/${limitCheck.data.limit})`, 'error');
+                    return;
+                }
+                
+                // Validate identity options against universe allowed lists
+                const identityCheck = await API.validateIdentityOptions(
+                    this.state.selectedUniverseId,
+                    char.gender,
+                    char.species_id,
+                    char.class_id
+                );
+                if (!identityCheck.success || !identityCheck.data.valid) {
+                    UI.showToast('Selected identity options are not allowed in this universe: ' + identityCheck.data.errors.join(', '), 'error');
+                    return;
+                }
+                
+                // Get universe to check manaEnabled
+                const universeResult = await API.getUniverse(this.state.selectedUniverseId);
+                if (!universeResult.success) {
+                    UI.showToast('Failed to load universe data', 'error');
+                    return;
+                }
+                const universe = universeResult.data.universe;
+                
+                // Get species to check mana rule
+                const species = this.state.species.find(s => s.id === char.species_id);
+                const hasMana = species && App.rollManaChance(species) && universe.manaEnabled;
+                
                 // Create new character
                 const result = await API.createCharacter({
                     name: char.name,
                     title: char.title,
                     gender: char.gender,
                     species_id: char.species_id,
-                    class_id: char.class_id
+                    class_id: char.class_id,
+                    universe_id: this.state.selectedUniverseId,
+                    has_mana: hasMana
                 });
                 
                 this.state.character = result.data.character;
@@ -1211,7 +1360,7 @@ try {
             }
             
             this.state.pendingChanges = {};
-            this.renderAll();
+            await this.renderAll();
             
         } catch (error) {
             console.error('Save failed:', error);
@@ -1334,6 +1483,9 @@ try {
         switch (panel) {
             case 'users':
                 this.showUserManagement();
+                break;
+            case 'universes':
+                this.showUniverseManagement();
                 break;
             case 'species':
                 this.showTemplateManager('species');
@@ -1503,6 +1655,1153 @@ try {
                 UI.showToast('Failed: ' + error.message, 'error');
             }
         });
+    },
+    
+    /**
+     * Show universe management panel
+     */
+    async showUniverseManagement() {
+        const adminContent = UI.elements.adminContent;
+        if (!adminContent) return;
+        
+        // Check permissions
+        if (!API.canCreateUniverse()) {
+            UI.showError(adminContent, 'Unauthorized: You do not have permission to manage universes.');
+            return;
+        }
+        
+        UI.showLoading(adminContent, 'Loading universes...');
+        
+        try {
+            const result = await API.listUniversesForAdmin();
+            if (!result.success) {
+                UI.showError(adminContent, 'Failed to load universes: ' + result.error);
+                return;
+            }
+            
+            const universes = result.data.universes || [];
+            
+            let html = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                    <h2>Universe Management</h2>
+                    <button class="btn btn-primary" id="btn-create-universe">➕ Create Universe</button>
+                </div>
+                <div class="admin-table-container" style="overflow-x: auto;">
+                    <table class="admin-table" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Theme</th>
+                                <th>Status</th>
+                                <th>Access</th>
+                                <th>Owner</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            if (universes.length === 0) {
+                html += `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: var(--space-lg); color: var(--text-muted);">
+                            No universes found. Create one to get started.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                // Build rows with permission checks
+                for (const universe of universes) {
+                    const isDefault = universe.id === 'default';
+                    const canEdit = await API.canEditUniverse(universe.id, universe);
+                    const canDelete = !isDefault && await API.canDeleteUniverse(universe.id);
+                    
+                    html += `
+                        <tr>
+                            <td><strong>${universe.name || universe.id}</strong>${isDefault ? ' <span style="color: var(--text-muted);">(Default)</span>' : ''}</td>
+                            <td>${universe.theme || '-'}</td>
+                            <td>
+                                <span style="color: ${universe.active ? 'var(--success)' : 'var(--text-muted)'};">
+                                    ${universe.active ? '✓ Active' : '○ Inactive'}
+                                </span>
+                            </td>
+                            <td>${universe.acceptNewPlayers || 'open'}</td>
+                            <td>${universe.ownerAdminId || 'System'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-secondary" data-universe-id="${universe.id}" data-action="edit" ${!canEdit ? 'disabled title="You cannot edit this universe"' : ''}>
+                                    ✏️ Edit
+                                </button>
+                                ${canDelete ? `
+                                    <button class="btn btn-sm btn-danger" data-universe-id="${universe.id}" data-action="delete">
+                                        🗑️ Delete
+                                    </button>
+                                ` : ''}
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            adminContent.innerHTML = html;
+            
+            // Bind create button
+            document.getElementById('btn-create-universe')?.addEventListener('click', () => {
+                this.showUniverseEditor(null);
+            });
+            
+            // Bind edit/delete buttons
+            adminContent.querySelectorAll('[data-action="edit"]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const universeId = e.target.closest('[data-universe-id]').dataset.universeId;
+                    this.showUniverseEditor(universeId);
+                });
+            });
+            
+            adminContent.querySelectorAll('[data-action="delete"]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const universeId = e.target.closest('[data-universe-id]').dataset.universeId;
+                    if (confirm('Are you sure you want to delete this universe? All characters in this universe will be reassigned to the Default Universe.')) {
+                        const result = await API.deleteUniverse(universeId);
+                        if (result.success) {
+                            UI.showToast(`Universe deleted. ${result.data.charactersReassigned || 0} characters reassigned to Default Universe.`, 'success');
+                            this.showUniverseManagement();
+                        } else {
+                            UI.showToast('Failed to delete universe: ' + result.error, 'error');
+                        }
+                    }
+                });
+            });
+        } catch (error) {
+            UI.showError(adminContent, 'Failed to load universes: ' + error.message);
+        }
+    },
+    
+    /**
+     * Render two-panel checkbox UI for universe identity management
+     * @param {string} type - 'careers', 'classes', 'species', or 'genders'
+     * @param {Array} allItems - All available items globally
+     * @param {Array} allowedItems - Items currently allowed in universe (empty array = allow all)
+     * @param {string} containerId - ID of container element
+     */
+    renderUniverseIdentityPanels(type, allItems, allowedItems, containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        // Determine if empty array means "allow all" (true) or "allow none" (false)
+        const emptyMeansAll = allowedItems.length === 0 || (allowedItems.length === 0 && allItems.length > 0);
+        
+        // Split items into included and excluded
+        const included = [];
+        const excluded = [];
+        
+        allItems.forEach(item => {
+            if (emptyMeansAll || allowedItems.includes(item.id)) {
+                included.push(item);
+            } else {
+                excluded.push(item);
+            }
+        });
+        
+        const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
+        const checkboxClass = `universe-allowed-${type}`;
+        
+        let html = `
+            <div style="display: flex; flex-direction: column; gap: var(--space-md);">
+                <!-- Panel A: Included Items -->
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Included ${typeLabel}</h3>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
+                        These ${type} are currently allowed in this universe.
+                    </p>
+                    <div style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); padding: var(--space-xs); border-radius: 4px;">
+                        ${included.length === 0 ? `
+                            <p style="color: var(--text-muted); text-align: center; padding: var(--space-md);">
+                                No ${type} included. All ${type} are allowed by default.
+                            </p>
+                        ` : included.map(item => `
+                            <label style="display: block; padding: 6px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+                                   onmouseover="this.style.background='var(--bg-hover)'" 
+                                   onmouseout="this.style.background=''">
+                                <input type="checkbox" value="${item.id}" class="${checkboxClass}" checked>
+                                <span style="margin-left: 8px;">${item.name || item.id}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+                
+                <!-- Panel B: Excluded Items -->
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Excluded ${typeLabel}</h3>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
+                        These ${type} are not allowed in this universe.
+                    </p>
+                    <div style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); padding: var(--space-xs); border-radius: 4px;">
+                        ${excluded.length === 0 ? `
+                            <p style="color: var(--text-muted); text-align: center; padding: var(--space-md);">
+                                All ${type} are included.
+                            </p>
+                        ` : excluded.map(item => `
+                            <label style="display: block; padding: 6px; cursor: pointer; border-radius: 4px; transition: background 0.2s;" 
+                                   onmouseover="this.style.background='var(--bg-hover)'" 
+                                   onmouseout="this.style.background=''">
+                                <input type="checkbox" value="${item.id}" class="${checkboxClass}">
+                                <span style="margin-left: 8px;">${item.name || item.id}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Bind checkbox change handlers to move items between panels
+        container.querySelectorAll(`.${checkboxClass}`).forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                // Re-render panels when checkbox state changes
+                this.renderUniverseIdentityPanels(type, allItems, this.getCheckedItems(checkboxClass), containerId);
+            });
+        });
+    },
+    
+    /**
+     * Get checked items from checkboxes
+     * @param {string} checkboxClass - CSS class of checkboxes
+     * @returns {Array} Array of checked item IDs
+     */
+    getCheckedItems(checkboxClass) {
+        const allCheckboxes = Array.from(document.querySelectorAll(`.${checkboxClass}`));
+        const checked = Array.from(document.querySelectorAll(`.${checkboxClass}:checked`));
+        
+        // If all are checked, return empty array (means "allow all")
+        if (checked.length === allCheckboxes.length) {
+            return [];
+        }
+        
+        return checked.map(cb => cb.value);
+    },
+    
+    /**
+     * Show universe editor (create or edit) - TABBED VERSION
+     */
+    async showUniverseEditor(universeId) {
+        const adminContent = UI.elements.adminContent;
+        if (!adminContent) return;
+        
+        const isEdit = universeId !== null;
+        let universe = null;
+        
+        if (isEdit) {
+            UI.showLoading(adminContent, 'Loading universe...');
+            const result = await API.getUniverse(universeId);
+            if (!result.success) {
+                UI.showError(adminContent, 'Failed to load universe: ' + result.error);
+                return;
+            }
+            universe = result.data.universe;
+            
+            // Check permissions
+            const canEdit = await API.canEditUniverse(universeId);
+            if (!canEdit) {
+                UI.showError(adminContent, 'Unauthorized: You cannot edit this universe.');
+                return;
+            }
+            
+            // Check if Default Universe
+            if (universeId === 'default' && API.role !== 'sys_admin' && API.uuid !== API.SUPER_ADMIN_UUID) {
+                UI.showError(adminContent, 'Unauthorized: Only System Admins can edit the Default Universe.');
+                return;
+            }
+        } else {
+            // Creating new universe - check permission
+            if (!API.canCreateUniverse()) {
+                UI.showError(adminContent, 'Unauthorized: You cannot create universes.');
+                return;
+            }
+        }
+        
+        // Load templates for allowed lists
+        const [speciesResult, classesResult, gendersResult] = await Promise.all([
+            API.getSpecies(),
+            API.getClasses(),
+            API.getGenders()
+        ]);
+        
+        const allSpecies = speciesResult.success ? speciesResult.data.species : [];
+        const allClasses = classesResult.success ? classesResult.data.classes : [];
+        const allGenders = gendersResult.success ? gendersResult.data.genders : [];
+        
+        // Build tabbed interface HTML
+        let html = `
+            <div style="margin-bottom: var(--space-md);">
+                <button class="btn btn-secondary" id="btn-universe-back">← Back to List</button>
+            </div>
+            <h2>${isEdit ? 'Edit Universe' : 'Create Universe'}</h2>
+            
+            <!-- Tab Navigation -->
+            <div class="tab-nav" style="display: flex; gap: var(--space-xs); border-bottom: 2px solid var(--border-color); margin-bottom: var(--space-md); flex-wrap: wrap;">
+                <button class="tab-btn active" data-tab="profile">Profile</button>
+                <button class="tab-btn" data-tab="identity">Identity</button>
+                <button class="tab-btn" data-tab="careers">Careers</button>
+                <button class="tab-btn" data-tab="classes">Classes</button>
+                <button class="tab-btn" data-tab="species">Species</button>
+                <button class="tab-btn" data-tab="genders">Genders</button>
+                <button class="tab-btn" data-tab="rules">Rules</button>
+                <button class="tab-btn" data-tab="access">Access</button>
+                ${isEdit ? '<button class="tab-btn" data-tab="admins">Admins</button>' : ''}
+            </div>
+            
+            <!-- Tab Content Container -->
+            <div id="universe-tab-content" style="min-height: 400px;">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            
+            <!-- Actions (always visible) -->
+            <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-md); padding-top: var(--space-md); border-top: 1px solid var(--border-color);">
+                <button type="button" class="btn btn-secondary" id="btn-universe-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-universe-save">${isEdit ? 'Save Changes' : 'Create Universe'}</button>
+            </div>
+        `;
+        
+        adminContent.innerHTML = html;
+        
+        // Store universe data for tab functions
+        this.currentUniverseData = universe;
+        this.currentUniverseId = universeId;
+        this.isEditingUniverse = isEdit;
+        
+        // Load and show Profile tab by default
+        await this.showUniverseTab('profile', universeId, universe, isEdit);
+        
+        // Bind tab navigation
+        adminContent.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                // Remove active class from all tabs
+                adminContent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Load tab content
+                const tabName = btn.dataset.tab;
+                await this.showUniverseTab(tabName, universeId, universe, isEdit);
+            });
+        });
+        
+        // Bind save button
+        document.getElementById('btn-universe-save')?.addEventListener('click', async () => {
+            await this.saveUniverseFromTabs(universeId);
+        });
+        
+        // Bind cancel/back buttons
+        document.getElementById('btn-universe-back')?.addEventListener('click', () => {
+            this.showUniverseManagement();
+        });
+        document.getElementById('btn-universe-cancel')?.addEventListener('click', () => {
+            this.showUniverseManagement();
+        });
+        
+        // Load admins if editing (for Admins tab)
+        if (isEdit) {
+            const canAssign = await API.canAssignUniverseAdmin(universeId);
+            this.canAssignUniverseAdmin = canAssign;
+        }
+        
+    },
+    
+    /**
+     * Show content for a specific universe editor tab
+     */
+    async showUniverseTab(tabName, universeId, universe, isEdit) {
+        const tabContent = document.getElementById('universe-tab-content');
+        if (!tabContent) return;
+        
+        switch(tabName) {
+            case 'profile':
+                await this.showUniverseProfileTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'identity':
+                await this.showUniverseIdentityTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'careers':
+                await this.showUniverseCareersTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'classes':
+                await this.showUniverseClassesTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'species':
+                await this.showUniverseSpeciesTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'genders':
+                await this.showUniverseGendersTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'rules':
+                await this.showUniverseRulesTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'access':
+                await this.showUniverseAccessTab(tabContent, universeId, universe, isEdit);
+                break;
+            case 'admins':
+                await this.showUniverseAdminsTab(tabContent, universeId, universe, isEdit);
+                break;
+        }
+    },
+    
+    /**
+     * Profile Tab - Basic information and SL integration
+     */
+    async showUniverseProfileTab(container, universeId, universe, isEdit) {
+        let html = `
+            <form id="universe-profile-form" style="display: flex; flex-direction: column; gap: var(--space-md);">
+                <!-- Basic Info -->
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Basic Information</h3>
+                    <div class="form-group">
+                        <label for="universe-name">Name *</label>
+                        <input type="text" id="universe-name" value="${universe?.name || ''}" required style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-description">Description</label>
+                        <textarea id="universe-description" rows="3" style="width: 100%; padding: var(--space-xs);">${universe?.description || ''}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-theme">Theme</label>
+                        <input type="text" id="universe-theme" value="${universe?.theme || ''}" style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-roleplay-type">Roleplay Type</label>
+                        <input type="text" id="universe-roleplay-type" value="${universe?.roleplayType || ''}" style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-image-url">Image URL (1024x1024)</label>
+                        <input type="text" id="universe-image-url" value="${universe?.imageUrl || ''}" style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-maturity-rating">Maturity Rating</label>
+                        <select id="universe-maturity-rating" style="width: 100%; padding: var(--space-xs);" ${universeId === 'default' && API.uuid !== API.SUPER_ADMIN_UUID ? 'disabled' : ''}>
+                            <option value="general" ${(universe?.maturityRating || 'general') === 'general' ? 'selected' : ''}>General</option>
+                            <option value="moderate" ${universe?.maturityRating === 'moderate' ? 'selected' : ''}>Moderate</option>
+                            <option value="adult" ${universe?.maturityRating === 'adult' ? 'selected' : ''}>Adult</option>
+                        </select>
+                        ${universeId === 'default' && API.uuid !== API.SUPER_ADMIN_UUID ? '<small style="color: var(--text-muted); display: block; margin-top: var(--space-xs);">Only Super User can change maturity rating for the default universe.</small>' : ''}
+                    </div>
+                </div>
+                
+                <!-- SL Integration -->
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Second Life Integration</h3>
+                    <div class="form-group">
+                        <label for="universe-group-slurl">Group SLURL</label>
+                        <input type="text" id="universe-group-slurl" value="${universe?.groupSlurl || ''}" style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-welcome-slurl">Welcome SLURL</label>
+                        <input type="text" id="universe-welcome-slurl" value="${universe?.welcomeSlurl || ''}" style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                </div>
+            </form>
+        `;
+        
+        container.innerHTML = html;
+    },
+    
+    /**
+     * Identity Tab - Combined identity options (legacy, kept for backward compatibility)
+     */
+    async showUniverseIdentityTab(container, universeId, universe, isEdit) {
+        container.innerHTML = `
+            <div class="panel" style="padding: var(--space-md);">
+                <p style="color: var(--text-muted);">
+                    Identity options are now managed in separate tabs: Careers, Classes, Species, and Genders.
+                </p>
+            </div>
+        `;
+    },
+    
+    /**
+     * Careers Tab - Two-panel checkbox UI
+     */
+    async showUniverseCareersTab(container, universeId, universe, isEdit) {
+        if (!isEdit) {
+            container.innerHTML = '<p style="color: var(--text-muted);">Save the universe first to manage careers.</p>';
+            return;
+        }
+        
+        // Get universes the user can manage (for selector)
+        const universesResult = await API.listUniversesForAdmin();
+        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
+            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
+        ) : [];
+        
+        // Get all careers (for now, using classes as careers - TODO: implement careers collection)
+        const classesResult = await API.getClasses();
+        const allCareers = classesResult.success ? classesResult.data.classes : [];
+        
+        // Get allowed careers for this universe
+        const allowedCareers = universe?.allowedCareers || [];
+        
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                <div class="form-group" style="flex: 1; margin-right: var(--space-md);">
+                    <label for="universe-career-selector">Select Universe</label>
+                    <select id="universe-career-selector" style="width: 100%; padding: var(--space-xs);">
+                        ${userUniverses.map(u => `
+                            <option value="${u.id}" ${u.id === universeId ? 'selected' : ''}>${u.name || u.id}</option>
+                        `).join('')}
+                    </select>
+                </div>
+                <button class="btn btn-secondary" id="btn-career-admin" style="margin-top: 24px;">ADMIN</button>
+            </div>
+            
+            <div id="universe-careers-panels"></div>
+            
+            <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
+                <button class="btn btn-primary" id="btn-save-careers">Save Changes</button>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Render two-panel UI
+        this.renderUniverseIdentityPanels('careers', allCareers, allowedCareers, 'universe-careers-panels');
+        
+        // Bind universe selector
+        document.getElementById('universe-career-selector')?.addEventListener('change', async (e) => {
+            const selectedUniverseId = e.target.value;
+            const result = await API.getUniverse(selectedUniverseId);
+            if (result.success) {
+                const selectedUniverse = result.data.universe;
+                this.renderUniverseIdentityPanels('careers', allCareers, selectedUniverse.allowedCareers || [], 'universe-careers-panels');
+                this.currentUniverseId = selectedUniverseId;
+                this.currentUniverseData = selectedUniverse;
+            }
+        });
+        
+        // Bind save button
+        document.getElementById('btn-save-careers')?.addEventListener('click', async () => {
+            const checked = this.getCheckedItems('universe-allowed-careers');
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedCareers: checked });
+            if (result.success) {
+                UI.showToast('Careers updated!', 'success');
+                // Reload universe data
+                const reloadResult = await API.getUniverse(this.currentUniverseId);
+                if (reloadResult.success) {
+                    this.currentUniverseData = reloadResult.data.universe;
+                    this.renderUniverseIdentityPanels('careers', allCareers, this.currentUniverseData.allowedCareers || [], 'universe-careers-panels');
+                }
+            } else {
+                UI.showToast('Failed to update careers: ' + result.error, 'error');
+            }
+        });
+        
+        // Bind admin button (placeholder for now)
+        document.getElementById('btn-career-admin')?.addEventListener('click', () => {
+            UI.showToast('Career admin panel coming soon', 'info');
+        });
+    },
+    
+    /**
+     * Classes Tab - Two-panel checkbox UI
+     */
+    async showUniverseClassesTab(container, universeId, universe, isEdit) {
+        if (!isEdit) {
+            container.innerHTML = '<p style="color: var(--text-muted);">Save the universe first to manage classes.</p>';
+            return;
+        }
+        
+        // Get universes the user can manage (for selector)
+        const universesResult = await API.listUniversesForAdmin();
+        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
+            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
+        ) : [];
+        
+        // Get all classes
+        const classesResult = await API.getClasses();
+        const allClasses = classesResult.success ? classesResult.data.classes : [];
+        
+        // Get allowed classes for this universe
+        const allowedClasses = universe?.allowedClasses || [];
+        
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                <div class="form-group" style="flex: 1; margin-right: var(--space-md);">
+                    <label for="universe-class-selector">Select Universe</label>
+                    <select id="universe-class-selector" style="width: 100%; padding: var(--space-xs);">
+                        ${userUniverses.map(u => `
+                            <option value="${u.id}" ${u.id === universeId ? 'selected' : ''}>${u.name || u.id}</option>
+                        `).join('')}
+                    </select>
+                </div>
+                <button class="btn btn-secondary" id="btn-class-admin" style="margin-top: 24px;">ADMIN</button>
+            </div>
+            
+            <div id="universe-classes-panels"></div>
+            
+            <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
+                <button class="btn btn-primary" id="btn-save-classes">Save Changes</button>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Render two-panel UI
+        this.renderUniverseIdentityPanels('classes', allClasses, allowedClasses, 'universe-classes-panels');
+        
+        // Bind universe selector
+        document.getElementById('universe-class-selector')?.addEventListener('change', async (e) => {
+            const selectedUniverseId = e.target.value;
+            const result = await API.getUniverse(selectedUniverseId);
+            if (result.success) {
+                const selectedUniverse = result.data.universe;
+                this.renderUniverseIdentityPanels('classes', allClasses, selectedUniverse.allowedClasses || [], 'universe-classes-panels');
+                this.currentUniverseId = selectedUniverseId;
+                this.currentUniverseData = selectedUniverse;
+            }
+        });
+        
+        // Bind save button
+        document.getElementById('btn-save-classes')?.addEventListener('click', async () => {
+            const checked = this.getCheckedItems('universe-allowed-classes');
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedClasses: checked });
+            if (result.success) {
+                UI.showToast('Classes updated!', 'success');
+                // Reload universe data
+                const reloadResult = await API.getUniverse(this.currentUniverseId);
+                if (reloadResult.success) {
+                    this.currentUniverseData = reloadResult.data.universe;
+                    this.renderUniverseIdentityPanels('classes', allClasses, this.currentUniverseData.allowedClasses || [], 'universe-classes-panels');
+                }
+            } else {
+                UI.showToast('Failed to update classes: ' + result.error, 'error');
+            }
+        });
+        
+        // Bind admin button
+        document.getElementById('btn-class-admin')?.addEventListener('click', () => {
+            this.showTemplateManager('classes');
+        });
+    },
+    
+    /**
+     * Species Tab - Two-panel checkbox UI
+     */
+    async showUniverseSpeciesTab(container, universeId, universe, isEdit) {
+        if (!isEdit) {
+            container.innerHTML = '<p style="color: var(--text-muted);">Save the universe first to manage species.</p>';
+            return;
+        }
+        
+        // Get universes the user can manage (for selector)
+        const universesResult = await API.listUniversesForAdmin();
+        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
+            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
+        ) : [];
+        
+        // Get all species
+        const speciesResult = await API.getSpecies();
+        const allSpecies = speciesResult.success ? speciesResult.data.species : [];
+        
+        // Get allowed species for this universe
+        const allowedSpecies = universe?.allowedSpecies || [];
+        
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                <div class="form-group" style="flex: 1; margin-right: var(--space-md);">
+                    <label for="universe-species-selector">Select Universe</label>
+                    <select id="universe-species-selector" style="width: 100%; padding: var(--space-xs);">
+                        ${userUniverses.map(u => `
+                            <option value="${u.id}" ${u.id === universeId ? 'selected' : ''}>${u.name || u.id}</option>
+                        `).join('')}
+                    </select>
+                </div>
+                <button class="btn btn-secondary" id="btn-species-admin" style="margin-top: 24px;">ADMIN</button>
+            </div>
+            
+            <div id="universe-species-panels"></div>
+            
+            <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
+                <button class="btn btn-primary" id="btn-save-species">Save Changes</button>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Render two-panel UI
+        this.renderUniverseIdentityPanels('species', allSpecies, allowedSpecies, 'universe-species-panels');
+        
+        // Bind universe selector
+        document.getElementById('universe-species-selector')?.addEventListener('change', async (e) => {
+            const selectedUniverseId = e.target.value;
+            const result = await API.getUniverse(selectedUniverseId);
+            if (result.success) {
+                const selectedUniverse = result.data.universe;
+                this.renderUniverseIdentityPanels('species', allSpecies, selectedUniverse.allowedSpecies || [], 'universe-species-panels');
+                this.currentUniverseId = selectedUniverseId;
+                this.currentUniverseData = selectedUniverse;
+            }
+        });
+        
+        // Bind save button
+        document.getElementById('btn-save-species')?.addEventListener('click', async () => {
+            const checked = this.getCheckedItems('universe-allowed-species');
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedSpecies: checked });
+            if (result.success) {
+                UI.showToast('Species updated!', 'success');
+                // Reload universe data
+                const reloadResult = await API.getUniverse(this.currentUniverseId);
+                if (reloadResult.success) {
+                    this.currentUniverseData = reloadResult.data.universe;
+                    this.renderUniverseIdentityPanels('species', allSpecies, this.currentUniverseData.allowedSpecies || [], 'universe-species-panels');
+                }
+            } else {
+                UI.showToast('Failed to update species: ' + result.error, 'error');
+            }
+        });
+        
+        // Bind admin button
+        document.getElementById('btn-species-admin')?.addEventListener('click', () => {
+            this.showTemplateManager('species');
+        });
+    },
+    
+    /**
+     * Genders Tab - Two-panel checkbox UI
+     */
+    async showUniverseGendersTab(container, universeId, universe, isEdit) {
+        if (!isEdit) {
+            container.innerHTML = '<p style="color: var(--text-muted);">Save the universe first to manage genders.</p>';
+            return;
+        }
+        
+        // Get universes the user can manage (for selector)
+        const universesResult = await API.listUniversesForAdmin();
+        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
+            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
+        ) : [];
+        
+        // Get all genders
+        const gendersResult = await API.getGenders();
+        const allGenders = gendersResult.success ? gendersResult.data.genders : [];
+        
+        // Get allowed genders for this universe
+        const allowedGenders = universe?.allowedGenders || [];
+        
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                <div class="form-group" style="flex: 1; margin-right: var(--space-md);">
+                    <label for="universe-gender-selector">Select Universe</label>
+                    <select id="universe-gender-selector" style="width: 100%; padding: var(--space-xs);">
+                        ${userUniverses.map(u => `
+                            <option value="${u.id}" ${u.id === universeId ? 'selected' : ''}>${u.name || u.id}</option>
+                        `).join('')}
+                    </select>
+                </div>
+                <button class="btn btn-secondary" id="btn-gender-admin" style="margin-top: 24px;">ADMIN</button>
+            </div>
+            
+            <div id="universe-genders-panels"></div>
+            
+            <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
+                <button class="btn btn-primary" id="btn-save-genders">Save Changes</button>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Render two-panel UI
+        this.renderUniverseIdentityPanels('genders', allGenders, allowedGenders, 'universe-genders-panels');
+        
+        // Bind universe selector
+        document.getElementById('universe-gender-selector')?.addEventListener('change', async (e) => {
+            const selectedUniverseId = e.target.value;
+            const result = await API.getUniverse(selectedUniverseId);
+            if (result.success) {
+                const selectedUniverse = result.data.universe;
+                this.renderUniverseIdentityPanels('genders', allGenders, selectedUniverse.allowedGenders || [], 'universe-genders-panels');
+                this.currentUniverseId = selectedUniverseId;
+                this.currentUniverseData = selectedUniverse;
+            }
+        });
+        
+        // Bind save button
+        document.getElementById('btn-save-genders')?.addEventListener('click', async () => {
+            const checked = this.getCheckedItems('universe-allowed-genders');
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedGenders: checked });
+            if (result.success) {
+                UI.showToast('Genders updated!', 'success');
+                // Reload universe data
+                const reloadResult = await API.getUniverse(this.currentUniverseId);
+                if (reloadResult.success) {
+                    this.currentUniverseData = reloadResult.data.universe;
+                    this.renderUniverseIdentityPanels('genders', allGenders, this.currentUniverseData.allowedGenders || [], 'universe-genders-panels');
+                }
+            } else {
+                UI.showToast('Failed to update genders: ' + result.error, 'error');
+            }
+        });
+        
+        // Bind admin button
+        document.getElementById('btn-gender-admin')?.addEventListener('click', () => {
+            this.showTemplateManager('genders');
+        });
+    },
+    
+    /**
+     * Rules Tab - Limits and mana settings
+     */
+    async showUniverseRulesTab(container, universeId, universe, isEdit) {
+        let html = `
+            <form id="universe-rules-form" style="display: flex; flex-direction: column; gap: var(--space-md);">
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Limits</h3>
+                    <div class="form-group">
+                        <label for="universe-character-limit">Character Limit (0 = unlimited)</label>
+                        <input type="number" id="universe-character-limit" value="${universe?.characterLimit !== undefined ? universe.characterLimit : 0}" min="0" style="width: 100%; padding: var(--space-xs);">
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="universe-mana-enabled" ${universe?.manaEnabled !== false ? 'checked' : ''}>
+                            Mana Enabled
+                        </label>
+                    </div>
+                </div>
+            </form>
+        `;
+        
+        container.innerHTML = html;
+    },
+    
+    /**
+     * Access Tab - Visibility and signup settings
+     */
+    async showUniverseAccessTab(container, universeId, universe, isEdit) {
+        let html = `
+            <form id="universe-access-form" style="display: flex; flex-direction: column; gap: var(--space-md);">
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Access Control</h3>
+                    <div class="form-group">
+                        <label for="universe-visibility">Visibility</label>
+                        <select id="universe-visibility" style="width: 100%; padding: var(--space-xs);">
+                            <option value="public" ${universe?.visibility === 'public' ? 'selected' : ''}>Public</option>
+                            <option value="private" ${universe?.visibility === 'private' ? 'selected' : ''}>Private</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-accept-new-players">Accept New Players</label>
+                        <select id="universe-accept-new-players" style="width: 100%; padding: var(--space-xs);">
+                            <option value="open" ${universe?.acceptNewPlayers === 'open' ? 'selected' : ''}>Open</option>
+                            <option value="key" ${universe?.acceptNewPlayers === 'key' ? 'selected' : ''}>Key Required</option>
+                            <option value="closed" ${universe?.acceptNewPlayers === 'closed' ? 'selected' : ''}>Closed</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-signup-key">Signup Key (leave empty to clear)</label>
+                        <input type="text" id="universe-signup-key" placeholder="Enter new key or leave empty" style="width: 100%; padding: var(--space-xs);">
+                        <small style="color: var(--text-muted);">${isEdit && universe?.acceptNewPlayers === 'key' ? 'Enter a new key to change it, or leave empty to remove key requirement' : 'Only used if "Key Required" is selected'}</small>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="universe-active" ${universe?.active !== false ? 'checked' : ''} ${universeId === 'default' ? 'disabled' : ''}>
+                            Active (available for character creation)
+                        </label>
+                        ${universeId === 'default' ? '<small style="color: var(--text-muted);">Default Universe must always be active</small>' : ''}
+                    </div>
+                </div>
+            </form>
+        `;
+        
+        container.innerHTML = html;
+    },
+    
+    /**
+     * Admins Tab - Universe admin management
+     */
+    async showUniverseAdminsTab(container, universeId, universe, isEdit) {
+        if (!isEdit) {
+            container.innerHTML = '<p style="color: var(--text-muted);">Save the universe first to manage admins.</p>';
+            return;
+        }
+        
+        let html = `
+            <div class="panel" style="padding: var(--space-md);">
+                <h3>Universe Admins</h3>
+                <div id="universe-admins-list">
+                    <p style="color: var(--text-muted);">Loading admins...</p>
+                </div>
+                <div id="universe-admin-actions" style="margin-top: var(--space-md); display: none;">
+                    <button type="button" class="btn btn-secondary" id="btn-add-universe-admin">➕ Add Admin</button>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Load admins
+        await this.loadUniverseAdmins(universeId);
+        
+        // Show/hide add admin button based on permissions
+        const canAssign = this.canAssignUniverseAdmin || await API.canAssignUniverseAdmin(universeId);
+        const adminActions = document.getElementById('universe-admin-actions');
+        if (adminActions) {
+            adminActions.style.display = canAssign ? 'block' : 'none';
+            if (canAssign) {
+                document.getElementById('btn-add-universe-admin')?.addEventListener('click', () => {
+                    this.showAddUniverseAdminDialog(universeId);
+                });
+            }
+        }
+    },
+    
+    /**
+     * Save universe from all tabs
+     */
+    async saveUniverseFromTabs(universeId) {
+        try {
+            // Collect data from all tabs
+            const name = document.getElementById('universe-name')?.value.trim();
+            if (!name) {
+                UI.showToast('Name is required', 'warning');
+                return;
+            }
+            
+            const universeData = {
+                name: name,
+                description: document.getElementById('universe-description')?.value.trim() || '',
+                theme: document.getElementById('universe-theme')?.value.trim() || '',
+                roleplayType: document.getElementById('universe-roleplay-type')?.value.trim() || '',
+                imageUrl: document.getElementById('universe-image-url')?.value.trim() || '',
+                groupSlurl: document.getElementById('universe-group-slurl')?.value.trim() || '',
+                welcomeSlurl: document.getElementById('universe-welcome-slurl')?.value.trim() || '',
+                maturityRating: document.getElementById('universe-maturity-rating')?.value || 'general',
+                visibility: document.getElementById('universe-visibility')?.value || 'public',
+                acceptNewPlayers: document.getElementById('universe-accept-new-players')?.value || 'open',
+                characterLimit: parseInt(document.getElementById('universe-character-limit')?.value) || 0,
+                manaEnabled: document.getElementById('universe-mana-enabled')?.checked !== false
+            };
+            
+            // Handle active state (not for default universe)
+            if (universeId !== 'default') {
+                universeData.active = document.getElementById('universe-active')?.checked !== false;
+            }
+            
+            // Handle signup key
+            const signupKey = document.getElementById('universe-signup-key')?.value.trim();
+            
+            // For default universe, only include maturityRating if user is Super User
+            if (universeId === 'default' && API.uuid !== API.SUPER_ADMIN_UUID) {
+                delete universeData.maturityRating;
+            }
+            
+            let result;
+            if (universeId) {
+                // Update existing
+                if (signupKey) {
+                    await API.setSignupKey(universeId, signupKey);
+                } else if (document.getElementById('universe-accept-new-players')?.value !== 'key') {
+                    await API.clearSignupKey(universeId);
+                }
+                
+                result = await API.updateUniverse(universeId, universeData);
+            } else {
+                // Create new
+                universeData.active = false;
+                result = await API.createUniverse(universeData);
+                
+                if (signupKey && result.success) {
+                    await API.setSignupKey(result.data.universe.id, signupKey);
+                }
+            }
+            
+            if (result.success) {
+                UI.showToast(universeId ? 'Universe updated!' : 'Universe created!', 'success');
+                this.showUniverseManagement();
+            } else {
+                UI.showToast('Failed to save universe: ' + result.error, 'error');
+            }
+        } catch (error) {
+            UI.showToast('Error saving universe: ' + error.message, 'error');
+        }
+    },
+    
+    /**
+     * Save universe (create or update)
+     */
+    async saveUniverse(universeId) {
+        try {
+            // Collect form data
+            const name = document.getElementById('universe-name').value.trim();
+            if (!name) {
+                UI.showToast('Name is required', 'warning');
+                return;
+            }
+            
+            // Collect allowed lists (empty array if all checked, array of IDs if some unchecked)
+            const allGenderIds = Array.from(document.querySelectorAll('.universe-allowed-gender')).map(cb => cb.value);
+            const checkedGenderIds = Array.from(document.querySelectorAll('.universe-allowed-gender:checked')).map(cb => cb.value);
+            const allowedGenders = checkedGenderIds.length === allGenderIds.length ? [] : checkedGenderIds;
+            
+            const allSpeciesIds = Array.from(document.querySelectorAll('.universe-allowed-species')).map(cb => cb.value);
+            const checkedSpeciesIds = Array.from(document.querySelectorAll('.universe-allowed-species:checked')).map(cb => cb.value);
+            const allowedSpecies = checkedSpeciesIds.length === allSpeciesIds.length ? [] : checkedSpeciesIds;
+            
+            const allClassIds = Array.from(document.querySelectorAll('.universe-allowed-classes')).map(cb => cb.value);
+            const checkedClassIds = Array.from(document.querySelectorAll('.universe-allowed-classes:checked')).map(cb => cb.value);
+            const allowedClasses = checkedClassIds.length === allClassIds.length ? [] : checkedClassIds;
+            
+            const universeData = {
+                name: name,
+                description: document.getElementById('universe-description').value.trim(),
+                theme: document.getElementById('universe-theme').value.trim(),
+                roleplayType: document.getElementById('universe-roleplay-type').value.trim(),
+                imageUrl: document.getElementById('universe-image-url').value.trim(),
+                groupSlurl: document.getElementById('universe-group-slurl').value.trim(),
+                welcomeSlurl: document.getElementById('universe-welcome-slurl').value.trim(),
+                maturityRating: document.getElementById('universe-maturity-rating')?.value || 'general',
+                visibility: document.getElementById('universe-visibility').value,
+                acceptNewPlayers: document.getElementById('universe-accept-new-players').value,
+                characterLimit: parseInt(document.getElementById('universe-character-limit').value) || 0,
+                manaEnabled: document.getElementById('universe-mana-enabled').checked,
+                allowedGenders: allowedGenders,
+                allowedSpecies: allowedSpecies,
+                allowedClasses: allowedClasses,
+                allowedCareers: [] // TODO: Add careers when implemented
+            };
+            
+            // Handle signup key
+            const signupKey = document.getElementById('universe-signup-key').value.trim();
+            
+            // For default universe, only include maturityRating if user is Super User
+            if (universeId === 'default' && API.uuid !== API.SUPER_ADMIN_UUID) {
+                delete universeData.maturityRating;
+            }
+            
+            // Handle active state (not for default universe)
+            if (universeId !== 'default') {
+                universeData.active = document.getElementById('universe-active').checked;
+            }
+            
+            let result;
+            if (universeId) {
+                // Update existing
+                // Handle signup key separately if provided
+                if (signupKey) {
+                    await API.setSignupKey(universeId, signupKey);
+                } else if (document.getElementById('universe-accept-new-players').value !== 'key') {
+                    // Clear key if not using key access
+                    await API.clearSignupKey(universeId);
+                }
+                
+                result = await API.updateUniverse(universeId, universeData);
+            } else {
+                // Create new
+                universeData.active = false; // New universes are inactive by default
+                result = await API.createUniverse(universeData);
+                
+                // Set signup key if provided
+                if (signupKey && result.success) {
+                    await API.setSignupKey(result.data.universe.id, signupKey);
+                }
+            }
+            
+            if (result.success) {
+                UI.showToast(universeId ? 'Universe updated!' : 'Universe created!', 'success');
+                this.showUniverseManagement();
+            } else {
+                UI.showToast('Failed to save universe: ' + result.error, 'error');
+            }
+        } catch (error) {
+            UI.showToast('Error saving universe: ' + error.message, 'error');
+        }
+    },
+    
+    /**
+     * Load and display universe admins
+     */
+    async loadUniverseAdmins(universeId) {
+        const adminsList = document.getElementById('universe-admins-list');
+        if (!adminsList) return;
+        
+        try {
+            const result = await API.getUniverseAdmins(universeId);
+            if (!result.success) {
+                adminsList.innerHTML = '<p style="color: var(--error);">Failed to load admins</p>';
+                return;
+            }
+            
+            const admins = result.data.admins || [];
+            const canAssign = await API.canAssignUniverseAdmin(universeId);
+            
+            if (admins.length === 0) {
+                adminsList.innerHTML = '<p style="color: var(--text-muted);">No admins assigned</p>';
+                return;
+            }
+            
+            let html = '<table style="width: 100%; border-collapse: collapse;"><thead><tr><th>UUID</th><th>Role</th><th>Actions</th></tr></thead><tbody>';
+            
+            admins.forEach(admin => {
+                const isOwner = admin.role === 'owner';
+                html += `
+                    <tr>
+                        <td>${admin.uuid}</td>
+                        <td><strong>${admin.role}</strong></td>
+                        <td>
+                            ${!isOwner && canAssign ? `
+                                <button class="btn btn-sm btn-danger" data-admin-uuid="${admin.uuid}" data-action="remove-admin">
+                                    Remove
+                                </button>
+                            ` : '<span style="color: var(--text-muted);">-</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            adminsList.innerHTML = html;
+            
+            // Bind remove buttons
+            adminsList.querySelectorAll('[data-action="remove-admin"]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const adminUuid = e.target.closest('[data-admin-uuid]').dataset.adminUuid;
+                    if (confirm('Remove this admin from the universe?')) {
+                        const result = await API.removeUniverseAdmin(universeId, adminUuid);
+                        if (result.success) {
+                            UI.showToast('Admin removed', 'success');
+                            this.loadUniverseAdmins(universeId);
+                        } else {
+                            UI.showToast('Failed to remove admin: ' + result.error, 'error');
+                        }
+                    }
+                });
+            });
+        } catch (error) {
+            adminsList.innerHTML = '<p style="color: var(--error);">Error loading admins: ' + error.message + '</p>';
+        }
+    },
+    
+    /**
+     * Show dialog to add universe admin
+     */
+    async showAddUniverseAdminDialog(universeId) {
+        const uuid = prompt('Enter the UUID of the user to add as admin:');
+        if (!uuid || !uuid.trim()) return;
+        
+        const role = confirm('Make this user the owner? (OK = Owner, Cancel = Admin)') ? 'owner' : 'admin';
+        
+        try {
+            const result = await API.assignUniverseAdmin(universeId, uuid.trim(), role);
+            if (result.success) {
+                UI.showToast('Admin added successfully', 'success');
+                this.loadUniverseAdmins(universeId);
+            } else {
+                UI.showToast('Failed to add admin: ' + result.error, 'error');
+            }
+        } catch (error) {
+            UI.showToast('Error adding admin: ' + error.message, 'error');
+        }
     },
     
     /**
@@ -1985,7 +3284,7 @@ try {
             }
             
             // Re-render UI
-            this.renderAll();
+            await this.renderAll();
             
         } catch (error) {
             UI.showToast('Failed to save: ' + error.message, 'error');
@@ -2411,7 +3710,7 @@ try {
             // Reload app state
             const result = await API.getClasses();
             this.state.classes = result.data?.classes || [];
-            this.renderAll();
+            await this.renderAll();
             
         } catch (error) {
             console.error('Import error:', error);
@@ -2553,7 +3852,7 @@ try {
             // Reload app state
             const result = await API.getClasses();
             this.state.classes = result.data?.classes || [];
-            this.renderAll();
+            await this.renderAll();
             
         } catch (error) {
             console.error('Sync free advances error:', error);
@@ -2657,7 +3956,7 @@ try {
 /**
  * Called when a species is selected in the gallery
  */
-window.onSpeciesSelected = function(speciesId) {
+window.onSpeciesSelected = async function(speciesId) {
     if (!App.state.character) return;
     
     const previousSpeciesId = App.state.character.species_id;
@@ -2726,7 +4025,7 @@ window.onSpeciesSelected = function(speciesId) {
     // Recalculate resource pools based on current stats
     App.recalculateResourcePools();
     
-    App.renderAll();
+    await App.renderAll();
     UI.showToast(`Selected: ${species?.name || speciesId}`, 'info', 1500);
 };
 
@@ -2770,7 +4069,7 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         App.state.pendingChanges.stats_at_class_start = { ...App.state.character.stats };
         App.state.pendingChanges.class_started_at = App.state.character.class_started_at;
         
-        App.renderAll();
+        await App.renderAll();
         UI.showToast(`Class selected: ${classTemplate.name}`, 'success', 1500);
         return;
     }
@@ -2788,7 +4087,7 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
             App.state.currentClass = classTemplate;
             App.state.pendingChanges = {};
             
-            App.renderAll();
+            await App.renderAll();
             UI.showToast(result.data.message, 'success', 2000);
         } else {
             UI.showToast(result.error || 'Failed to change class', 'error');
@@ -2802,7 +4101,7 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
 /**
  * Called when a gender is selected
  */
-window.onGenderSelected = function(gender) {
+window.onGenderSelected = async function(gender) {
     if (!App.state.character) return;
     
     App.state.character.gender = gender;
@@ -2813,7 +4112,7 @@ window.onGenderSelected = function(gender) {
         btn.classList.toggle('selected', btn.dataset.gender === gender);
     });
     
-    App.renderAll();
+    await App.renderAll();
 };
 
 // Bind gender buttons to global handler
@@ -2878,7 +4177,7 @@ window.calculateAvailablePoints = function(character) {
 /**
  * Called when a stat is changed
  */
-window.onStatChange = function(stat, action) {
+window.onStatChange = async function(stat, action) {
     if (!App.state.character) return;
     
     const currentValue = App.state.character.stats[stat] || 2;
@@ -2917,7 +4216,7 @@ window.onStatChange = function(stat, action) {
         UI.showToast(`-1 ${stat} (refund: ${refund} pts)`, 'info', 1500);
     }
     
-    App.renderAll();
+    await App.renderAll();
 };
 
 // =========================== INITIALIZATION =============================

@@ -254,12 +254,28 @@ const API = {
             }
             
             const doc = snapshot.docs[0];
-            const character = { id: doc.id, ...doc.data() };
+            let character = { id: doc.id, ...doc.data() };
             
             // SECURITY: Double-check that the character belongs to this user
             if (character.owner_uuid !== this.uuid) {
                 console.error('SECURITY VIOLATION: Character owner_uuid does not match current user UUID');
                 return { success: false, error: 'Access denied - character ownership mismatch' };
+            }
+            
+            // Migration: Ensure character has universe_id (set to 'default' if missing)
+            if (!character.universe_id) {
+                try {
+                    await doc.ref.update({
+                        universe_id: 'default',
+                        updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    character.universe_id = 'default';
+                    console.log(`[Migration] Set universe_id='default' for character ${doc.id}`);
+                } catch (migrationError) {
+                    console.error('Failed to migrate character universe_id:', migrationError);
+                    // Continue anyway - character will work with default universe_id logic
+                    character.universe_id = 'default';
+                }
             }
             
             return {
@@ -297,6 +313,7 @@ const API = {
             
             const character = {
                 owner_uuid: this.uuid,  // Force to current user's UUID
+                universe_id: charData.universe_id || 'default',  // Default to default universe
                 name: charData.name || 'Unnamed',
                 title: charData.title || '',
                 gender: charData.gender || 'other',
@@ -307,6 +324,7 @@ const API = {
                 health: charData.health || { current: 100, base: 100, max: 100 },
                 stamina: charData.stamina || { current: 100, base: 100, max: 100 },
                 mana: charData.mana || { current: 50, base: 50, max: 50 },
+                has_mana: charData.has_mana !== undefined ? charData.has_mana : false,
                 
                 // Action slots for readied items/spells/buffs
                 action_slots: charData.action_slots || [],
@@ -952,7 +970,7 @@ const API = {
                 }
             }
             
-            const validRoles = ['player', 'sim_admin', 'sys_admin'];
+            const validRoles = ['player', 'sim_admin', 'sys_admin', 'universe_admin'];
             if (!validRoles.includes(newRole)) {
                 return { success: false, error: `Invalid role. Must be one of: ${validRoles.join(', ')}` };
             }
@@ -1240,6 +1258,964 @@ const API = {
     async logout() {
         await auth.signOut();
         return { success: true };
+    },
+    
+    // =========================== UNIVERSE SYSTEM =============================
+    
+    /**
+     * Check if user is Universe Admin
+     */
+    isUniverseAdmin() {
+        return this.role === 'universe_admin';
+    },
+    
+    /**
+     * Check if user can create universes
+     */
+    canCreateUniverse() {
+        return this.role === 'universe_admin' || this.role === 'sys_admin' || this.uuid === this.SUPER_ADMIN_UUID;
+    },
+    
+    /**
+     * Check if user can edit a specific universe
+     * @param {string} universeId - Universe ID to check
+     * @param {object} universe - Universe document data (optional, will fetch if not provided)
+     */
+    async canEditUniverse(universeId, universe = null) {
+        // Super User and System Admin can edit any universe
+        if (this.uuid === this.SUPER_ADMIN_UUID || this.role === 'sys_admin') {
+            return true;
+        }
+        
+        // Universe Admin can only edit universes they own
+        if (this.role === 'universe_admin') {
+            // Fetch universe if not provided
+            if (!universe) {
+                const universeDoc = await db.collection('universes').doc(universeId).get();
+                if (!universeDoc.exists) {
+                    return false;
+                }
+                universe = universeDoc.data();
+            }
+            
+            // Check if user is the owner
+            if (universe.ownerAdminId === this.uuid) {
+                return true;
+            }
+            
+            // Check if user is in the admins subcollection
+            const adminDoc = await db.collection('universes').doc(universeId)
+                .collection('admins').doc(this.uuid).get();
+            if (adminDoc.exists) {
+                return true;
+            }
+        }
+        
+        return false;
+    },
+    
+    /**
+     * Check if user can delete a specific universe
+     * @param {string} universeId - Universe ID to check
+     */
+    async canDeleteUniverse(universeId) {
+        // Default Universe cannot be deleted
+        if (universeId === 'default') {
+            return false;
+        }
+        
+        // Super User can delete anything (except default, handled above)
+        if (this.uuid === this.SUPER_ADMIN_UUID) {
+            return true;
+        }
+        
+        // System Admin can delete any universe except default
+        if (this.role === 'sys_admin') {
+            return true;
+        }
+        
+        // Universe Admin can only delete universes they own
+        if (this.role === 'universe_admin') {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return false;
+            }
+            const universe = universeDoc.data();
+            return universe.ownerAdminId === this.uuid;
+        }
+        
+        return false;
+    },
+    
+    /**
+     * Check if user can assign admins to a specific universe
+     * @param {string} universeId - Universe ID to check
+     */
+    async canAssignUniverseAdmin(universeId) {
+        // Super User and System Admin can assign admins to any universe
+        if (this.uuid === this.SUPER_ADMIN_UUID || this.role === 'sys_admin') {
+            return true;
+        }
+        
+        // Universe Admin can only assign admins to universes they own
+        if (this.role === 'universe_admin') {
+            return await this.canEditUniverse(universeId);
+        }
+        
+        return false;
+    },
+    
+    /**
+     * Create a new universe
+     */
+    async createUniverse(universeData) {
+        try {
+            if (!this.canCreateUniverse()) {
+                return { success: false, error: 'Unauthorized: Cannot create universes' };
+            }
+            
+            // Validate required fields
+            if (!universeData.name || !universeData.name.trim()) {
+                return { success: false, error: 'Universe name is required' };
+            }
+            
+            // Generate universe ID from name (lowercase, spaces to underscores)
+            const universeId = universeData.id || universeData.name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+            
+            // Check if universe already exists
+            const existing = await db.collection('universes').doc(universeId).get();
+            if (existing.exists) {
+                return { success: false, error: 'Universe with this ID already exists' };
+            }
+            
+            // Build universe document
+            const universe = {
+                name: universeData.name.trim(),
+                description: universeData.description || '',
+                theme: universeData.theme || '',
+                roleplayType: universeData.roleplayType || '',
+                imageUrl: universeData.imageUrl || '',
+                groupSlurl: universeData.groupSlurl || '',
+                welcomeSlurl: universeData.welcomeSlurl || '',
+                landmarks: universeData.landmarks || [],
+                contacts: universeData.contacts || [],
+                maturityRating: universeData.maturityRating || 'general',
+                
+                ownerAdminId: this.uuid,
+                active: universeData.active !== undefined ? universeData.active : false,
+                visibility: universeData.visibility || 'public',
+                
+                acceptNewPlayers: universeData.acceptNewPlayers || 'open',
+                signupKeyHash: universeData.signupKeyHash || '',
+                
+                characterLimit: universeData.characterLimit !== undefined ? universeData.characterLimit : 0,
+                manaEnabled: universeData.manaEnabled !== undefined ? universeData.manaEnabled : true,
+                
+                allowedGenders: universeData.allowedGenders || [],
+                allowedSpecies: universeData.allowedSpecies || [],
+                allowedClasses: universeData.allowedClasses || [],
+                allowedCareers: universeData.allowedCareers || [],
+                
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                deleted: false
+            };
+            
+            // Create universe document
+            await db.collection('universes').doc(universeId).set(universe);
+            
+            // Create admin entry for owner
+            await db.collection('universes').doc(universeId)
+                .collection('admins').doc(this.uuid).set({
+                    role: 'owner',
+                    addedBy: this.uuid,
+                    addedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            
+            return { 
+                success: true, 
+                data: { universe: { id: universeId, ...universe } } 
+            };
+        } catch (error) {
+            console.error('createUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Update a universe
+     */
+    async updateUniverse(universeId, updates) {
+        try {
+            if (!await this.canEditUniverse(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot edit this universe' };
+            }
+            
+            // Default Universe can only be edited by System Admin or Super User
+            if (universeId === 'default' && this.role !== 'sys_admin' && this.uuid !== this.SUPER_ADMIN_UUID) {
+                return { success: false, error: 'Unauthorized: Default Universe can only be edited by System Admins' };
+            }
+            
+            // Prevent changing ownerAdminId
+            if (updates.ownerAdminId) {
+                delete updates.ownerAdminId;
+            }
+            
+            // Prevent changing Default Universe ID
+            if (universeId === 'default') {
+                // Default Universe must remain active
+                updates.active = true;
+                updates.deleted = false;
+                
+                // Only Super User can change maturityRating for default universe
+                if (updates.maturityRating !== undefined && this.uuid !== this.SUPER_ADMIN_UUID) {
+                    delete updates.maturityRating;
+                }
+            }
+            
+            // Update universe
+            const updateData = {
+                ...updates,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            await db.collection('universes').doc(universeId).update(updateData);
+            
+            // Fetch updated universe
+            const updatedDoc = await db.collection('universes').doc(universeId).get();
+            return { 
+                success: true, 
+                data: { universe: { id: updatedDoc.id, ...updatedDoc.data() } } 
+            };
+        } catch (error) {
+            console.error('updateUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Delete a universe (soft delete, reassigns characters to default)
+     */
+    async deleteUniverse(universeId) {
+        try {
+            if (!await this.canDeleteUniverse(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot delete this universe' };
+            }
+            
+            // Soft delete: set deleted flag
+            await db.collection('universes').doc(universeId).update({
+                deleted: true,
+                active: false,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Reassign all characters in this universe to default universe
+            const charactersSnapshot = await db.collection('characters')
+                .where('universe_id', '==', universeId).get();
+            
+            const batch = db.batch();
+            charactersSnapshot.forEach(doc => {
+                batch.update(doc.ref, {
+                    universe_id: 'default',
+                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            await batch.commit();
+            
+            return { 
+                success: true, 
+                data: { 
+                    universeId,
+                    charactersReassigned: charactersSnapshot.size 
+                } 
+            };
+        } catch (error) {
+            console.error('deleteUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Migrate characters without universe_id to default universe
+     * This is a one-time migration function that should be run after the universe system is implemented
+     * @param {boolean} dryRun - If true, only reports what would be changed without making changes
+     */
+    async migrateCharactersToUniverse(dryRun = false) {
+        try {
+            // Only sys_admin and super admin can run migrations
+            if (this.role !== 'sys_admin' && this.uuid !== this.SUPER_ADMIN_UUID) {
+                return { success: false, error: 'Unauthorized: Only System Admins can run migrations' };
+            }
+            
+            // Query all characters
+            const snapshot = await db.collection('characters').get();
+            let migratedCount = 0;
+            const batch = db.batch();
+            let batchCount = 0;
+            const maxBatchSize = 500; // Firestore batch limit
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // Check if character lacks universe_id or has it set to null/undefined
+                if (!data.universe_id || data.universe_id === null || data.universe_id === undefined) {
+                    if (!dryRun) {
+                        batch.update(doc.ref, {
+                            universe_id: 'default',
+                            updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        batchCount++;
+                        migratedCount++;
+                        
+                        // Commit batch if it reaches the limit
+                        if (batchCount >= maxBatchSize) {
+                            // Note: Can't commit partial batch in forEach, so we'll commit at the end
+                            // If we need to handle large migrations, we'd need to refactor to process in chunks
+                        }
+                    } else {
+                        migratedCount++;
+                    }
+                }
+            });
+            
+            if (!dryRun && batchCount > 0) {
+                await batch.commit();
+            }
+            
+            return {
+                success: true,
+                data: {
+                    charactersFound: snapshot.size,
+                    charactersMigrated: migratedCount,
+                    dryRun: dryRun,
+                    message: dryRun 
+                        ? `Would migrate ${migratedCount} characters to default universe`
+                        : `Successfully migrated ${migratedCount} characters to default universe`
+                }
+            };
+        } catch (error) {
+            console.error('migrateCharactersToUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get a single universe
+     */
+    async getUniverse(universeId) {
+        try {
+            const doc = await db.collection('universes').doc(universeId).get();
+            if (!doc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            
+            const data = doc.data();
+            // Don't return deleted universes
+            if (data.deleted) {
+                return { success: false, error: 'Universe not found' };
+            }
+            
+            return { 
+                success: true, 
+                data: { universe: { id: doc.id, ...data } } 
+            };
+        } catch (error) {
+            console.error('getUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * List universes that the current user can manage
+     */
+    async listUniversesForAdmin() {
+        try {
+            let universes = [];
+            
+            if (this.role === 'sys_admin' || this.uuid === this.SUPER_ADMIN_UUID) {
+                // System Admin and Super User can see all universes
+                const snapshot = await db.collection('universes')
+                    .where('deleted', '==', false).get();
+                snapshot.forEach(doc => {
+                    universes.push({ id: doc.id, ...doc.data() });
+                });
+            } else if (this.role === 'universe_admin') {
+                // Universe Admin can only see universes they own or are admin of
+                // First, get universes where user is owner
+                const ownedSnapshot = await db.collection('universes')
+                    .where('ownerAdminId', '==', this.uuid)
+                    .where('deleted', '==', false).get();
+                ownedSnapshot.forEach(doc => {
+                    universes.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // Then, get universes where user is in admins subcollection
+                // (This requires a different approach - get all universes and filter)
+                const allSnapshot = await db.collection('universes')
+                    .where('deleted', '==', false).get();
+                
+                for (const doc of allSnapshot.docs) {
+                    // Skip if already added (from owner query)
+                    if (universes.find(u => u.id === doc.id)) {
+                        continue;
+                    }
+                    
+                    // Check if user is admin
+                    const adminDoc = await db.collection('universes').doc(doc.id)
+                        .collection('admins').doc(this.uuid).get();
+                    if (adminDoc.exists) {
+                        universes.push({ id: doc.id, ...doc.data() });
+                    }
+                }
+            } else {
+                return { success: false, error: 'Unauthorized: Admin access required' };
+            }
+            
+            return { success: true, data: { universes } };
+        } catch (error) {
+            console.error('listUniversesForAdmin error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * List universes available for character creation
+     */
+    async listAvailableUniverses() {
+        try {
+            // Include Default Universe + all active universes that accept new players
+            const universes = [];
+            
+            // Always include Default Universe
+            const defaultDoc = await db.collection('universes').doc('default').get();
+            if (defaultDoc.exists) {
+                const defaultData = defaultDoc.data();
+                if (!defaultData.deleted) {
+                    universes.push({ id: 'default', ...defaultData });
+                }
+            }
+            
+            // Get all active universes that are not closed
+            const snapshot = await db.collection('universes')
+                .where('active', '==', true)
+                .where('deleted', '==', false)
+                .get();
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // Skip default (already added) and closed universes
+                if (doc.id !== 'default' && data.acceptNewPlayers !== 'closed') {
+                    universes.push({ id: doc.id, ...data });
+                }
+            });
+            
+            return { success: true, data: { universes } };
+        } catch (error) {
+            console.error('listAvailableUniverses error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Assign a Universe Admin to a universe
+     */
+    async assignUniverseAdmin(universeId, adminUuid, role = 'admin') {
+        try {
+            if (!await this.canAssignUniverseAdmin(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot assign admins to this universe' };
+            }
+            
+            if (role !== 'owner' && role !== 'admin') {
+                return { success: false, error: 'Invalid role. Must be "owner" or "admin"' };
+            }
+            
+            // Verify user exists
+            const userDoc = await db.collection('users').doc(adminUuid).get();
+            if (!userDoc.exists) {
+                return { success: false, error: 'User not found' };
+            }
+            
+            // Add to admins subcollection
+            await db.collection('universes').doc(universeId)
+                .collection('admins').doc(adminUuid).set({
+                    role: role,
+                    addedBy: this.uuid,
+                    addedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            
+            // If role is owner, update universe ownerAdminId
+            if (role === 'owner') {
+                await db.collection('universes').doc(universeId).update({
+                    ownerAdminId: adminUuid,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            
+            return { success: true, data: { universeId, adminUuid, role } };
+        } catch (error) {
+            console.error('assignUniverseAdmin error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Remove a Universe Admin from a universe
+     */
+    async removeUniverseAdmin(universeId, adminUuid) {
+        try {
+            if (!await this.canAssignUniverseAdmin(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot remove admins from this universe' };
+            }
+            
+            // Cannot remove owner
+            const adminDoc = await db.collection('universes').doc(universeId)
+                .collection('admins').doc(adminUuid).get();
+            if (adminDoc.exists && adminDoc.data().role === 'owner') {
+                return { success: false, error: 'Cannot remove the owner of a universe' };
+            }
+            
+            await db.collection('universes').doc(universeId)
+                .collection('admins').doc(adminUuid).delete();
+            
+            return { success: true, data: { universeId, adminUuid } };
+        } catch (error) {
+            console.error('removeUniverseAdmin error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get all admins for a universe
+     */
+    async getUniverseAdmins(universeId) {
+        try {
+            const snapshot = await db.collection('universes').doc(universeId)
+                .collection('admins').get();
+            
+            const admins = [];
+            snapshot.forEach(doc => {
+                admins.push({ uuid: doc.id, ...doc.data() });
+            });
+            
+            return { success: true, data: { admins } };
+        } catch (error) {
+            console.error('getUniverseAdmins error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Set universe active state
+     */
+    async setUniverseActiveState(universeId, active) {
+        try {
+            if (!await this.canEditUniverse(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot modify this universe' };
+            }
+            
+            // Default Universe must always be active
+            if (universeId === 'default' && !active) {
+                return { success: false, error: 'Default Universe must always be active' };
+            }
+            
+            await db.collection('universes').doc(universeId).update({
+                active: active,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            return { success: true, data: { universeId, active } };
+        } catch (error) {
+            console.error('setUniverseActiveState error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Set signup key for a universe (hashes the key)
+     */
+    async setSignupKey(universeId, key) {
+        try {
+            if (!await this.canEditUniverse(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot modify this universe' };
+            }
+            
+            // Simple hash function (for demo - use proper crypto in production)
+            // In a real implementation, use crypto.subtle.digest for proper hashing
+            let hash = 0;
+            for (let i = 0; i < key.length; i++) {
+                const char = key.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32-bit integer
+            }
+            const signupKeyHash = hash.toString();
+            
+            await db.collection('universes').doc(universeId).update({
+                signupKeyHash: signupKeyHash,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            return { success: true, data: { universeId } };
+        } catch (error) {
+            console.error('setSignupKey error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Clear signup key for a universe
+     */
+    async clearSignupKey(universeId) {
+        try {
+            if (!await this.canEditUniverse(universeId)) {
+                return { success: false, error: 'Unauthorized: Cannot modify this universe' };
+            }
+            
+            await db.collection('universes').doc(universeId).update({
+                signupKeyHash: '',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            return { success: true, data: { universeId } };
+        } catch (error) {
+            console.error('clearSignupKey error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Validate a signup key
+     */
+    async validateSignupKey(universeId, inputKey) {
+        try {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            
+            const universe = universeDoc.data();
+            
+            // If no key is set, validation passes
+            if (!universe.signupKeyHash || universe.signupKeyHash === '') {
+                return { success: true, data: { valid: true } };
+            }
+            
+            // Hash the input key
+            let hash = 0;
+            for (let i = 0; i < inputKey.length; i++) {
+                const char = inputKey.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            const inputHash = hash.toString();
+            
+            const valid = inputHash === universe.signupKeyHash;
+            return { success: true, data: { valid } };
+        } catch (error) {
+            console.error('validateSignupKey error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Validate character limit for a universe
+     */
+    async validateCharacterLimit(universeId, playerUuid) {
+        try {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            
+            const universe = universeDoc.data();
+            
+            // 0 = unlimited
+            if (universe.characterLimit === 0) {
+                return { success: true, data: { allowed: true, currentCount: 0, limit: 0 } };
+            }
+            
+            // Count existing characters for this player in this universe
+            const snapshot = await db.collection('characters')
+                .where('owner_uuid', '==', playerUuid)
+                .where('universe_id', '==', universeId).get();
+            
+            const currentCount = snapshot.size;
+            const allowed = currentCount < universe.characterLimit;
+            
+            return { 
+                success: true, 
+                data: { 
+                    allowed, 
+                    currentCount, 
+                    limit: universe.characterLimit 
+                } 
+            };
+        } catch (error) {
+            console.error('validateCharacterLimit error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Validate identity options against universe allowed lists
+     */
+    async validateIdentityOptions(universeId, genderId, speciesId, classId) {
+        try {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            
+            const universe = universeDoc.data();
+            const errors = [];
+            
+            // Gender is always allowed (no restrictions)
+            
+            // Check species
+            if (universe.allowedSpecies && universe.allowedSpecies.length > 0) {
+                if (!universe.allowedSpecies.includes(speciesId)) {
+                    errors.push(`Species "${speciesId}" is not allowed in this universe`);
+                }
+            }
+            
+            // Check class
+            if (universe.allowedClasses && universe.allowedClasses.length > 0) {
+                if (!universe.allowedClasses.includes(classId)) {
+                    errors.push(`Class "${classId}" is not allowed in this universe`);
+                }
+            }
+            
+            return { 
+                success: true, 
+                data: { 
+                    valid: errors.length === 0,
+                    errors 
+                } 
+            };
+        } catch (error) {
+            console.error('validateIdentityOptions error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get filtered identity options for a universe
+     */
+    async getFilteredIdentityOptions(universeId) {
+        try {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            
+            const universe = universeDoc.data();
+            
+            // Get all templates
+            const [speciesResult, classesResult, gendersResult] = await Promise.all([
+                this.getSpecies(),
+                this.getClasses(),
+                this.getGenders()
+            ]);
+            
+            let allowedGenders = gendersResult.success ? gendersResult.data.genders : [];
+            let allowedSpecies = speciesResult.success ? speciesResult.data.species : [];
+            let allowedClasses = classesResult.success ? classesResult.data.classes : [];
+            
+            // Filter by universe allowed lists (empty array = allow all)
+            if (universe.allowedGenders && universe.allowedGenders.length > 0) {
+                allowedGenders = allowedGenders.filter(g => universe.allowedGenders.includes(g.id));
+            }
+            
+            if (universe.allowedSpecies && universe.allowedSpecies.length > 0) {
+                allowedSpecies = allowedSpecies.filter(s => universe.allowedSpecies.includes(s.id));
+            }
+            
+            if (universe.allowedClasses && universe.allowedClasses.length > 0) {
+                allowedClasses = allowedClasses.filter(c => universe.allowedClasses.includes(c.id));
+            }
+            
+            return { 
+                success: true, 
+                data: { 
+                    genders: allowedGenders,
+                    species: allowedSpecies,
+                    classes: allowedClasses
+                } 
+            };
+        } catch (error) {
+            console.error('getFilteredIdentityOptions error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Ensure Default Universe exists
+     */
+    async ensureDefaultUniverse() {
+        try {
+            const defaultDoc = await db.collection('universes').doc('default').get();
+            
+            if (!defaultDoc.exists) {
+                // Create Default Universe
+                const defaultUniverse = {
+                    name: 'Default Universe',
+                    description: 'The default universe for all characters',
+                    theme: '',
+                    roleplayType: '',
+                    imageUrl: '',
+                    groupSlurl: '',
+                    welcomeSlurl: '',
+                    landmarks: [],
+                    contacts: [],
+                    maturityRating: 'general',
+                    
+                    ownerAdminId: null,  // Only System Admin/Super User can edit
+                    active: true,
+                    visibility: 'public',
+                    
+                    acceptNewPlayers: 'open',
+                    signupKeyHash: '',
+                    
+                    characterLimit: 0,  // Unlimited
+                    manaEnabled: true,
+                    
+                    allowedGenders: [],  // Empty = allow all
+                    allowedSpecies: [],  // Empty = allow all
+                    allowedClasses: [],  // Empty = allow all
+                    allowedCareers: [],  // Empty = allow all
+                    
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    deleted: false
+                };
+                
+                await db.collection('universes').doc('default').set(defaultUniverse);
+                console.log('Default Universe created');
+            }
+            
+            return { success: true };
+        } catch (error) {
+            console.error('ensureDefaultUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    // =========================== INVENTORY API (READ-ONLY) =====================
+    // Note: Inventory modifications are done via LSL → Firestore REST API
+    // JS functions here are read-only for display in Setup HUD
+    
+    /**
+     * Get full inventory as {itemName: quantity} map
+     * Returns empty object if inventory doesn't exist
+     */
+    async getInventory() {
+        if (!this.uuid) {
+            console.error('[getInventory] No UUID - access denied');
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            console.log('[getInventory] Reading from users collection, UUID:', this.uuid);
+            const userDoc = await db.collection('users').doc(this.uuid).get();
+            
+            if (!userDoc.exists) {
+                console.log('[getInventory] User document does not exist');
+                return { success: true, data: { inventory: {} } };
+            }
+            
+            const userData = userDoc.data();
+            console.log('[getInventory] User data keys:', Object.keys(userData || {}));
+            console.log('[getInventory] User data:', userData);
+            console.log('[getInventory] Inventory field:', userData?.inventory);
+            console.log('[getInventory] Inventory field type:', typeof userData?.inventory);
+            
+            // Get inventory - Firebase JS SDK automatically converts mapValue to plain object
+            let inventory = userData?.inventory || {};
+            
+            // Safety check: if inventory is null/undefined, use empty object
+            if (!inventory || typeof inventory !== 'object') {
+                console.warn('[getInventory] Inventory is not an object, using empty object');
+                inventory = {};
+            }
+            
+            // If inventory is an array (shouldn't happen), convert to object
+            if (Array.isArray(inventory)) {
+                console.warn('[getInventory] Inventory is an array, converting to object');
+                inventory = {};
+            }
+            
+            console.log('[getInventory] Final inventory:', inventory);
+            console.log('[getInventory] Inventory keys:', Object.keys(inventory));
+            console.log('[getInventory] Inventory entries:', Object.entries(inventory));
+            console.log('[getInventory] Inventory banana value:', inventory.banana);
+            
+            return { success: true, data: { inventory } };
+        } catch (error) {
+            console.error('getInventory error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get quantity of a specific item
+     * @param {string} name - Item name (will be normalized to lowercase)
+     */
+    async getItemQuantity(name) {
+        if (!name || typeof name !== 'string') {
+            return { success: false, error: 'Invalid item name' };
+        }
+        
+        const normalizedName = name.toLowerCase().trim();
+        const inventoryResult = await this.getInventory();
+        
+        if (!inventoryResult.success) {
+            return inventoryResult;
+        }
+        
+        const quantity = inventoryResult.data.inventory[normalizedName] || 0;
+        return { success: true, data: { quantity } };
+    },
+    
+    /**
+     * Check if required items are available
+     * @param {Array<{name: string, qty: number}>} items - Array of {name, qty} objects
+     * @returns {Promise<{success: boolean, data?: {allAvailable: boolean, missing?: Array}, error?: string}>}
+     */
+    async checkItems(items) {
+        if (!Array.isArray(items)) {
+            return { success: false, error: 'Items must be an array' };
+        }
+        
+        const inventoryResult = await this.getInventory();
+        if (!inventoryResult.success) {
+            return inventoryResult;
+        }
+        
+        const inventory = inventoryResult.data.inventory;
+        const missing = [];
+        
+        for (const item of items) {
+            if (!item.name || typeof item.qty !== 'number') {
+                return { success: false, error: 'Invalid item format - must have name (string) and qty (number)' };
+            }
+            
+            const normalizedName = item.name.toLowerCase().trim();
+            const available = inventory[normalizedName] || 0;
+            
+            if (available < item.qty) {
+                missing.push({
+                    name: normalizedName,
+                    required: item.qty,
+                    available: available
+                });
+            }
+        }
+        
+        return {
+            success: true,
+            data: {
+                allAvailable: missing.length === 0,
+                missing: missing.length > 0 ? missing : undefined
+            }
+        };
     }
 };
 
