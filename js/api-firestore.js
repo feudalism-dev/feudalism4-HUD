@@ -2245,72 +2245,52 @@ const API = {
     // JS functions here are read-only for display in Setup HUD
     
     /**
-     * Get full inventory as {itemName: quantity} map for a specific universe
+     * Get inventory from character document
      * Returns empty object if inventory doesn't exist
-     * Filters items by universe_id - only returns items for the specified universe
-     * @param {string} universeId - The universe ID to filter inventory by
+     * @param {string} characterId - The character document ID
      */
-    async getInventory(universeId = 'default') {
+    async getInventory(characterId) {
         if (!this.uuid) {
             console.error('[getInventory] No UUID - access denied');
             return { success: false, error: 'No UUID - access denied' };
         }
         
-        if (!universeId) {
-            console.error('[getInventory] No universeId provided');
-            return { success: false, error: 'No universeId provided' };
+        if (!characterId) {
+            console.error('[getInventory] No characterId provided');
+            return { success: false, error: 'No characterId provided' };
         }
         
         try {
-            console.log('[getInventory] Reading from users collection, UUID:', this.uuid, 'Filtering by Universe:', universeId);
-            const userDoc = await db.collection('users').doc(this.uuid).get();
+            console.log('[getInventory] Reading from characters collection, Character ID:', characterId);
+            const charDoc = await db.collection('characters').doc(characterId).get();
             
-            if (!userDoc.exists) {
-                console.log('[getInventory] User document does not exist');
+            if (!charDoc.exists) {
+                console.log('[getInventory] Character document does not exist');
                 return { success: true, data: { inventory: {} } };
             }
             
-            const userData = userDoc.data();
+            const charData = charDoc.data();
             
-            // Get full inventory (all items for all universes)
-            let fullInventory = userData?.inventory || {};
+            // Get inventory from character document
+            // Structure: {itemName: quantity} (simple map)
+            let inventory = charData?.inventory || {};
             
             // Safety check: if inventory is null/undefined, use empty object
-            if (!fullInventory || typeof fullInventory !== 'object') {
+            if (!inventory || typeof inventory !== 'object') {
                 console.warn('[getInventory] Inventory is not an object, using empty object');
-                fullInventory = {};
+                inventory = {};
             }
             
-            // If inventory is an array (shouldn't happen), convert to object
-            if (Array.isArray(fullInventory)) {
+            // If inventory is an array (legacy format), convert to object
+            if (Array.isArray(inventory)) {
                 console.warn('[getInventory] Inventory is an array, converting to object');
-                fullInventory = {};
+                inventory = {};
             }
             
-            // Filter inventory to only include items for this universe
-            // Structure: {itemName: {universe1: qty1, universe2: qty2, ...}}
-            // OR legacy: {itemName: quantity} (migrate on access)
-            const filteredInventory = {};
-            for (const [itemName, itemData] of Object.entries(fullInventory)) {
-                if (typeof itemData === 'number' || typeof itemData === 'string') {
-                    // Legacy format: simple quantity - migrate to universe structure
-                    // For now, only include if universe is "default" (assume legacy items are default)
-                    if (universeId === 'default') {
-                        filteredInventory[itemName] = typeof itemData === 'number' ? itemData : parseInt(itemData) || 0;
-                    }
-                } else if (itemData && typeof itemData === 'object') {
-                    // New format: {universe1: qty1, universe2: qty2, ...}
-                    if (itemData[universeId] !== undefined) {
-                        filteredInventory[itemName] = itemData[universeId];
-                    }
-                }
-            }
+            console.log('[getInventory] Inventory items:', Object.keys(inventory).length);
+            console.log('[getInventory] Inventory:', inventory);
             
-            console.log('[getInventory] Full inventory items:', Object.keys(fullInventory).length);
-            console.log('[getInventory] Filtered inventory for universe', universeId + ':', Object.keys(filteredInventory).length, 'items');
-            console.log('[getInventory] Filtered inventory:', filteredInventory);
-            
-            return { success: true, data: { inventory: filteredInventory } };
+            return { success: true, data: { inventory } };
         } catch (error) {
             console.error('getInventory error:', error);
             return { success: false, error: error.message };

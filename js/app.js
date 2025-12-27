@@ -1065,19 +1065,19 @@ try {
      */
     async loadInventory() {
         try {
-            // Get universe_id from current character, or use selectedUniverseId for new characters
-            const universeId = this.state.character?.universe_id || this.state.selectedUniverseId || 'default';
+            // Get character ID from current character
+            const characterId = this.state.character?.id;
             
-            if (!universeId) {
-                console.error('[loadInventory] No universe ID available');
+            if (!characterId) {
+                console.warn('[loadInventory] No character selected');
                 if (UI.elements.inventoryGrid) {
-                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">No universe selected</p>';
+                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Select or create a character to view inventory.</p>';
                 }
                 return;
             }
             
-            console.log('[loadInventory] Calling API.getInventory() for universe:', universeId);
-            const result = await API.getInventory(universeId);
+            console.log('[loadInventory] Calling API.getInventory() for character:', characterId);
+            const result = await API.getInventory(characterId);
             console.log('[loadInventory] Result:', result);
             if (result.success) {
                 console.log('[loadInventory] Success! Inventory data:', result.data);
