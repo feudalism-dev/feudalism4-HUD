@@ -4422,6 +4422,9 @@ window.onSpeciesSelected = async function(speciesId) {
                         As a <strong>${species.name}</strong>, you have been blessed with magical ability!
                     </p>
                     <p class="modal-text">
+                        Your character has <strong style="color: #10b981;">mana</strong> and will be able to select an <strong>arcane career</strong>.
+                    </p>
+                    <p class="modal-text" style="color: var(--text-muted); font-size: 0.9em;">
                         You can now learn and use spells. Classes that require mana will be available to you.
                     </p>
                     <div class="modal-actions">
@@ -4430,8 +4433,29 @@ window.onSpeciesSelected = async function(speciesId) {
                 </div>
             `);
             document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.hideModal());
+        } else if (!hasMana && universeManaEnabled) {
+            // Show notification that they did NOT get mana
+            UI.showModal(`
+                <div class="modal-content">
+                    <h2 class="modal-title" style="color: #ef4444;">❌ No Magical Ability</h2>
+                    <p class="modal-text" style="font-size: 1.1em; margin: var(--space-md) 0;">
+                        As a <strong>${species.name}</strong>, you did <strong style="color: #ef4444;">not</strong> gain magical ability.
+                    </p>
+                    <p class="modal-text">
+                        Your character does <strong>not have mana</strong> and <strong>cannot select an arcane career</strong>.
+                    </p>
+                    <p class="modal-text" style="color: var(--text-muted); font-size: 0.9em; margin-top: var(--space-md);">
+                        If you want to pursue an arcane career, try creating a <strong>NEW CHARACTER</strong> again until you get one with mana.
+                    </p>
+                    <div class="modal-actions">
+                        <button class="btn btn-primary modal-ok-btn">Understood</button>
+                    </div>
+                </div>
+            `);
+            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.hideModal());
         } else {
-            UI.showToast(`${species.name} - You do not have magical ability.`, 'info', 2000);
+            // Universe doesn't allow mana
+            UI.showToast(`${species.name} - This universe does not allow magical abilities.`, 'info', 2000);
         }
     }
     
