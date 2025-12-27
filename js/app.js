@@ -1132,7 +1132,38 @@ try {
             this.showNewCharacterDialog();
         });
         
-        // Open in Browser link - no event listener needed, target="_blank" handles it
+        // Open in Browser link - use click handler for MOAP browser compatibility
+        document.getElementById('open-in-browser-link')?.addEventListener('click', (e) => {
+            const link = e.currentTarget;
+            if (link && link.href && link.href !== '#' && link.href !== window.location.href) {
+                // Try window.open first (works in regular browsers)
+                const newWindow = window.open(link.href, '_blank', 'noopener,noreferrer');
+                // If window.open was blocked or failed, fall back to navigating
+                if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                    // For MOAP browsers that don't support window.open, try direct navigation
+                    // This will at least show the URL so user can copy it
+                    console.log('window.open failed, URL is:', link.href);
+                    // In MOAP, we might need to use llOpenURL via secondlife:// protocol
+                    // But for now, just prevent default and show the URL
+                    e.preventDefault();
+                    // Show the URL in an alert or copy to clipboard if possible
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(link.href).then(() => {
+                            UI.showToast('URL copied to clipboard! Paste it in your browser.', 'info', 3000);
+                        }).catch(() => {
+                            UI.showToast('URL: ' + link.href, 'info', 5000);
+                        });
+                    } else {
+                        UI.showToast('URL: ' + link.href, 'info', 5000);
+                    }
+                } else {
+                    e.preventDefault(); // Prevent default navigation since window.open worked
+                }
+            } else {
+                e.preventDefault();
+                UI.showToast('Link not ready yet', 'warning');
+            }
+        });
         
         // New Character button (old location - keep for compatibility)
         document.getElementById('btn-new-character')?.addEventListener('click', () => {
