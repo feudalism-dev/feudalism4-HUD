@@ -715,12 +715,20 @@ input::placeholder {
     gap: var(--space-sm);
 }
 
-/* Override grid layout when using list-based inventory container */
-.inventory-container {
-    grid-column: 1 / -1; /* Span all columns */
+/* When inventory-grid contains inventory-container, switch to block layout */
+.inventory-grid > .inventory-container {
+    display: block;
+    grid-column: 1 / -1;
     width: 100%;
     max-width: 100%;
     min-width: 100%;
+}
+
+/* Override parent grid when container is present - use more specific selector */
+#inventory-grid:has(.inventory-container),
+.inventory-grid:has(.inventory-container) {
+    display: block;
+    grid-template-columns: none;
 }
 
 .inventory-slot {
