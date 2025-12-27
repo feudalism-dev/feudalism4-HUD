@@ -1461,7 +1461,11 @@ try {
             
             UI.showToast('Saving...', 'info', 1000);
             
-            if (this.state.isNewCharacter) {
+            // Determine if this is a new character or an update
+            // Check if character has an ID - if it does, it's an existing character
+            const isNewCharacter = this.state.isNewCharacter && !char.id;
+            
+            if (isNewCharacter) {
                 // Validate universe selection
                 if (!this.state.selectedUniverseId) {
                     UI.showToast('Please select a universe', 'warning');
@@ -1562,6 +1566,7 @@ try {
                 
                 this.state.character = result.data.character;
                 this.state.isNewCharacter = false;
+                this.state.selectedCharacterId = result.data.character.id; // Set selected character ID
                 UI.showToast('Character created!', 'success');
             } else {
                 // Update existing character
