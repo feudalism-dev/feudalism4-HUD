@@ -4432,7 +4432,7 @@ window.onSpeciesSelected = async function(speciesId) {
                     </div>
                 </div>
             `);
-            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.hideModal());
+            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.closeModal());
         } else if (!hasMana && universeManaEnabled) {
             // Show notification that they did NOT get mana
             UI.showModal(`
@@ -4452,7 +4452,7 @@ window.onSpeciesSelected = async function(speciesId) {
                     </div>
                 </div>
             `);
-            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.hideModal());
+            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.closeModal());
         } else {
             // Universe doesn't allow mana
             UI.showToast(`${species.name} - This universe does not allow magical abilities.`, 'info', 2000);
