@@ -342,11 +342,11 @@
         <!-- Toast -->
         <div id="toast-container"></div>
         
-        <!-- Debug Panel (visible in SL) -->
-        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: block !important;">
+        <!-- Debug Panel (hidden by default) -->
+        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #0f0; padding-bottom: 5px;">
                 <strong style="color: #0f0; font-size: 14px;">🐛 DEBUG LOG (SL Browser)</strong>
-                <button id="debug-toggle" style="background: #0f0; color: #000; border: 1px solid #0f0; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: bold; border-radius: 3px;">Hide</button>
+                <button id="debug-toggle" style="background: #0f0; color: #000; border: 1px solid #0f0; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: bold; border-radius: 3px;">Show</button>
             </div>
             <div id="debug-content" style="line-height: 1.6; min-height: 50px;"></div>
         </div>

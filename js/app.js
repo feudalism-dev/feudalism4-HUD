@@ -18,17 +18,16 @@ var DebugLog = {
         this.content = document.getElementById('debug-content');
         var toggle = document.getElementById('debug-toggle');
         
-        // Always show debug panel - make it very visible
+        // Debug panel is hidden by default
         if (this.panel) {
-            this.panel.style.display = 'block';
-            this.panel.style.visibility = 'visible';
-            this.log('Debug panel initialized', 'info');
+            this.panel.style.display = 'none';
+            this.log('Debug panel initialized (hidden by default)', 'info');
         } else {
             // If panel doesn't exist, create it
             var newPanel = document.createElement('div');
             newPanel.id = 'debug-panel';
-            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: block !important;';
-            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Hide</button></div><div id="debug-content"></div>';
+            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: none;';
+            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Show</button></div><div id="debug-content"></div>';
             document.body.appendChild(newPanel);
             this.panel = newPanel;
             this.content = document.getElementById('debug-content');
@@ -1419,6 +1418,28 @@ try {
                     return;
                 }
                 
+                // Get universe to check registration code and other settings
+                const universeResult = await API.getUniverse(this.state.selectedUniverseId);
+                if (!universeResult.success) {
+                    UI.showToast('Failed to load universe data', 'error');
+                    return;
+                }
+                const universe = universeResult.data.universe;
+                
+                // Validate registration code if required
+                if (universe.registrationCode && universe.registrationCode.trim() !== '') {
+                    const registrationInput = document.getElementById('universe-registration-code');
+                    const registrationCode = registrationInput ? registrationInput.value.trim() : '';
+                    if (!registrationCode) {
+                        UI.showToast('Registration code is required for this universe', 'warning');
+                        return;
+                    }
+                    if (universe.registrationCode !== registrationCode) {
+                        UI.showToast('Invalid registration code', 'error');
+                        return;
+                    }
+                }
+                
                 // Validate character limit
                 const limitCheck = await API.validateCharacterLimit(this.state.selectedUniverseId, API.uuid);
                 if (!limitCheck.success || !limitCheck.data.allowed) {
@@ -1438,17 +1459,9 @@ try {
                     return;
                 }
                 
-                // Get universe to check manaEnabled
-                const universeResult = await API.getUniverse(this.state.selectedUniverseId);
-                if (!universeResult.success) {
-                    UI.showToast('Failed to load universe data', 'error');
-                    return;
-                }
-                const universe = universeResult.data.universe;
-                
-                // Get species to check mana rule
+                // Get species to check mana rule (only if universe allows mana)
                 const species = this.state.species.find(s => s.id === char.species_id);
-                const hasMana = species && App.rollManaChance(species) && universe.manaEnabled;
+                const hasMana = universe.manaEnabled && species && App.rollManaChance(species);
                 
                 // Create new character
                 const result = await API.createCharacter({
