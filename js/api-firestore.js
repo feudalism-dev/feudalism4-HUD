@@ -252,10 +252,20 @@ const API = {
         
         try {
             // SECURITY: Always filter by owner_uuid to ensure users can only access their own characters
-            const snapshot = await db.collection('characters')
-                .where('owner_uuid', '==', this.uuid)
-                .orderBy('created_at', 'desc')
-                .get();
+            // Try with orderBy first, but fallback to simple query if index doesn't exist
+            let snapshot;
+            try {
+                snapshot = await db.collection('characters')
+                    .where('owner_uuid', '==', this.uuid)
+                    .orderBy('created_at', 'desc')
+                    .get();
+            } catch (orderByError) {
+                // If orderBy fails (likely missing index), try without it
+                console.warn('listCharacters: orderBy failed, trying without orderBy:', orderByError.message);
+                snapshot = await db.collection('characters')
+                    .where('owner_uuid', '==', this.uuid)
+                    .get();
+            }
             
             const characters = [];
             snapshot.forEach(doc => {
@@ -266,6 +276,16 @@ const API = {
                 }
             });
             
+            // Sort manually if we didn't use orderBy
+            if (characters.length > 1) {
+                characters.sort((a, b) => {
+                    const aTime = a.created_at?.toMillis ? a.created_at.toMillis() : (a.created_at?.seconds || 0) * 1000;
+                    const bTime = b.created_at?.toMillis ? b.created_at.toMillis() : (b.created_at?.seconds || 0) * 1000;
+                    return bTime - aTime; // Descending order (newest first)
+                });
+            }
+            
+            console.log(`[listCharacters] Found ${characters.length} character(s) for UUID: ${this.uuid}`);
             return { success: true, data: { characters } };
         } catch (error) {
             console.error('listCharacters error:', error);
