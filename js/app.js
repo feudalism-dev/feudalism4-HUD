@@ -4149,7 +4149,7 @@ try {
         
         console.log('[Players HUD Sync] Character data ready - LSL will retrieve via URL polling');
     }
-};
+};  // End of App object
 
 // =========================== GLOBAL CALLBACKS ===========================
 
