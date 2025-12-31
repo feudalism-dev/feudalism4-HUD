@@ -1491,18 +1491,23 @@ const UI = {
         console.log('[renderInventory] Received inventory:', inventory);
         console.log('[renderInventory] Inventory type:', typeof inventory);
         console.log('[renderInventory] Inventory is array?', Array.isArray(inventory));
-        console.log('[renderInventory] Inventory keys:', inventory ? Object.keys(inventory) : 'null/undefined');
         
-        if (!inventory || Object.keys(inventory).length === 0) {
+        // Handle empty or invalid inventory
+        if (!inventory || (Array.isArray(inventory) && inventory.length === 0)) {
             console.log('[renderInventory] Inventory is empty or null');
             this.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Your inventory is empty...</p>';
             return;
         }
         
-        // Sort items alphabetically by name
-        const items = Object.entries(inventory)
-            .map(([name, quantity]) => ({ name, quantity }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+        // Ensure inventory is an array
+        let items = Array.isArray(inventory) ? inventory : [];
+        
+        // Sort items alphabetically by id or name
+        items = items.slice().sort((a, b) => {
+            const nameA = (a.id || a.name || '').toLowerCase();
+            const nameB = (b.id || b.name || '').toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
         
         // Build attractive inventory list HTML
         let html = '<div class="inventory-container">';
@@ -1516,9 +1521,12 @@ const UI = {
         // Item rows
         items.forEach((item, index) => {
             const rowClass = index % 2 === 0 ? 'inventory-row' : 'inventory-row inventory-row-alt';
+            const itemName = item.id || item.name || '';
+            const itemQty = item.qty || 0;
+            
             html += `<div class="${rowClass}">`;
-            html += `<div class="inventory-item-name">${this.escapeHtml(item.name)}</div>`;
-            html += `<div class="inventory-quantity">${item.quantity}</div>`;
+            html += `<div class="inventory-item-name">${this.escapeHtml(itemName)}</div>`;
+            html += `<div class="inventory-quantity">${itemQty}</div>`;
             html += '</div>';
         });
         
