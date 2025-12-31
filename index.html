@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feudalism 4 - Setup HUD</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="hud-header">
+            <div class="header-brand">
+                <span class="brand-icon">⚔️</span>
+                <h1>Feudalism IV</h1>
+            </div>
+            <div class="header-info">
+                <span id="user-role" class="role-badge">Player</span>
+                <span id="connection-status" class="status-dot online"></span>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="character">Character</button>
+            <button class="tab-btn" data-tab="stats">Stats</button>
+            <button class="tab-btn" data-tab="career">Career</button>
+            <button class="tab-btn" data-tab="inventory">Inventory</button>
+            <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- Character Tab -->
+            <section id="tab-character" class="tab-content active">
+                <div class="panel">
+                    <h2>Identity</h2>
+                    <div class="form-group">
+                        <label for="char-name">Character Name</label>
+                        <input type="text" id="char-name" placeholder="Enter your name..." maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label for="char-title">Title</label>
+                        <input type="text" id="char-title" placeholder="Your title or epithet..." maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <div class="button-group">
+                            <button class="choice-btn" data-gender="male">♂ Male</button>
+                            <button class="choice-btn" data-gender="female">♀ Female</button>
+                            <button class="choice-btn" data-gender="other">⚪ Other</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Species</h2>
+                    <div id="species-gallery" class="gallery">
+                        <!-- Species cards will be populated via JS -->
+                        <div class="loading-spinner">Loading species...</div>
+                    </div>
+                </div>
+
+                <div class="panel summary-panel">
+                    <h2>Character Summary</h2>
+                    <div id="char-summary">
+                        <p class="placeholder-text">Create your character above...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Tab -->
+            <section id="tab-stats" class="tab-content">
+                <div class="panel">
+                    <div class="stats-header">
+                        <h2>Attributes</h2>
+                        <div class="xp-display">
+                            <span class="xp-label">Available XP:</span>
+                            <span id="xp-available" class="xp-value">0</span>
+                        </div>
+                    </div>
+                    <div id="stats-grid" class="stats-grid">
+                        <!-- Stats will be populated via JS -->
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Vocation Bonus</h2>
+                    <div id="vocation-display" class="vocation-box">
+                        <p class="placeholder-text">Select a class to see your vocation...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Career Tab -->
+            <section id="tab-career" class="tab-content">
+                <div class="panel">
+                    <h2>Current Career</h2>
+                    <div id="current-career" class="career-display">
+                        <p class="placeholder-text">No career selected...</p>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Available Careers</h2>
+                    <div id="career-gallery" class="gallery career-gallery">
+                        <div class="loading-spinner">Loading careers...</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Career Path</h2>
+                    <div id="career-path" class="career-path">
+                        <p class="placeholder-text">Your career progression will appear here...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Inventory Tab -->
+            <section id="tab-inventory" class="tab-content">
+                <div class="panel">
+                    <div class="currency-bar">
+                        <span class="currency-label">Currency:</span>
+                        <span id="currency-amount" class="currency-value">0</span>
+                        <span class="currency-icon">🪙</span>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Inventory</h2>
+                    <div id="inventory-grid" class="inventory-grid">
+                        <p class="placeholder-text">Your inventory is empty...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Admin Tab (Hidden by default) -->
+            <section id="tab-admin" class="tab-content">
+                <div class="panel admin-panel">
+                    <h2>Administration</h2>
+                    <div class="admin-nav">
+                        <button class="admin-btn" data-admin="users">👥 Users</button>
+                        <button class="admin-btn" data-admin="species">🐉 Species</button>
+                        <button class="admin-btn" data-admin="classes">⚔️ Classes</button>
+                        <button class="admin-btn" data-admin="vocations">📜 Vocations</button>
+                        <button class="admin-btn" data-admin="xp">⭐ Award XP</button>
+                    </div>
+                </div>
+
+                <div id="admin-content" class="panel">
+                    <p class="placeholder-text">Select an admin function above...</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer Actions -->
+        <footer class="hud-footer">
+            <button id="btn-save" class="action-btn primary">💾 Save Character</button>
+            <button id="btn-roll" class="action-btn">🎲 Test Roll</button>
+            <button id="btn-refresh" class="action-btn">🔄 Refresh</button>
+        </footer>
+
+        <!-- Modal for detailed views -->
+        <div id="modal" class="modal hidden">
+            <div class="modal-content">
+                <button class="modal-close">&times;</button>
+                <div id="modal-body"></div>
+            </div>
+        </div>
+
+        <!-- Toast notifications -->
+        <div id="toast-container"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    
+    <!-- App Scripts -->
+    <script src="js/firebase-config.js?v=4"></script>
+    <script src="js/api-firestore.js?v=4"></script>
+    <script src="js/ui.js?v=4"></script>
+    <script src="js/app.js?v=4"></script>
+</body>
+</html>
+

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feudalism 4 - Loading</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a1612 0%, #2a2420 50%, #1a1612 100%);
+            font-family: 'Cinzel', serif;
+            color: #e8dcc8;
+        }
+        
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.05); }
+        }
+        
+        h1 {
+            font-size: 2rem;
+            color: #c9a227;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
+            margin-bottom: 2rem;
+            letter-spacing: 0.2em;
+        }
+        
+        .loading-bar {
+            width: 200px;
+            height: 4px;
+            background: #2a2420;
+            border-radius: 2px;
+            overflow: hidden;
+            border: 1px solid #4a4238;
+        }
+        
+        .loading-progress {
+            height: 100%;
+            width: 30%;
+            background: linear-gradient(90deg, #8b7019, #c9a227, #8b7019);
+            border-radius: 2px;
+            animation: loading 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes loading {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+        
+        .status {
+            margin-top: 1.5rem;
+            font-size: 0.9rem;
+            color: #a89880;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .decorative-line {
+            width: 100px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #c9a227, transparent);
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="logo">⚔️</div>
+    <h1>FEUDALISM IV</h1>
+    <div class="decorative-line"></div>
+    <div class="loading-bar">
+        <div class="loading-progress"></div>
+    </div>
+    <p class="status">Connecting to realm...</p>
+</body>
+</html>
+
