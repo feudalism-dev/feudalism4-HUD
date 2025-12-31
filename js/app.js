@@ -1113,6 +1113,157 @@ try {
     },
     
     /**
+     * Drop a single item (remove 1 quantity)
+     * @param {string} itemId - Item ID to drop
+     * @param {number} quantity - Quantity to drop (default 1)
+     */
+    async dropItem(itemId, quantity = 1) {
+        if (!this.state.character || !this.state.character.id) {
+            console.warn('[dropItem] No character selected');
+            return;
+        }
+        
+        if (!itemId) {
+            console.warn('[dropItem] No item ID provided');
+            return;
+        }
+        
+        try {
+            console.log('[dropItem] Dropping', quantity, 'of', itemId);
+            const result = await API.removeItem(this.state.character.id, itemId, quantity);
+            
+            if (result.success) {
+                // Refresh inventory
+                await this.loadInventory();
+                if (typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast(`Dropped ${quantity} ${itemId}`, 'success', 2000);
+                }
+            } else {
+                console.error('[dropItem] Failed:', result.error);
+                if (typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast(`Failed to drop item: ${result.error}`, 'error', 3000);
+                }
+            }
+        } catch (error) {
+            console.error('[dropItem] Error:', error);
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Error dropping item', 'error', 3000);
+            }
+        }
+    },
+    
+    /**
+     * Remove an item completely (remove full quantity)
+     * @param {string} itemId - Item ID to remove
+     * @param {number} quantity - Full quantity to remove
+     */
+    async removeItem(itemId, quantity) {
+        if (!this.state.character || !this.state.character.id) {
+            console.warn('[removeItem] No character selected');
+            return;
+        }
+        
+        if (!itemId) {
+            console.warn('[removeItem] No item ID provided');
+            return;
+        }
+        
+        if (!quantity || quantity <= 0) {
+            console.warn('[removeItem] Invalid quantity');
+            return;
+        }
+        
+        try {
+            console.log('[removeItem] Removing', quantity, 'of', itemId);
+            const result = await API.removeItem(this.state.character.id, itemId, quantity);
+            
+            if (result.success) {
+                // Refresh inventory
+                await this.loadInventory();
+                if (typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast(`Deleted ${itemId}`, 'success', 2000);
+                }
+            } else {
+                console.error('[removeItem] Failed:', result.error);
+                if (typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast(`Failed to delete item: ${result.error}`, 'error', 3000);
+                }
+            }
+        } catch (error) {
+            console.error('[removeItem] Error:', error);
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Error deleting item', 'error', 3000);
+            }
+        }
+    },
+    
+    /**
+     * Bulk delete all checked items
+     */
+    async bulkDeleteItems() {
+        if (!this.state.character || !this.state.character.id) {
+            console.warn('[bulkDeleteItems] No character selected');
+            return;
+        }
+        
+        // Get all checked items
+        const checkedBoxes = document.querySelectorAll('.inventory-item-checkbox:checked');
+        if (checkedBoxes.length === 0) {
+            console.warn('[bulkDeleteItems] No items selected');
+            return;
+        }
+        
+        const itemsToDelete = [];
+        checkedBoxes.forEach(checkbox => {
+            const itemId = checkbox.dataset.itemId;
+            const itemQty = parseInt(checkbox.dataset.itemQty || '0', 10);
+            if (itemId && itemQty > 0) {
+                itemsToDelete.push({ id: itemId, qty: itemQty });
+            }
+        });
+        
+        if (itemsToDelete.length === 0) {
+            console.warn('[bulkDeleteItems] No valid items to delete');
+            return;
+        }
+        
+        try {
+            console.log('[bulkDeleteItems] Deleting', itemsToDelete.length, 'items');
+            
+            // Delete all items sequentially
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const item of itemsToDelete) {
+                const result = await API.removeItem(this.state.character.id, item.id, item.qty);
+                if (result.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                    console.error('[bulkDeleteItems] Failed to delete', item.id, ':', result.error);
+                }
+            }
+            
+            // Refresh inventory
+            await this.loadInventory();
+            
+            // Show result toast
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                if (failCount === 0) {
+                    UI.showToast(`Deleted ${successCount} item(s)`, 'success', 2000);
+                } else {
+                    UI.showToast(`Deleted ${successCount} item(s), ${failCount} failed`, 'warning', 3000);
+                }
+            }
+        } catch (error) {
+            console.error('[bulkDeleteItems] Error:', error);
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Error during bulk delete', 'error', 3000);
+            }
+        }
+    },
+    
+    /**
      * Calculate combined stat caps from species and class
      */
     calculateStatCaps() {
