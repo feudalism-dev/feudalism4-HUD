@@ -9,10 +9,22 @@
 // Development Mode: Set to TRUE to use preview channel URL, FALSE for production
 integer DEV_MODE = FALSE;
 
-// Firebase Hosting URL for the MOAP interface
-// Production: https://feudalism4-rpg.web.app
-// Dev Channel: https://feudalism4-rpg--dev-fm3j5b7k.web.app
-// Note: Channel URLs include a hash that may change on redeploy - check with: firebase hosting:channel:list
+// Universe ID for this HUD (enforces one character → one universe rule)
+string HUD_UNIVERSE_ID = "feud4_core";
+
+// Debug settings
+integer DEBUG_MODE = FALSE;  // Enable debug logging (set to TRUE only when debugging)
+
+// Debug function - centralized logging
+debugLog(string message) {
+    if (DEBUG_MODE) {
+        llOwnerSay("[HUD] " + message);
+    }
+}
+
+// GitHub Pages URL for the MOAP interface
+// Production: https://feudalism-dev.github.io/feudalism4-HUD/hud.html
+// Dev Channel: (same as production for now)
 string MOAP_BASE_URL;
 
 // MOAP Face (which face of the prim displays the web content)
@@ -61,6 +73,7 @@ integer baseHealth;
 integer baseStamina;
 integer baseMana;
 string myClass;
+string actionSlotsJson = "";  // Action slots (LSD-only, no Firestore)
 integer characterLoaded = FALSE;
 integer resourcesInitialized = FALSE;  // Prevent duplicate resource initialization
 integer loadRequestsSent = FALSE;  // Prevent duplicate load requests
@@ -78,6 +91,8 @@ integer isPassedOut = FALSE;
 integer timerCount = 0;
 // Character data now loaded via Firestore Bridge (HTTP-based), not MOAP
 // Character data polling removed - now handled by Firestore Bridge via HTTP
+
+// Inventory is now handled by HUD Inventory Controller script
 
 // Stat indices
 integer AGILITY = 0;
@@ -170,12 +185,12 @@ showSetupHUD() {
     setupModeActive = TRUE;
     
     if (moapPrimLink <= 0) {
-        llOwnerSay("[HUD] ERROR: moapPrimLink is invalid: " + (string)moapPrimLink);
+        debugLog("ERROR: moapPrimLink is invalid: " + (string)moapPrimLink);
         setupModeActive = FALSE;  // Reset flag on error
         return;
     }
     
-    llOwnerSay("[HUD] Showing Setup HUD");
+    debugLog("Showing Setup HUD");
     
     // Move panel into view
     llSetLinkPrimitiveParamsFast(moapPrimLink, [
@@ -197,7 +212,7 @@ showSetupHUD() {
     // DO NOT clear MOAP here — it breaks autoplay
     setMOAPUrl(hudUrl);
     
-    // Start timer to poll for MOAP commands and CHARACTER_DATA
+    // Start timer to poll for MOAP commands
     llSetTimerEvent(1.0);
 }
 
@@ -209,12 +224,12 @@ hideSetupHUD() {
     }
     
     if (moapPrimLink <= 0) {
-        llOwnerSay("[HUD] ERROR: moapPrimLink is invalid: " + (string)moapPrimLink);
+        debugLog("ERROR: moapPrimLink is invalid: " + (string)moapPrimLink);
         setupModeActive = FALSE;  // Reset flag on error
         return;
     }
     
-    llOwnerSay("[HUD] Hiding Setup HUD");
+    debugLog("Hiding Setup HUD");
     
     // Stop timer first
     llSetTimerEvent(0.0);
@@ -290,6 +305,8 @@ announce(string message) {
     llSay(0, message);
 }
 
+// Inventory menu functions moved to HUD Inventory Controller script
+
 // =========================== MAIN STATE =====================================
 
 default {
@@ -305,22 +322,24 @@ default {
         
         // Set MOAP URL based on DEV_MODE
         if (DEV_MODE) {
-            MOAP_BASE_URL = "https://feudalism4-rpg--dev-fm3j5b7k.web.app";
-            llOwnerSay("[HUD] Running in DEV mode - Using preview channel URL");
+            MOAP_BASE_URL = "https://feudalism-dev.github.io/feudalism4-HUD";
+            debugLog("Running in DEV mode - Using GitHub Pages URL");
         } else {
-            MOAP_BASE_URL = "https://feudalism4-rpg.web.app";
-            llOwnerSay("[HUD] Running in PRODUCTION mode - Using production URL");
+            MOAP_BASE_URL = "https://feudalism-dev.github.io/feudalism4-HUD";
+            debugLog("Running in PRODUCTION mode - Using GitHub Pages URL");
         }
         
         // Find MOAP prim
         moapPrimLink = getLinkNumberByName(MOAP_PRIM_NAME);
         if (moapPrimLink == -1) {
-            llOwnerSay("[HUD] WARNING: MOAP prim '" + MOAP_PRIM_NAME + "' not found!");
+            debugLog("WARNING: MOAP prim '" + MOAP_PRIM_NAME + "' not found!");
         }
+        
+        // Inventory menu is now handled by HUD Inventory Controller script
         
         // Initialize Setup HUD - snap directly to hidden position
         if (moapPrimLink > 0) {
-            llOwnerSay("[HUD] Initializing Setup HUD - MOAP prim link: " + (string)moapPrimLink);
+            debugLog("Initializing Setup HUD - MOAP prim link: " + (string)moapPrimLink);
             
             // Small delay to ensure prim is ready
             llSleep(0.1);
@@ -334,7 +353,7 @@ default {
             // Verify position was set
             llSleep(0.1);
             vector actualPos = llList2Vector(llGetLinkPrimitiveParams(moapPrimLink, [PRIM_POS_LOCAL]), 0);
-            llOwnerSay("[HUD] Setup HUD initialized - Target: " + (string)SETUP_HUD_HIDDEN_POS + ", Actual: " + (string)actualPos);
+            debugLog("Setup HUD initialized - Target: " + (string)SETUP_HUD_HIDDEN_POS + ", Actual: " + (string)actualPos);
             
             // DON'T set MOAP URL here - prim is hidden/off-screen, so autoplay won't fire
             // We'll set it in showSetupHUD() after moving the prim into view
@@ -393,7 +412,7 @@ default {
             float currentTime = llGetTime();
             float elapsed = currentTime - lastToggleTime;
             if (elapsed < 1.0 && lastToggleTime > 0.0) {
-                llOwnerSay("[HUD] Toggle debounce - ignoring rapid click (elapsed: " + (string)elapsed + ")");
+                debugLog("Toggle debounce - ignoring rapid click (elapsed: " + (string)elapsed + ")");
                 return;
             }
             
@@ -409,13 +428,51 @@ default {
                 hideSetupHUD();
             }
         }
+        // Show inventory menu if rp_inventory is touched (route to Inventory Controller)
+        else if (linkName == "rp_inventory") {
+            llMessageLinked(LINK_SET, 0, "show_inventory_menu", "");
+        }
+        // Handle rp_update button (refresh/sync character data from Firestore)
+        else if (linkName == "rp_update") {
+            // Read characterId from LSD (stored by Firestore Bridge)
+            string characterId = llLinksetDataRead("characterId");
+            if (characterId == "" || characterId == "JSON_INVALID") {
+                // No characterId in LSD - need to query Firestore first
+                llMessageLinked(LINK_SET, 0, "get_character_info", NULL_KEY);
+                notify("Querying character information...");
+            } else {
+                // Use atomic field gets instead of fetching full document (prevents truncation)
+                // Send all field requests in parallel (fastest approach)
+                llMessageLinked(LINK_SET, 0, "getStats", "");
+                llMessageLinked(LINK_SET, 0, "getHealth", "");
+                llMessageLinked(LINK_SET, 0, "getStamina", "");
+                llMessageLinked(LINK_SET, 0, "getMana", "");
+                llMessageLinked(LINK_SET, 0, "getXP", "");
+                llMessageLinked(LINK_SET, 0, "getClass", "");
+                llMessageLinked(LINK_SET, 0, "getSpecies", "");
+                llMessageLinked(LINK_SET, 0, "getHasMana", "");
+                llMessageLinked(LINK_SET, 0, "getSpeciesFactors", "");
+                llMessageLinked(LINK_SET, 0, "getGender", "");
+                llMessageLinked(LINK_SET, 0, "getCurrency", "");
+                llMessageLinked(LINK_SET, 0, "getMode", "");
+                llMessageLinked(LINK_SET, 0, "getUniverseId", "");
+                notify("Synchronizing character data with server...");
+            }
+        }
     }
     
     // Handle link messages from other scripts
     link_message(integer sender_num, integer num, string msg, key id) {
         // Character data loaded from Firestore (via Data Manager)
         if (msg == "character loaded from firestore") {
-            llOwnerSay("[HUD] Character data received from Firestore");
+                debugLog("Character data received from Firestore");
+            
+            // Check universe_id to enforce one character → one universe rule
+            string universeId = llLinksetDataRead("universe_id");
+            if (universeId != "" && universeId != HUD_UNIVERSE_ID) {
+                notify("Warning: This character belongs to universe '" + universeId +
+                       "' but this HUD is for universe '" + HUD_UNIVERSE_ID + "'.");
+            }
             
             // Load species factors and has_mana from LSD (set by Data Manager)
             string healthFactorStr = llLinksetDataRead("health_factor");
@@ -425,19 +482,19 @@ default {
             
             if (healthFactorStr != "") {
                 healthFactor = (integer)healthFactorStr;
-                llOwnerSay("[HUD] Health factor: " + (string)healthFactor);
+                debugLog("Health factor: " + (string)healthFactor);
             }
             if (staminaFactorStr != "") {
                 staminaFactor = (integer)staminaFactorStr;
-                llOwnerSay("[HUD] Stamina factor: " + (string)staminaFactor);
+                debugLog("Stamina factor: " + (string)staminaFactor);
             }
             if (manaFactorStr != "") {
                 manaFactor = (integer)manaFactorStr;
-                llOwnerSay("[HUD] Mana factor: " + (string)manaFactor);
+                debugLog("Mana factor: " + (string)manaFactor);
             }
             if (hasManaStr != "") {
                 hasMana = (integer)hasManaStr;
-                llOwnerSay("[HUD] Has mana: " + (string)hasMana);
+                debugLog("Has mana: " + (string)hasMana);
             }
             
             llMessageLinked(LINK_SET, 0, "load stats", "");
@@ -446,6 +503,7 @@ default {
             llMessageLinked(LINK_SET, 0, "load mana", "");
             llMessageLinked(LINK_SET, 0, "load xp", "");
             llMessageLinked(LINK_SET, 0, "load class", "");
+            llMessageLinked(LINK_SET, 0, "load action_slots", "");
             
             // Check if Setup HUD was auto-shown and should be hidden after character creation
             string autoHide = llLinksetDataRead("auto_hide_setup");
@@ -453,7 +511,7 @@ default {
                 llLinksetDataDelete("auto_hide_setup");
                 llSleep(2.0);  // Wait for data to be fully saved
                 hideSetupHUD();
-                llOwnerSay("[HUD] Character created! Switching to Players HUD...");
+                debugLog("Character created! Switching to Players HUD...");
             }
         }
         // Stats loaded
@@ -468,7 +526,7 @@ default {
                 }
                 updateResourceDisplays();
             } else {
-                llOwnerSay("[HUD] WARNING: Expected 20 stats but got " + (string)llGetListLength(myStats));
+                debugLog("WARNING: Expected 20 stats but got " + (string)llGetListLength(myStats));
             }
         }
         // Health loaded
@@ -565,6 +623,18 @@ default {
                 setPrimText("rp_class", myClass);
             }
         }
+        else if (msg == "action_slots loaded") {
+            actionSlotsJson = (string)id;
+            debugLog("Action slots loaded (length: " + (string)llStringLength(actionSlotsJson) + ")");
+            // Forward to action bar script if needed:
+            // llMessageLinked(LINK_SET, 0, "apply_action_slots", (key)actionSlotsJson);
+        }
+        else if (msg == "update_action_slots") {
+            string newSlotsJson = (string)id;
+            actionSlotsJson = newSlotsJson;
+            llMessageLinked(LINK_SET, 0, "save action_slots", (key)newSlotsJson);
+            debugLog("Action slots updated (length: " + (string)llStringLength(newSlotsJson) + ")");
+        }
         // Setup HUD commands
         else if (msg == "show setup hud") {
             showSetupHUD();
@@ -572,6 +642,7 @@ default {
         else if (msg == "hide setup hud") {
             hideSetupHUD();
         }
+        // Inventory messages are now handled by HUD Inventory Controller script
         // Data Manager requests are now handled by Firestore Bridge (HTTP-based)
         // No longer needed here - removed to eliminate MOAP dependency
     }
@@ -587,7 +658,7 @@ default {
             
             // Close Setup HUD command from MOAP - IGNORED (use rp_options prim to toggle)
             if (cmd == "CLOSE_SETUP") {
-                llOwnerSay("[HUD] Ignoring CLOSE_SETUP from listen() - use rp_options prim");
+                debugLog("Ignoring CLOSE_SETUP from listen() - use rp_options prim");
                 return;  // Ignore this command
             }
             // Other MOAP commands (ROLL, ANNOUNCE, etc.)
@@ -671,41 +742,18 @@ default {
             }
             // Add other HUD_CHANNEL commands as needed
         }
+        // Inventory menu dialogs and text input are now handled by HUD Inventory Controller script
     }
     
     timer() {
         
-        // Poll for Setup HUD UI commands (like CLOSE_SETUP) and CHARACTER_DATA when Setup HUD is active
+        // Poll for Setup HUD UI commands (like CLOSE_SETUP) when Setup HUD is active
         if (setupModeActive && moapPrimLink > 0) {
             list mediaParams = llGetLinkPrimitiveParams(moapPrimLink, [PRIM_MEDIA_CURRENT_URL]);
             string currentUrl = llList2String(mediaParams, 0);
             
-            // Check for CHARACTER_DATA (now in JSON format, sent via char_data URL parameter)
-            integer charDataPos = llSubStringIndex(currentUrl, "char_data=");
-            if (charDataPos != -1) {
-                // Extract CHARACTER_DATA from URL
-                string dataPart = llGetSubString(currentUrl, charDataPos + 10, -1);
-                // Find end of data (next & or end of string)
-                integer endPos = llSubStringIndex(dataPart, "&");
-                if (endPos == -1) endPos = llStringLength(dataPart);
-                string encodedData = llGetSubString(dataPart, 0, endPos - 1);
-                
-                // Decode JSON and forward to Data Manager
-                string charData = llUnescapeURL(encodedData);
-                if (charData != "") {
-                    llOwnerSay("[HUD] Received CHARACTER_DATA (JSON) from MOAP, forwarding to Data Manager");
-                    llMessageLinked(LINK_SET, 0, "CHARACTER_DATA", charData);
-                    
-                    // Remove char_data from URL to prevent reprocessing
-                    string hudUrl = MOAP_BASE_URL + "/hud.html";
-                    hudUrl += "?uuid=" + llEscapeURL(ownerUUID);
-                    hudUrl += "&username=" + llEscapeURL(ownerUsername);
-                    hudUrl += "&displayname=" + llEscapeURL(ownerDisplayName);
-                    hudUrl += "&channel=" + (string)hudChannel;
-                    hudUrl += "&t=" + (string)llGetUnixTime();
-                    setMOAPUrl(hudUrl);
-                }
-            }
+            // Character data is now loaded via Firestore Bridge and stored in LSD by Data Manager
+            // No need to poll URL for char_data parameter
             
             // Check if URL contains LSL command
             integer cmdPos = llSubStringIndex(currentUrl, "lsl_cmd=");
@@ -719,13 +767,13 @@ default {
                 
                 // Decode and process command
                 string command = llUnescapeURL(encodedCmd);
-                llOwnerSay("[HUD] Received command from MOAP: " + command);
+                debugLog("Received command from MOAP: " + command);
                 
                 // Parse and handle command directly
                 // NOTE: CLOSE_SETUP is no longer used - rp_options prim handles toggle
                 // Ignore CLOSE_SETUP commands to prevent conflicts with rp_options toggle
                 if (command == "CLOSE_SETUP") {
-                    llOwnerSay("[HUD] Ignoring CLOSE_SETUP command - use rp_options prim to toggle");
+                    debugLog("Ignoring CLOSE_SETUP command - use rp_options prim to toggle");
                     // Remove command from URL but don't hide
                     string hudUrl = MOAP_BASE_URL + "/hud.html";
                     hudUrl += "?uuid=" + llEscapeURL(ownerUUID);
@@ -749,7 +797,7 @@ default {
                 hudUrl += "&channel=" + (string)hudChannel;
                 hudUrl += "&t=" + (string)llGetUnixTime();
                 setMOAPUrl(hudUrl);
-                llOwnerSay("[HUD] Cleared command from URL");
+                debugLog("Cleared command from URL");
             }
         }
     }

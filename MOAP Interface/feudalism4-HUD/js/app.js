@@ -302,31 +302,11 @@ try {
                             console.log('[Players HUD] Including class in JSON: ' + classId);
                         }
                         
-                        // Build character data as JSON object
-                        const characterJSON = {
-                            class_id: classId,
-                            stats: this.state.character.stats || {},
-                            health: this.state.character.health || { current: 0, base: 0, max: 0 },
-                            stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
-                            mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
-                            xp_total: this.state.character.xp_total || 0,
-                            has_mana: this.state.character.has_mana || false,
-                            species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
-                        };
-                        
-                        // Convert to JSON string and encode for URL
-                        const jsonString = JSON.stringify(characterJSON);
-                        const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(jsonString);
-                        currentUrl.searchParams.set('char_data', encodedData);
-                        currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                        
-                        // Update URL without reloading - LSL will poll and see this
-                        window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Players HUD] Updated URL with character data as JSON (length: ' + jsonString.length + ')');
-                        console.log('[Players HUD] Character data in URL: ' + encodedData.substring(0, 100) + '...');
+                        // Character data is now loaded via API and stored in LSD by Data Manager
+                        // No need to pass via URL - LSL reads from LSD
+                        console.log('[Players HUD] Character loaded - data available via LSD/Firestore');
                     } catch (e) {
-                        console.error('[Players HUD] Failed to update URL with character data:', e);
+                        console.error('[Players HUD] Failed to process character data:', e);
                     }
                 }, 1000);  // Wait 1 second for character to be fully loaded
             } else {
@@ -1897,26 +1877,9 @@ try {
                             console.log('[Save] Including class in JSON: ' + classId);
                         }
                         
-                        // Build character data as JSON object
-                        const characterJSON = {
-                            class_id: classId,
-                            stats: this.state.character.stats || {},
-                            health: this.state.character.health || { current: 0, base: 0, max: 0 },
-                            stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
-                            mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
-                            xp_total: this.state.character.xp_total || 0,
-                            has_mana: this.state.character.has_mana || false,
-                            species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
-                        };
-                        
-                        // Convert to JSON string and encode for URL
-                        const jsonString = JSON.stringify(characterJSON);
-                        const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(jsonString);
-                        currentUrl.searchParams.set('char_data', encodedData);
-                        currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                        window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Save] Updated CHARACTER_DATA in URL as JSON with class: ' + classId);
+                        // Character data is synced to Firestore and LSD by Data Manager
+                        // No need to pass via URL - LSL reads from LSD
+                        console.log('[Save] Character saved - data synced to Firestore/LSD');
                     }
                 }, 500);
             }
@@ -4472,44 +4435,9 @@ try {
             species_factors: character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
         };
         
-        // Convert to JSON string
-        const jsonString = JSON.stringify(characterJSON);
-        console.log('[Players HUD Sync] Broadcasting character data as JSON:', jsonString);
-        
-        // Encode JSON in URL so LSL can read it via llGetPrimMediaParams
-        // LSL will poll the MOAP URL and extract the data
-        try {
-            const currentUrl = new URL(window.location.href);
-            // Encode the JSON (URL-encode it)
-            const encodedData = encodeURIComponent(jsonString);
-            currentUrl.searchParams.set('char_data', encodedData);
-            currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-            
-            // Update URL - this will be detected by LSL polling
-            window.history.replaceState({}, '', currentUrl.toString());
-            console.log('[Players HUD Sync] Character data encoded as JSON in URL for LSL to read');
-            
-            // Also try to send via llRegionSay if available (some MOAP implementations expose this)
-            if (window.llRegionSay && typeof window.llRegionSay === 'function') {
-                try {
-                    window.llRegionSay(this.lsl.channel, message);
-                    console.log('[Players HUD Sync] Character data sent via llRegionSay');
-                } catch (e) {
-                    console.log('[Players HUD Sync] llRegionSay not available, using URL polling only');
-                }
-            }
-        } catch (e) {
-            console.log('[Players HUD Sync] URL update failed:', e);
-        }
-        
-        // Also update hash as backup signal
-        try {
-            window.location.hash = 'char_data_' + Date.now();
-        } catch (e) {
-            console.log('[Players HUD Sync] Hash update not available');
-        }
-        
-        console.log('[Players HUD Sync] Character data ready - LSL will retrieve via URL polling');
+        // Character data is synced to Firestore and LSD by Data Manager
+        // No need to pass via URL - LSL reads from LSD
+        console.log('[Players HUD Sync] Character data synced - available via LSD/Firestore');
     }
 };  // End of App object
 
