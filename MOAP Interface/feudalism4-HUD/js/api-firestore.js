@@ -2446,6 +2446,71 @@ const API = {
             console.error('[checkItems] Error:', error);
             return { success: false, error: error.message };
         }
+    },
+    
+    /**
+     * Remove items from inventory (v2: uses subcollection with negative deltas)
+     * @param {string} characterId - The character document ID
+     * @param {string} itemId - Item ID (normalized name)
+     * @param {number} quantity - Quantity to remove (must be positive)
+     * @returns {Promise<{success: boolean, error?: string}>}
+     */
+    async removeItem(characterId, itemId, quantity) {
+        if (!characterId) {
+            console.error('[removeItem] No characterId provided');
+            return { success: false, error: 'No characterId provided' };
+        }
+        
+        if (!itemId || typeof itemId !== 'string') {
+            return { success: false, error: 'Invalid item ID' };
+        }
+        
+        if (!quantity || quantity <= 0 || !Number.isInteger(quantity)) {
+            return { success: false, error: 'Quantity must be a positive integer' };
+        }
+        
+        const normalizedItemId = itemId.toLowerCase().trim();
+        const delta = -quantity; // Negative delta to remove items
+        
+        try {
+            console.log('[removeItem] Removing', quantity, 'of', normalizedItemId, 'from character', characterId);
+            
+            // Use Firestore REST API documents:commit with transform (increment)
+            const docPath = `projects/feudalism4-rpg/databases/(default)/documents/characters/${characterId}/inventory/${normalizedItemId}`;
+            const url = `https://firestore.googleapis.com/v1/projects/feudalism4-rpg/databases/(default)/documents:commit`;
+            
+            const commitJson = JSON.stringify({
+                writes: [{
+                    transform: {
+                        document: docPath,
+                        fieldTransforms: [{
+                            fieldPath: "qty",
+                            increment: { integerValue: String(delta) }
+                        }]
+                    }
+                }]
+            });
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: commitJson
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[removeItem] HTTP error:', response.status, errorText);
+                return { success: false, error: `HTTP ${response.status}: ${errorText}` };
+            }
+            
+            console.log('[removeItem] Successfully removed', quantity, 'of', normalizedItemId);
+            return { success: true };
+        } catch (error) {
+            console.error('[removeItem] Error:', error);
+            return { success: false, error: error.message };
+        }
     }
 };
 

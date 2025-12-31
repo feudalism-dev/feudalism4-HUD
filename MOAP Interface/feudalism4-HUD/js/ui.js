@@ -1512,10 +1512,19 @@ const UI = {
         // Build attractive inventory list HTML
         let html = '<div class="inventory-container">';
         
+        // Bulk actions bar
+        html += '<div class="inventory-bulk-actions" style="margin-bottom: 10px; padding: 8px; background: var(--bg-dark); border-radius: 4px; display: flex; align-items: center; gap: 10px;">';
+        html += '<button id="btn-bulk-delete" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.9em;" disabled>🗑️ Delete Selected</button>';
+        html += '</div>';
+        
         // Header row
         html += '<div class="inventory-header">';
+        html += '<div class="inventory-checkbox" style="width: 30px; text-align: center;">';
+        html += '<input type="checkbox" id="inventory-select-all" title="Select All">';
+        html += '</div>';
         html += '<div class="inventory-item-name">Item Name</div>';
         html += '<div class="inventory-quantity">Quantity</div>';
+        html += '<div class="inventory-actions" style="width: 120px; text-align: center;">Actions</div>';
         html += '</div>';
         
         // Item rows
@@ -1523,15 +1532,120 @@ const UI = {
             const rowClass = index % 2 === 0 ? 'inventory-row' : 'inventory-row inventory-row-alt';
             const itemName = item.id || item.name || '';
             const itemQty = item.qty || 0;
+            const itemId = item.id || item.name || '';
             
-            html += `<div class="${rowClass}">`;
+            html += `<div class="${rowClass}" data-item-id="${this.escapeHtml(itemId)}" data-item-qty="${itemQty}">`;
+            html += '<div class="inventory-checkbox" style="width: 30px; text-align: center;">';
+            html += `<input type="checkbox" class="inventory-item-checkbox" data-item-id="${this.escapeHtml(itemId)}" data-item-qty="${itemQty}">`;
+            html += '</div>';
             html += `<div class="inventory-item-name">${this.escapeHtml(itemName)}</div>`;
             html += `<div class="inventory-quantity">${itemQty}</div>`;
+            html += '<div class="inventory-actions" style="width: 120px; text-align: center; display: flex; gap: 4px; justify-content: center;">';
+            html += `<button class="btn-inventory-action btn-drop-one" data-item-id="${this.escapeHtml(itemId)}" title="Drop 1" style="padding: 4px 8px; font-size: 0.85em; min-width: auto;">⬇️</button>`;
+            html += `<button class="btn-inventory-action btn-delete-item" data-item-id="${this.escapeHtml(itemId)}" data-item-qty="${itemQty}" title="Delete All" style="padding: 4px 8px; font-size: 0.85em; min-width: auto;">🗑️</button>`;
+            html += '</div>';
             html += '</div>';
         });
         
         html += '</div>';
         this.elements.inventoryGrid.innerHTML = html;
+        
+        // Bind event handlers
+        this.bindInventoryEvents();
+    },
+    
+    /**
+     * Bind event handlers for inventory checkboxes and action buttons
+     */
+    bindInventoryEvents() {
+        // Select All checkbox
+        const selectAllCheckbox = document.getElementById('inventory-select-all');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                const itemCheckboxes = document.querySelectorAll('.inventory-item-checkbox');
+                itemCheckboxes.forEach(cb => {
+                    cb.checked = checked;
+                });
+                this.updateBulkDeleteButton();
+            });
+        }
+        
+        // Individual item checkboxes
+        const itemCheckboxes = document.querySelectorAll('.inventory-item-checkbox');
+        itemCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                this.updateSelectAllCheckbox();
+                this.updateBulkDeleteButton();
+            });
+        });
+        
+        // Drop 1 buttons
+        const dropOneButtons = document.querySelectorAll('.btn-drop-one');
+        dropOneButtons.forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const itemId = e.target.dataset.itemId;
+                if (itemId && typeof App !== 'undefined' && App.dropItem) {
+                    await App.dropItem(itemId, 1);
+                }
+            });
+        });
+        
+        // Delete item buttons (per-item trash)
+        const deleteItemButtons = document.querySelectorAll('.btn-delete-item');
+        deleteItemButtons.forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const itemId = e.target.dataset.itemId;
+                const itemQty = parseInt(e.target.dataset.itemQty || '0', 10);
+                if (itemId && itemQty > 0 && typeof App !== 'undefined' && App.removeItem) {
+                    await App.removeItem(itemId, itemQty);
+                }
+            });
+        });
+        
+        // Bulk delete button
+        const bulkDeleteBtn = document.getElementById('btn-bulk-delete');
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.addEventListener('click', async () => {
+                if (typeof App !== 'undefined' && App.bulkDeleteItems) {
+                    await App.bulkDeleteItems();
+                }
+            });
+        }
+    },
+    
+    /**
+     * Update Select All checkbox state based on individual checkboxes
+     */
+    updateSelectAllCheckbox() {
+        const selectAllCheckbox = document.getElementById('inventory-select-all');
+        if (!selectAllCheckbox) return;
+        
+        const itemCheckboxes = document.querySelectorAll('.inventory-item-checkbox');
+        const checkedCount = Array.from(itemCheckboxes).filter(cb => cb.checked).length;
+        
+        if (checkedCount === 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        } else if (checkedCount === itemCheckboxes.length) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        }
+    },
+    
+    /**
+     * Update bulk delete button enabled state
+     */
+    updateBulkDeleteButton() {
+        const bulkDeleteBtn = document.getElementById('btn-bulk-delete');
+        if (!bulkDeleteBtn) return;
+        
+        const itemCheckboxes = document.querySelectorAll('.inventory-item-checkbox');
+        const hasChecked = Array.from(itemCheckboxes).some(cb => cb.checked);
+        bulkDeleteBtn.disabled = !hasChecked;
     },
     
     escapeHtml(text) {
