@@ -74,7 +74,6 @@ setPrimText(string primName, string value) {
 
 default {
     state_entry() {
-        llOwnerSay("[UI Manager] Initialized");
     }
     
     link_message(integer sender_num, integer num, string msg, key id) {
@@ -178,7 +177,6 @@ default {
             integer myXP = num;
             
             if (link == -1) {
-                llOwnerSay("[UI Manager] ERROR: Could not find prim named 'rp_xpBar'");
             } else {
                 setPrimText("rp_xpText", (string)myXP + " XP");
                 
