@@ -25,6 +25,7 @@
                 <h1 class="brand-title">Feudalism 4 Setup</h1>
             </div>
             <div class="header-info">
+                <a id="open-in-browser-link" href="#" target="_blank" rel="noopener noreferrer" style="display: none; margin-right: var(--space-md); padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); text-decoration: none; font-size: 0.9em; transition: all 0.2s ease;" title="Open Setup HUD in external browser">🌐 Open in Browser</a>
                 <span id="user-role" class="role-badge">Player</span>
                 <span id="connection-status" class="status-dot online"></span>
             </div>
@@ -32,12 +33,22 @@
 
         <!-- Navigation Tabs -->
         <nav class="tab-nav">
-            <button class="tab-btn active" data-tab="character">Character</button>
-            <button class="tab-btn" data-tab="stats">Stats</button>
-            <button class="tab-btn" data-tab="career">Career</button>
-            <button class="tab-btn" data-tab="inventory">Inventory</button>
-            <button class="tab-btn" data-tab="options">Options</button>
-            <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+            <div style="display: flex; align-items: center; gap: var(--space-sm); flex: 1;">
+                <button class="tab-btn active" data-tab="character">Character</button>
+                <button class="tab-btn" data-tab="stats">Stats</button>
+                <button class="tab-btn" data-tab="career">Career</button>
+                <button class="tab-btn" data-tab="inventory">Inventory</button>
+                <button class="tab-btn" data-tab="options">Options</button>
+                <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--space-sm);">
+                <!-- Character Selector (shown when user has multiple characters) -->
+                <select id="character-selector" style="display: none; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 0.9em;">
+                    <option value="">Loading characters...</option>
+                </select>
+                <!-- New Character Button -->
+                <button id="btn-new-character-nav" class="tab-btn" style="background: var(--gold-dark); color: var(--bg-dark); font-weight: bold;">🆕 New Character</button>
+            </div>
         </nav>
 
         <!-- Main Content Area -->
@@ -50,13 +61,25 @@
                         <span style="font-size: 2em;">ℹ️</span>
                         <div style="flex: 1;">
                             <h3 style="margin: 0 0 var(--space-xs) 0; color: #fff; font-size: 1.2em;">You do not have a character yet.</h3>
-                            <p style="margin: 0; color: #e0e0e0; font-size: 1em;">Click <strong style="color: #10b981;">NEW CHARACTER</strong> to create one.</p>
+                            <p style="margin: 0; color: #e0e0e0; font-size: 1em;">Click <strong id="new-character-link" style="color: #10b981; cursor: pointer; text-decoration: underline;">NEW CHARACTER</strong> to create one.</p>
                         </div>
                     </div>
                 </div>
                 
                 <div class="panel">
                     <h2>Identity</h2>
+                    <div class="form-group" id="universe-selection-group" style="display: none;">
+                        <label for="char-universe">Universe</label>
+                        <select id="char-universe" style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                            <option value="default">Loading universes...</option>
+                        </select>
+                        <div id="universe-registration-group" style="display: none; margin-top: var(--space-xs);">
+                            <label for="universe-registration-code" style="font-size: 0.9em; color: var(--text-muted);">Registration Code</label>
+                            <input type="text" id="universe-registration-code" placeholder="Enter registration code..." style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                            <small style="color: var(--text-muted); display: block; margin-top: var(--space-xxs);">This universe requires a registration code</small>
+                        </div>
+                        <small style="color: var(--text-muted);">Choose the universe for your character</small>
+                    </div>
                     <div class="form-group">
                         <label for="char-name">Character Name</label>
                         <input type="text" id="char-name" placeholder="Enter your name..." maxlength="50">
@@ -287,6 +310,7 @@
                     <h2>Administration</h2>
                     <div class="admin-nav">
                         <button class="admin-btn" data-admin="users">👥 Users</button>
+                        <button class="admin-btn" data-admin="universes">🌌 Universes</button>
                         <button class="admin-btn" data-admin="species">🐉 Species</button>
                         <button class="admin-btn" data-admin="classes">⚔️ Classes</button>
                         <button class="admin-btn" data-admin="genders">⚧ Genders</button>
@@ -319,11 +343,11 @@
         <!-- Toast -->
         <div id="toast-container"></div>
         
-        <!-- Debug Panel (visible in SL) -->
-        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: block !important;">
+        <!-- Debug Panel (hidden by default) -->
+        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #0f0; padding-bottom: 5px;">
                 <strong style="color: #0f0; font-size: 14px;">🐛 DEBUG LOG (SL Browser)</strong>
-                <button id="debug-toggle" style="background: #0f0; color: #000; border: 1px solid #0f0; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: bold; border-radius: 3px;">Hide</button>
+                <button id="debug-toggle" style="background: #0f0; color: #000; border: 1px solid #0f0; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: bold; border-radius: 3px;">Show</button>
             </div>
             <div id="debug-content" style="line-height: 1.6; min-height: 50px;"></div>
         </div>
@@ -413,7 +437,7 @@
     <script>
         window.simpleDebug('About to load app.js', 'info');
     </script>
-    <script src="js/app.js?v=40" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
+    <script src="js/app.js?v=51" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
     <script>
         window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
         // Try to call init after a short delay
