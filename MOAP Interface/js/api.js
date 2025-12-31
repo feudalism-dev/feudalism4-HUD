@@ -121,6 +121,30 @@ const API = {
         return this.request('character.delete');
     },
     
+    /**
+     * Get inventory for a character (Inventory v2 - subcollection)
+     * @param {string} characterId - Character document ID
+     */
+    async getInventory(characterId) {
+        console.log('[getInventory] Fetching Inventory v2 for character:', characterId);
+
+        const url = `https://firestore.googleapis.com/v1/projects/feudalism4-rpg/databases/(default)/documents/characters/${characterId}/inventory`;
+        const response = await fetch(url);
+        const json = await response.json();
+
+        const items = [];
+        if (json.documents) {
+            for (const doc of json.documents) {
+                const id = doc.name.split('/').pop();
+                const qty = parseInt(doc.fields?.qty?.integerValue || "0", 10);
+                items.push({ id, qty });
+            }
+        }
+
+        console.log('[getInventory] Inventory items:', items.length);
+        return items;
+    },
+    
     // =========================== TEMPLATES ==============================
     
     /**

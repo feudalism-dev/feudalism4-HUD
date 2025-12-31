@@ -18,17 +18,16 @@ var DebugLog = {
         this.content = document.getElementById('debug-content');
         var toggle = document.getElementById('debug-toggle');
         
-        // Always show debug panel - make it very visible
+        // Debug panel is hidden by default
         if (this.panel) {
-            this.panel.style.display = 'block';
-            this.panel.style.visibility = 'visible';
-            this.log('Debug panel initialized', 'info');
+            this.panel.style.display = 'none';
+            this.log('Debug panel initialized (hidden by default)', 'info');
         } else {
             // If panel doesn't exist, create it
             var newPanel = document.createElement('div');
             newPanel.id = 'debug-panel';
-            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: block !important;';
-            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Hide</button></div><div id="debug-content"></div>';
+            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: none;';
+            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Show</button></div><div id="debug-content"></div>';
             document.body.appendChild(newPanel);
             this.panel = newPanel;
             this.content = document.getElementById('debug-content');
@@ -158,8 +157,10 @@ try {
         currentSpecies: null,
         currentClass: null,
         currentVocation: null,
+        inventoryPagination: null,  // { cursor: '', hasMore: false, items: [] }
         currentUniverse: null,
         selectedUniverseId: 'default',
+        selectedCharacterId: null,
         pendingChanges: {},
         isNewCharacter: false
     },
@@ -231,16 +232,26 @@ try {
         }
         
         // Store LSL data for quick access
+        // NOTE: UUID is the unique identifier - all queries and security checks use UUID, not displayName
         this.lsl.uuid = API.uuid;
         this.lsl.username = API.username;
-        this.lsl.displayName = API.displayName;
+        this.lsl.displayName = API.displayName; // Display name is UI-only, never used for identification
         this.lsl.channel = API.hudChannel;
         this.lsl.connected = !!API.uuid;
+        
+        // Setup "Open in Browser" link
+        this.setupOpenInBrowserLink();
         
         // Initialize super admin if this is the super admin UUID
         if (API.uuid === API.SUPER_ADMIN_UUID) {
             await API.initializeSuperAdmin();
             console.log('Super Admin initialized');
+        }
+        
+        // Update displayName from user document if available (UI display only, syncUser() may have updated it)
+        if (API.user && API.user.display_name) {
+            this.lsl.displayName = API.user.display_name;
+            API.displayName = API.user.display_name;
         }
         
         // Update header with player name
@@ -266,59 +277,59 @@ try {
                 console.log('[Players HUD] Character found - broadcasting character data in response to LSL request');
                 this.broadcastCharacterToPlayersHUD(this.state.character);
                 
-                // Update URL with character data so LSL can read it
-                // Use replaceState to avoid reload, then LSL will poll and see the updated URL
-                setTimeout(() => {
-                    try {
-                        const stats = this.state.character.stats || {};
-                        const statsList = [
-                            stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
-                            stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
-                            stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
-                            stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
-                            stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
-                            stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
-                            stats.will || 2, stats.wisdom || 2
-                        ];
-                        // Get class_id - check both character.class_id and currentClass.id
-                        let classId = this.state.character.class_id || "";
-                        if (!classId && this.state.currentClass) {
-                            classId = this.state.currentClass.id || "";
-                            console.log('[Players HUD] Using currentClass.id as fallback: ' + classId);
-                        }
-                        if (!classId) {
-                            console.warn('[Players HUD] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-                        } else {
-                            console.log('[Players HUD] Including class in JSON: ' + classId);
-                        }
-                        
-                        // Build character data as JSON object
-                        const characterJSON = {
-                            class_id: classId,
-                            stats: this.state.character.stats || {},
-                            health: this.state.character.health || { current: 0, base: 0, max: 0 },
-                            stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
-                            mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
-                            xp_total: this.state.character.xp_total || 0,
-                            has_mana: this.state.character.has_mana || false,
-                            species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
-                        };
-                        
-                        // Convert to JSON string and encode for URL
-                        const jsonString = JSON.stringify(characterJSON);
-                        const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(jsonString);
-                        currentUrl.searchParams.set('char_data', encodedData);
-                        currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                        
-                        // Update URL without reloading - LSL will poll and see this
-                        window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Players HUD] Updated URL with character data as JSON (length: ' + jsonString.length + ')');
-                        console.log('[Players HUD] Character data in URL: ' + encodedData.substring(0, 100) + '...');
-                    } catch (e) {
-                        console.error('[Players HUD] Failed to update URL with character data:', e);
-                    }
-                }, 1000);  // Wait 1 second for character to be fully loaded
+                        // Update URL with character data so LSL can read it
+                        // Use replaceState to avoid reload, then LSL will poll and see the updated URL
+                        setTimeout(() => {
+                            try {
+                                const stats = this.state.character.stats || {};
+                                const statsList = [
+                                    stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
+                                    stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
+                                    stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
+                                    stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
+                                    stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
+                                    stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
+                                    stats.will || 2, stats.wisdom || 2
+                                ];
+                                // Get class_id - check both character.class_id and currentClass.id
+                                let classId = this.state.character.class_id || "";
+                                if (!classId && this.state.currentClass) {
+                                    classId = this.state.currentClass.id || "";
+                                    console.log('[Players HUD] Using currentClass.id as fallback: ' + classId);
+                                }
+                                if (!classId) {
+                                    console.warn('[Players HUD] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
+                                } else {
+                                    console.log('[Players HUD] Including class in JSON: ' + classId);
+                                }
+                                
+                                // Build character data as JSON object
+                                const characterJSON = {
+                                    class_id: classId,
+                                    stats: this.state.character.stats || {},
+                                    health: this.state.character.health || { current: 0, base: 0, max: 0 },
+                                    stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
+                                    mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
+                                    xp_total: this.state.character.xp_total || 0,
+                                    has_mana: this.state.character.has_mana || false,
+                                    species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
+                                };
+                                
+                                // Convert to JSON string and encode for URL
+                                const jsonString = JSON.stringify(characterJSON);
+                                const currentUrl = new URL(window.location.href);
+                                const encodedData = encodeURIComponent(jsonString);
+                                currentUrl.searchParams.set('char_data', encodedData);
+                                currentUrl.searchParams.set('char_data_ts', Date.now().toString());
+                                
+                                // Update URL without reloading - LSL will poll and see this
+                                window.history.replaceState({}, '', currentUrl.toString());
+                                console.log('[Players HUD] Updated URL with character data as JSON (length: ' + jsonString.length + ')');
+                                console.log('[Players HUD] Character data in URL: ' + encodedData.substring(0, 100) + '...');
+                            } catch (e) {
+                                console.error('[Players HUD] Failed to update URL with character data:', e);
+                            }
+                        }, 1000);  // Wait 1 second for character to be fully loaded
             } else {
                 console.log('[Players HUD] No character found - cannot send character data to LSL');
             }
@@ -442,64 +453,116 @@ try {
                 return;
             }
             
-            // Try to load existing character
-            // SECURITY: getCharacter() validates owner_uuid matches API.uuid
+            // Try to load existing characters
+            // SECURITY: listCharacters() validates owner_uuid matches API.uuid
             try {
-                const charResult = await API.getCharacter();
-                if (charResult.success) {
-                    const character = charResult.data.character;
+                console.log('[loadData] Loading characters for UUID:', API.uuid);
+                const charsResult = await API.listCharacters();
+                console.log('[loadData] listCharacters result:', charsResult);
+                
+                if (!charsResult.success) {
+                    console.error('[loadData] listCharacters failed:', charsResult.error);
+                    UI.showToast('Failed to load characters: ' + (charsResult.error || 'Unknown error'), 'error');
+                    this.state.character = null;
+                    this.state.isNewCharacter = true;
+                    return;
+                }
+                
+                if (charsResult.data && charsResult.data.characters && charsResult.data.characters.length > 0) {
+                    console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
+                    const characters = charsResult.data.characters;
                     
-                    // SECURITY: Double-check ownership before using character data
-                    if (character.owner_uuid !== API.uuid) {
-                        console.error('SECURITY VIOLATION: Character owner_uuid does not match current user');
-                        UI.showToast('Access denied: Character ownership mismatch', 'error');
-                        this.state.character = null;
-                        this.state.isNewCharacter = true;
-                    } else {
-                        this.state.character = character;
-                        this.state.isNewCharacter = false;
+                    // If user has multiple characters, show selector
+                    if (characters.length > 1) {
+                        await this.loadCharacterSelector(characters);
+                    }
+                    
+                    // Load first character by default (or selected character)
+                    const characterId = this.state.selectedCharacterId || characters[0].id;
+                    const charResult = await API.getCharacterById(characterId);
+                    
+                    if (charResult.success) {
+                        const character = charResult.data.character;
                         
-                        // Ensure resource pools are properly structured
-                        if (!this.state.character.health || typeof this.state.character.health !== 'object') {
-                            this.state.character.health = { current: 100, base: 100, max: 100 };
+                        // SECURITY: Double-check ownership before using character data
+                        if (character.owner_uuid !== API.uuid) {
+                            console.error('SECURITY VIOLATION: Character owner_uuid does not match current user');
+                            UI.showToast('Access denied: Character ownership mismatch', 'error');
+                            this.state.character = null;
+                            this.state.isNewCharacter = true;
+                        } else {
+                            this.state.character = character;
+                            this.state.isNewCharacter = false;
+                            
+                            // Ensure resource pools are properly structured
+                            if (!this.state.character.health || typeof this.state.character.health !== 'object') {
+                                this.state.character.health = { current: 100, base: 100, max: 100 };
+                            }
+                            if (!this.state.character.stamina || typeof this.state.character.stamina !== 'object') {
+                                this.state.character.stamina = { current: 100, base: 100, max: 100 };
+                            }
+                            if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
+                                this.state.character.mana = { current: 50, base: 50, max: 50 };
+                            }
+                            
+                            // Initialize action_slots if missing
+                            if (!this.state.character.action_slots) {
+                                this.state.character.action_slots = [];
+                            }
+                            
+                            // Initialize mode if missing
+                            if (!this.state.character.mode) {
+                                this.state.character.mode = 'roleplay';
+                            }
+                            
+                            // Recalculate resource pools to ensure they're correct
+                            this.recalculateResourcePools();
+                            
+                            console.log('Character loaded:', this.state.character);
+                            
+                            // Load inventory (Inventory v2 - pagination)
+                            const pageSize = 50;
+                            const page = 1;
+                            const result = await API.getInventoryPage(this.state.character.id, page, pageSize);
+                            const items = result.items || [];
+                            this.state.inventory = items;
+                            
+                            // Broadcast character data to Players HUD via Setup HUD
+                            // This happens automatically when character loads
+                            this.broadcastCharacterToPlayersHUD(this.state.character);
                         }
-                        if (!this.state.character.stamina || typeof this.state.character.stamina !== 'object') {
-                            this.state.character.stamina = { current: 100, base: 100, max: 100 };
-                        }
-                        if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
-                            this.state.character.mana = { current: 50, base: 50, max: 50 };
-                        }
-                        
-                        // Initialize action_slots if missing
-                        if (!this.state.character.action_slots) {
-                            this.state.character.action_slots = [];
-                        }
-                        
-                        // Initialize mode if missing
-                        if (!this.state.character.mode) {
-                            this.state.character.mode = 'roleplay';
-                        }
-                        
-                        // Recalculate resource pools to ensure they're correct
-                        this.recalculateResourcePools();
-                        
-                        console.log('Character loaded:', this.state.character);
-                        
-                        // Broadcast character data to Players HUD via Setup HUD
-                        // This happens automatically when character loads
-                        this.broadcastCharacterToPlayersHUD(this.state.character);
                     }
                 } else {
                     // No character found - ready for creation
+                    console.log('[loadData] No characters found in result. charsResult.data:', charsResult.data);
                     this.state.character = null;
                     this.state.isNewCharacter = true;
                     console.log('No existing character, ready for creation');
                 }
             } catch (error) {
-                // No character exists, prepare for creation
-                console.log('No existing character, ready for creation');
-                this.state.isNewCharacter = true;
-                this.state.character = this.createDefaultCharacter();
+                // Error loading characters - log it but don't assume no character exists
+                console.error('[loadData] Error loading characters:', error);
+                console.error('[loadData] Error stack:', error.stack);
+                UI.showToast('Error loading character data: ' + error.message, 'error');
+                // Don't set isNewCharacter = true here - let the user try to refresh
+                // Instead, try to load using getCharacter() as fallback
+                try {
+                    console.log('[loadData] Trying fallback: getCharacter()');
+                    const fallbackResult = await API.getCharacter();
+                    if (fallbackResult.success && fallbackResult.data.character) {
+                        console.log('[loadData] Fallback getCharacter() succeeded');
+                        this.state.character = fallbackResult.data.character;
+                        this.state.isNewCharacter = false;
+                    } else {
+                        console.log('[loadData] Fallback getCharacter() failed:', fallbackResult.error);
+                        this.state.character = null;
+                        this.state.isNewCharacter = true;
+                    }
+                } catch (fallbackError) {
+                    console.error('[loadData] Fallback getCharacter() also failed:', fallbackError);
+                    this.state.character = null;
+                    this.state.isNewCharacter = true;
+                }
             }
             
             // Render UI
@@ -526,6 +589,176 @@ try {
     },
     
     /**
+     * Show new character dialog with universe selection
+     */
+    async showNewCharacterDialog() {
+        try {
+            // Load available universes
+            const result = await API.listAvailableUniverses();
+            if (!result.success) {
+                UI.showToast('Failed to load universes', 'error');
+                return;
+            }
+            
+            const universes = result.data.universes;
+            
+            // Build universe selection HTML
+            let universeOptions = '';
+            universes.forEach(universe => {
+                const requiresCode = universe.registrationCode && universe.registrationCode.trim() !== '';
+                universeOptions += `<option value="${universe.id}" data-requires-code="${requiresCode}">${universe.name}${requiresCode ? ' (Requires Code)' : ''}</option>`;
+            });
+            
+            // Show modal with universe selection
+            UI.showModal(`
+                <div class="modal-content">
+                    <h2 class="modal-title">Create New Character</h2>
+                    <p class="modal-text">Select a universe for your new character:</p>
+                    <div class="form-group" style="margin: var(--space-md) 0;">
+                        <label for="new-char-universe">Universe</label>
+                        <select id="new-char-universe" style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                            ${universeOptions}
+                        </select>
+                    </div>
+                    <div id="new-char-registration-group" class="form-group" style="display: none; margin: var(--space-md) 0;">
+                        <label for="new-char-registration-code">Registration Code</label>
+                        <input type="text" id="new-char-registration-code" placeholder="Enter registration code..." style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                        <small style="color: var(--text-muted); display: block; margin-top: var(--space-xxs);">This universe requires a registration code</small>
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-lg);">
+                        <button class="btn-secondary" onclick="UI.closeModal()">Cancel</button>
+                        <button class="btn-primary" id="btn-create-new-character">Create Character</button>
+                    </div>
+                </div>
+            `);
+            
+            // Handle universe selection change
+            const universeSelect = document.getElementById('new-char-universe');
+            const registrationGroup = document.getElementById('new-char-registration-group');
+            const registrationInput = document.getElementById('new-char-registration-code');
+            
+            universeSelect.onchange = () => {
+                const selectedOption = universeSelect.options[universeSelect.selectedIndex];
+                const requiresCode = selectedOption.dataset.requiresCode === 'true';
+                registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                if (!requiresCode) {
+                    registrationInput.value = '';
+                }
+            };
+            
+            // Trigger initial check
+            universeSelect.onchange();
+            
+            // Handle create button
+            document.getElementById('btn-create-new-character').onclick = async () => {
+                const universeId = universeSelect.value;
+                const registrationCode = registrationInput.value.trim();
+                
+                // Validate registration code if required
+                if (registrationGroup.style.display !== 'none') {
+                    if (!registrationCode) {
+                        UI.showToast('Registration code is required', 'warning');
+                        return;
+                    }
+                    
+                    // Verify registration code
+                    const universeResult = await API.getUniverse(universeId);
+                    if (!universeResult.success) {
+                        UI.showToast('Failed to verify universe', 'error');
+                        return;
+                    }
+                    
+                    const universe = universeResult.data.universe;
+                    if (universe.registrationCode !== registrationCode) {
+                        UI.showToast('Invalid registration code', 'error');
+                        return;
+                    }
+                }
+                
+                // Check character limit
+                const limitCheck = await API.validateCharacterLimit(universeId, API.uuid);
+                if (!limitCheck.success || !limitCheck.data.allowed) {
+                    UI.showToast(`Character limit reached for this universe (${limitCheck.data.currentCount}/${limitCheck.data.limit})`, 'error');
+                    return;
+                }
+                
+                // Close modal and start character creation
+                UI.closeModal();
+                this.state.selectedUniverseId = universeId;
+                this.state.isNewCharacter = true;
+                this.state.character = this.createDefaultCharacter();
+                this.state.character.universe_id = universeId;
+                
+                // Switch to Character tab and show universe selection
+                UI.switchTab('character');
+                await this.renderAll();
+            };
+        } catch (error) {
+            console.error('Failed to show new character dialog:', error);
+            UI.showToast('Failed to load universe data', 'error');
+        }
+    },
+    
+    /**
+     * Setup "Open in Browser" link with credentials
+     */
+    setupOpenInBrowserLink() {
+        const link = document.getElementById('open-in-browser-link');
+        if (!link) return;
+        
+        // Only show if we have credentials (UUID is required)
+        if (!API.uuid || API.uuid.trim() === '') {
+            link.style.display = 'none';
+            return;
+        }
+        
+        // Build URL with credentials
+        const baseUrl = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        params.set('uuid', API.uuid);
+        if (API.username) params.set('username', API.username);
+        if (API.displayName) params.set('displayname', API.displayName);
+        if (API.hudChannel) params.set('channel', API.hudChannel.toString());
+        
+        const fullUrl = baseUrl + '?' + params.toString();
+        link.href = fullUrl;
+        link.style.display = 'inline-block';
+    },
+    
+    /**
+     * Open Setup HUD in external browser
+     */
+    openInBrowser() {
+        const link = document.getElementById('open-in-browser-link');
+        if (!link || !link.href) return;
+        
+        // Open in new window/tab
+        window.open(link.href, '_blank', 'noopener,noreferrer');
+    },
+    
+    /**
+     * Load character selector dropdown
+     */
+    async loadCharacterSelector(characters) {
+        const selector = document.getElementById('character-selector');
+        if (!selector) return;
+        
+        selector.innerHTML = '';
+        characters.forEach(char => {
+            const option = document.createElement('option');
+            option.value = char.id;
+            option.textContent = `${char.name || 'Unnamed'} (${char.universe_id || 'default'})`;
+            if (char.id === this.state.selectedCharacterId || (!this.state.selectedCharacterId && characters.indexOf(char) === 0)) {
+                option.selected = true;
+                this.state.selectedCharacterId = char.id;
+            }
+            selector.appendChild(option);
+        });
+        
+        selector.style.display = characters.length > 1 ? 'block' : 'none';
+    },
+    
+    /**
      * Load available universes for character creation
      */
     async loadAvailableUniverses() {
@@ -539,6 +772,7 @@ try {
                         const option = document.createElement('option');
                         option.value = universe.id;
                         option.textContent = universe.name;
+                        option.dataset.requiresCode = (universe.registrationCode && universe.registrationCode.trim() !== '') ? 'true' : 'false';
                         if (universe.id === this.state.selectedUniverseId || (universe.id === 'default' && !this.state.selectedUniverseId)) {
                             option.selected = true;
                             this.state.selectedUniverseId = universe.id;
@@ -551,9 +785,29 @@ try {
                         select.setAttribute('data-listener-added', 'true');
                         select.onchange = async (e) => {
                             this.state.selectedUniverseId = e.target.value;
+                            const selectedOption = e.target.options[e.target.selectedIndex];
+                            const requiresCode = selectedOption.dataset.requiresCode === 'true';
+                            const registrationGroup = document.getElementById('universe-registration-group');
+                            const registrationInput = document.getElementById('universe-registration-code');
+                            if (registrationGroup) {
+                                registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                                if (registrationInput && !requiresCode) {
+                                    registrationInput.value = '';
+                                }
+                            }
                             // Re-render to update filtered identity options
                             await this.renderAll();
                         };
+                    }
+                    
+                    // Trigger initial check for registration code requirement
+                    if (select.value) {
+                        const selectedOption = select.options[select.selectedIndex];
+                        const requiresCode = selectedOption.dataset.requiresCode === 'true';
+                        const registrationGroup = document.getElementById('universe-registration-group');
+                        if (registrationGroup) {
+                            registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                        }
                     }
                 }
             }
@@ -793,6 +1047,9 @@ try {
         UI.renderXPProgress(char);
         UI.renderActionSlots(char);
         
+        // Render inventory (Inventory v2 - subcollection)
+        UI.renderInventory(this.state.inventory);
+        
         // Load and render inventory if inventory tab is active
         const inventoryTab = document.getElementById('tab-inventory');
         if (inventoryTab && inventoryTab.classList.contains('active')) {
@@ -815,31 +1072,68 @@ try {
     },
     
     /**
-     * Load and display inventory (read-only)
+     * Load and display inventory (read-only) for the current character's universe
      */
-    async loadInventory() {
+    async loadInventory(page = 1, append = false) {
         try {
-            console.log('[loadInventory] Calling API.getInventory()...');
-            const result = await API.getInventory();
-            console.log('[loadInventory] Result:', result);
-            if (result.success) {
-                console.log('[loadInventory] Success! Inventory data:', result.data);
-                console.log('[loadInventory] Inventory object:', result.data.inventory);
-                console.log('[loadInventory] Inventory type:', typeof result.data.inventory);
-                console.log('[loadInventory] Inventory keys:', Object.keys(result.data.inventory || {}));
-                UI.renderInventory(result.data.inventory);
-            } else {
-                console.error('[loadInventory] Failed to load inventory:', result.error);
+            // Get character ID from current character
+            const characterId = this.state.character?.id;
+            
+            if (!characterId) {
+                console.warn('[loadInventory] No character selected');
                 if (UI.elements.inventoryGrid) {
-                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Failed to load inventory: ' + result.error + '</p>';
+                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Select or create a character to view inventory.</p>';
                 }
+                return;
             }
+            
+            // Initialize pagination state if not exists
+            if (!this.state.inventoryPagination) {
+                this.state.inventoryPagination = {
+                    page: 1,
+                    totalPages: 0,
+                    items: []
+                };
+            }
+            
+            const pageSize = 50;
+            console.log('[loadInventory] Calling API.getInventoryPage() for character:', characterId, 'page:', page);
+            const result = await API.getInventoryPage(characterId, page, pageSize);
+            console.log('[loadInventory] Result:', result);
+            
+            const items = result.items || [];
+            
+            // Update pagination state
+            if (append) {
+                // Append to existing items
+                this.state.inventoryPagination.items = this.state.inventoryPagination.items.concat(items);
+            } else {
+                // Replace items (new load)
+                this.state.inventoryPagination.items = items;
+            }
+            this.state.inventoryPagination.page = result.page || page;
+            this.state.inventoryPagination.totalPages = result.totalPages || 0;
+            
+            // Update main inventory state
+            this.state.inventory = this.state.inventoryPagination.items;
+            
+            // Render inventory
+            UI.renderInventory(this.state.inventoryPagination.items);
         } catch (error) {
             console.error('[loadInventory] Error loading inventory:', error);
             if (UI.elements.inventoryGrid) {
                 UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Error loading inventory</p>';
             }
         }
+    },
+    
+    async loadInventoryNextPage() {
+        if (!this.state.inventoryPagination || !this.state.inventoryPagination.hasMore) {
+            console.warn('[loadInventoryNextPage] No more pages available');
+            return;
+        }
+        
+        await this.loadInventory(this.state.inventoryPagination.cursor, true);
     },
     
     /**
@@ -908,6 +1202,49 @@ try {
             });
         });
         
+        // New Character button in navigation bar
+        document.getElementById('btn-new-character-nav')?.addEventListener('click', () => {
+            this.showNewCharacterDialog();
+        });
+        
+        // New Character link in banner
+        document.getElementById('new-character-link')?.addEventListener('click', () => {
+            this.showNewCharacterDialog();
+        });
+        
+        // Open in Browser link - use click handler for MOAP browser compatibility
+        document.getElementById('open-in-browser-link')?.addEventListener('click', (e) => {
+            const link = e.currentTarget;
+            if (link && link.href && link.href !== '#' && link.href !== window.location.href) {
+                // Try window.open first (works in regular browsers)
+                const newWindow = window.open(link.href, '_blank', 'noopener,noreferrer');
+                // If window.open was blocked or failed, fall back to navigating
+                if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                    // For MOAP browsers that don't support window.open, try direct navigation
+                    // This will at least show the URL so user can copy it
+                    console.log('window.open failed, URL is:', link.href);
+                    // In MOAP, we might need to use llOpenURL via secondlife:// protocol
+                    // But for now, just prevent default and show the URL
+                    e.preventDefault();
+                    // Show the URL in an alert or copy to clipboard if possible
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(link.href).then(() => {
+                            UI.showToast('URL copied to clipboard! Paste it in your browser.', 'info', 3000);
+                        }).catch(() => {
+                            UI.showToast('URL: ' + link.href, 'info', 5000);
+                        });
+                    } else {
+                        UI.showToast('URL: ' + link.href, 'info', 5000);
+                    }
+                } else {
+                    e.preventDefault(); // Prevent default navigation since window.open worked
+                }
+            } else {
+                e.preventDefault();
+                UI.showToast('Link not ready yet', 'warning');
+            }
+        });
+        
         // New Character button (old location - keep for compatibility)
         document.getElementById('btn-new-character')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
@@ -916,6 +1253,15 @@ try {
         // Options tab buttons
         document.getElementById('btn-new-character-options')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
+        });
+        
+        // Character selector dropdown
+        document.getElementById('character-selector')?.addEventListener('change', async (e) => {
+            const characterId = e.target.value;
+            if (characterId) {
+                this.state.selectedCharacterId = characterId;
+                await this.loadData();
+            }
         });
         
         document.getElementById('btn-edit-character-options')?.addEventListener('click', () => {
@@ -1226,11 +1572,37 @@ try {
             
             UI.showToast('Saving...', 'info', 1000);
             
-            if (this.state.isNewCharacter) {
+            // Determine if this is a new character or an update
+            // Check if character has an ID - if it does, it's an existing character
+            const isNewCharacter = this.state.isNewCharacter && !char.id;
+            
+            if (isNewCharacter) {
                 // Validate universe selection
                 if (!this.state.selectedUniverseId) {
                     UI.showToast('Please select a universe', 'warning');
                     return;
+                }
+                
+                // Get universe to check registration code and other settings
+                const universeResult = await API.getUniverse(this.state.selectedUniverseId);
+                if (!universeResult.success) {
+                    UI.showToast('Failed to load universe data', 'error');
+                    return;
+                }
+                const universe = universeResult.data.universe;
+                
+                // Validate registration code if required
+                if (universe.registrationCode && universe.registrationCode.trim() !== '') {
+                    const registrationInput = document.getElementById('universe-registration-code');
+                    const registrationCode = registrationInput ? registrationInput.value.trim() : '';
+                    if (!registrationCode) {
+                        UI.showToast('Registration code is required for this universe', 'warning');
+                        return;
+                    }
+                    if (universe.registrationCode !== registrationCode) {
+                        UI.showToast('Invalid registration code', 'error');
+                        return;
+                    }
                 }
                 
                 // Validate character limit
@@ -1252,19 +1624,21 @@ try {
                     return;
                 }
                 
-                // Get universe to check manaEnabled
-                const universeResult = await API.getUniverse(this.state.selectedUniverseId);
-                if (!universeResult.success) {
-                    UI.showToast('Failed to load universe data', 'error');
-                    return;
-                }
-                const universe = universeResult.data.universe;
-                
-                // Get species to check mana rule
+                // Get species to check mana rule (only if universe allows mana)
                 const species = this.state.species.find(s => s.id === char.species_id);
-                const hasMana = species && App.rollManaChance(species) && universe.manaEnabled;
+                const hasMana = universe.manaEnabled && species && App.rollManaChance(species);
                 
                 // Create new character
+                console.log('[saveCharacter] Creating new character with data:', {
+                    name: char.name,
+                    title: char.title,
+                    gender: char.gender,
+                    species_id: char.species_id,
+                    class_id: char.class_id,
+                    universe_id: this.state.selectedUniverseId,
+                    has_mana: hasMana
+                });
+                
                 const result = await API.createCharacter({
                     name: char.name,
                     title: char.title,
@@ -1275,8 +1649,35 @@ try {
                     has_mana: hasMana
                 });
                 
+                console.log('[saveCharacter] createCharacter result:', result);
+                
+                if (!result) {
+                    UI.showToast('Failed to create character: No response from server', 'error');
+                    console.error('[saveCharacter] createCharacter returned null/undefined');
+                    return;
+                }
+                
+                if (!result.success) {
+                    UI.showToast('Failed to create character: ' + (result.error || 'Unknown error'), 'error');
+                    console.error('[saveCharacter] createCharacter failed:', result.error);
+                    return;
+                }
+                
+                if (!result.data) {
+                    UI.showToast('Failed to create character: Invalid response from server (no data)', 'error');
+                    console.error('[saveCharacter] createCharacter returned success but no data:', result);
+                    return;
+                }
+                
+                if (!result.data.character) {
+                    UI.showToast('Failed to create character: Invalid response from server (no character)', 'error');
+                    console.error('[saveCharacter] createCharacter returned success but no character:', result);
+                    return;
+                }
+                
                 this.state.character = result.data.character;
                 this.state.isNewCharacter = false;
+                this.state.selectedCharacterId = result.data.character.id; // Set selected character ID
                 UI.showToast('Character created!', 'success');
             } else {
                 // Update existing character
@@ -1293,6 +1694,14 @@ try {
                     console.log('[Save] Saving class_id: ' + classId);
                 }
                 
+                console.log('[saveCharacter] Updating character with data:', {
+                    name: char.name,
+                    title: char.title,
+                    gender: char.gender,
+                    stats: char.stats,
+                    class_id: classId
+                });
+                
                 const result = await API.updateCharacter({
                     name: char.name,
                     title: char.title,
@@ -1300,6 +1709,32 @@ try {
                     stats: char.stats,
                     class_id: classId
                 });
+                
+                console.log('[saveCharacter] updateCharacter result:', result);
+                
+                if (!result) {
+                    UI.showToast('Failed to update character: No response from server', 'error');
+                    console.error('[saveCharacter] updateCharacter returned null/undefined');
+                    return;
+                }
+                
+                if (!result.success) {
+                    UI.showToast('Failed to update character: ' + (result.error || 'Unknown error'), 'error');
+                    console.error('[saveCharacter] updateCharacter failed:', result.error);
+                    return;
+                }
+                
+                if (!result.data) {
+                    UI.showToast('Failed to update character: Invalid response from server (no data)', 'error');
+                    console.error('[saveCharacter] updateCharacter returned success but no data:', result);
+                    return;
+                }
+                
+                if (!result.data.character) {
+                    UI.showToast('Failed to update character: Invalid response from server (no character)', 'error');
+                    console.error('[saveCharacter] updateCharacter returned success but no character:', result);
+                    return;
+                }
                 
                 this.state.character = result.data.character;
                 // Update currentClass after save to ensure it's in sync
@@ -3949,7 +4384,27 @@ try {
         
         console.log('[Players HUD Sync] Character data ready - LSL will retrieve via URL polling');
     }
-};
+};  // End of App object
+
+} catch (e) {
+    if (window.simpleDebug) {
+        window.simpleDebug('ERROR creating App object: ' + e.message, 'error');
+        window.simpleDebug('Stack: ' + (e.stack || 'N/A'), 'error');
+        window.simpleDebug('Line: ' + (e.lineNumber || 'N/A'), 'error');
+    }
+    console.error('App creation error:', e);
+    // Create minimal App to prevent further errors
+    App = {
+        state: { character: null, species: [], classes: [], vocations: [], genders: [] },
+        init: function() {
+            if (window.simpleDebug) {
+                window.simpleDebug('App.init() called but App is in error state', 'error');
+            }
+        },
+        renderAll: function() {},
+        loadData: function() { return Promise.resolve(); }
+    };
+}
 
 // =========================== GLOBAL CALLBACKS ===========================
 
@@ -3993,11 +4448,20 @@ window.onSpeciesSelected = async function(speciesId) {
             mana_factor: species.mana_factor || 25
         };
         
-        // Roll for mana based on species chance (only for new characters)
-        const hasMana = App.rollManaChance(species);
+        // Roll for mana based on species chance (only for new characters and if universe allows mana)
+        // Get universe to check manaEnabled
+        let universeManaEnabled = true;
+        if (App.state.isNewCharacter && App.state.selectedUniverseId) {
+            const universeResult = await API.getUniverse(App.state.selectedUniverseId);
+            if (universeResult.success) {
+                universeManaEnabled = universeResult.data.universe.manaEnabled !== false;
+            }
+        }
+        
+        const hasMana = universeManaEnabled && App.rollManaChance(species);
         App.state.character.has_mana = hasMana;
         
-        if (hasMana) {
+        if (hasMana && universeManaEnabled) {
             // Show prominent notification for mana
             UI.showModal(`
                 <div class="modal-content">
@@ -4006,6 +4470,9 @@ window.onSpeciesSelected = async function(speciesId) {
                         As a <strong>${species.name}</strong>, you have been blessed with magical ability!
                     </p>
                     <p class="modal-text">
+                        Your character has <strong style="color: #10b981;">mana</strong> and will be able to select an <strong>arcane career</strong>.
+                    </p>
+                    <p class="modal-text" style="color: var(--text-muted); font-size: 0.9em;">
                         You can now learn and use spells. Classes that require mana will be available to you.
                     </p>
                     <div class="modal-actions">
@@ -4013,9 +4480,30 @@ window.onSpeciesSelected = async function(speciesId) {
                     </div>
                 </div>
             `);
-            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.hideModal());
+            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.closeModal());
+        } else if (!hasMana && universeManaEnabled) {
+            // Show notification that they did NOT get mana
+            UI.showModal(`
+                <div class="modal-content">
+                    <h2 class="modal-title" style="color: #ef4444;">❌ No Magical Ability</h2>
+                    <p class="modal-text" style="font-size: 1.1em; margin: var(--space-md) 0;">
+                        As a <strong>${species.name}</strong>, you did <strong style="color: #ef4444;">not</strong> gain magical ability.
+                    </p>
+                    <p class="modal-text">
+                        Your character does <strong>not have mana</strong> and <strong>cannot select an arcane career</strong>.
+                    </p>
+                    <p class="modal-text" style="color: var(--text-muted); font-size: 0.9em; margin-top: var(--space-md);">
+                        If you want to pursue an arcane career, try creating a <strong>NEW CHARACTER</strong> again until you get one with mana.
+                    </p>
+                    <div class="modal-actions">
+                        <button class="btn btn-primary modal-ok-btn">Understood</button>
+                    </div>
+                </div>
+            `);
+            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.closeModal());
         } else {
-            UI.showToast(`${species.name} - You do not have magical ability.`, 'info', 2000);
+            // Universe doesn't allow mana
+            UI.showToast(`${species.name} - This universe does not allow magical abilities.`, 'info', 2000);
         }
     }
     
@@ -4028,26 +4516,6 @@ window.onSpeciesSelected = async function(speciesId) {
     await App.renderAll();
     UI.showToast(`Selected: ${species?.name || speciesId}`, 'info', 1500);
 };
-
-} catch (e) {
-    if (window.simpleDebug) {
-        window.simpleDebug('ERROR creating App object: ' + e.message, 'error');
-        window.simpleDebug('Stack: ' + (e.stack || 'N/A'), 'error');
-        window.simpleDebug('Line: ' + (e.lineNumber || 'N/A'), 'error');
-    }
-    console.error('App creation error:', e);
-    // Create minimal App to prevent further errors
-    App = {
-        state: { character: null, species: [], classes: [], vocations: [], genders: [] },
-        init: function() {
-            if (window.simpleDebug) {
-                window.simpleDebug('App.init() called but App is in error state', 'error');
-            }
-        },
-        renderAll: function() {},
-        loadData: function() { return Promise.resolve(); }
-    };
-}
 
 /**
  * Called when a class is selected in the gallery

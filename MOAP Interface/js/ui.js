@@ -211,8 +211,9 @@ const UI = {
      * Render species selection gallery with images
      * @param {Array} species - Array of species templates
      * @param {string} selectedId - Currently selected species ID
+     * @param {boolean} universeManaEnabled - Whether the universe allows mana
      */
-    renderSpeciesGallery(species, selectedId = null) {
+    renderSpeciesGallery(species, selectedId = null, universeManaEnabled = true) {
         console.log('[DEBUG] renderSpeciesGallery() called with', species?.length || 0, 'species');
         if (!this.elements.speciesGallery) {
             console.log('[DEBUG] renderSpeciesGallery() - speciesGallery element not found!');
@@ -222,6 +223,12 @@ const UI = {
         this.elements.speciesGallery.innerHTML = species.map(sp => {
             const icon = sp.icon || this.speciesIcons[sp.id] || '👤';
             const hasImage = sp.image ? true : false;
+            
+            // Show mana chance only if universe allows mana
+            let manaInfo = '';
+            if (universeManaEnabled && sp.mana_chance && sp.mana_chance > 0) {
+                manaInfo = `<div class="card-meta" style="font-size: 0.85em; color: var(--azure); margin-top: var(--space-xxs);">✨ ${sp.mana_chance}% chance for mana</div>`;
+            }
             
             return `
                 <div class="gallery-card ${sp.id === selectedId ? 'selected' : ''}" 
@@ -237,6 +244,7 @@ const UI = {
                         <div class="card-icon">${icon}</div>
                     `}
                     <div class="card-name">${sp.name}</div>
+                    ${manaInfo}
                 </div>
             `;
         }).join('');
@@ -247,7 +255,7 @@ const UI = {
                 const speciesId = card.dataset.speciesId;
                 const speciesData = App.state.species.find(s => s.id === speciesId);
                 if (speciesData) {
-                    this.showSpeciesDetailModal(speciesData);
+                    this.showSpeciesDetailModal(speciesData, universeManaEnabled);
                 }
             });
         });
@@ -256,8 +264,9 @@ const UI = {
     /**
      * Show species detail modal with large image, stat ranges, and resource pools
      * @param {object} species - Species data object
+     * @param {boolean} universeManaEnabled - Whether the universe allows mana
      */
-    showSpeciesDetailModal(species) {
+    showSpeciesDetailModal(species, universeManaEnabled = true) {
         const modal = document.getElementById('modal');
         const modalBody = document.getElementById('modal-body');
         if (!modal || !modalBody) return;
@@ -289,6 +298,12 @@ const UI = {
         const health = species.health || 100;
         const stamina = species.stamina || 100;
         const mana = species.mana || 50;
+        
+        // Show mana info only if universe allows it
+        const manaChanceInfo = universeManaEnabled && species.mana_chance && species.mana_chance > 0 
+            ? `<div style="margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(16, 185, 129, 0.1); border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);">
+                <strong style="color: var(--azure);">✨ Magical Potential:</strong> This species has a ${species.mana_chance}% chance to gain magical ability when creating a character.
+            </div>` : '';
         
         modalBody.innerHTML = `
             <div class="species-detail">
@@ -322,6 +337,7 @@ const UI = {
                                 </div>
                                 <span class="resource-value">${stamina}</span>
                             </div>
+                            ${universeManaEnabled ? `
                             <div class="resource-item mana">
                                 <span class="resource-label">✨ Mana</span>
                                 <div class="resource-bar">
@@ -329,8 +345,10 @@ const UI = {
                                 </div>
                                 <span class="resource-value">${mana}</span>
                             </div>
+                            ` : ''}
                         </div>
                     </div>
+                    ${manaChanceInfo}
                     
                     ${statBonuses ? `
                         <div class="species-stat-bonuses">
@@ -1464,44 +1482,96 @@ const UI = {
      * Render inventory list (read-only)
      * @param {Object} inventory - Inventory object {itemName: quantity}
      */
-    renderInventory(inventory) {
+    renderInventory(items, hasMore = false) {
         if (!this.elements.inventoryGrid) {
             console.warn('[renderInventory] Inventory grid element not found');
             return;
         }
         
-        console.log('[renderInventory] Received inventory:', inventory);
-        console.log('[renderInventory] Inventory type:', typeof inventory);
-        console.log('[renderInventory] Inventory is array?', Array.isArray(inventory));
-        console.log('[renderInventory] Inventory keys:', inventory ? Object.keys(inventory) : 'null/undefined');
+        console.log('[renderInventory] Received items:', items);
+        console.log('[renderInventory] Items is array?', Array.isArray(items));
+        console.log('[renderInventory] Items length:', items ? items.length : 0);
+        console.log('[renderInventory] hasMore:', hasMore);
         
-        if (!inventory || Object.keys(inventory).length === 0) {
-            console.log('[renderInventory] Inventory is empty or null');
+        // Handle empty inventory
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            console.log('[renderInventory] Inventory is empty');
             this.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Your inventory is empty...</p>';
             return;
         }
         
-        // Sort items alphabetically by name
-        const items = Object.entries(inventory)
-            .map(([name, quantity]) => ({ name, quantity }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+        // Sort items alphabetically by id (Inventory v2 uses 'id' property)
+        const sortedItems = items.slice().sort((a, b) => {
+            const idA = a.id || a.name || '';
+            const idB = b.id || b.name || '';
+            return idA.localeCompare(idB);
+        });
         
-        // Build simple list HTML
-        let html = '<div style="display: flex; flex-direction: column; gap: var(--space-xs);">';
-        html += '<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); padding: var(--space-sm); background: var(--bg-medium); border-radius: 4px; font-weight: bold; border-bottom: 2px solid var(--border-color);">';
-        html += '<div>Item</div>';
-        html += '<div style="text-align: right;">Quantity</div>';
+        // Build attractive inventory list HTML
+        let html = '<div class="inventory-container">';
+        
+        // Header row
+        html += '<div class="inventory-header">';
+        html += '<div class="inventory-item-name">Item Name</div>';
+        html += '<div class="inventory-quantity">Quantity</div>';
         html += '</div>';
         
-        items.forEach(item => {
-            html += `<div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); padding: var(--space-sm); border-bottom: 1px solid var(--border-color);">`;
-            html += `<div style="word-break: break-word;">${item.name}</div>`;
-            html += `<div style="text-align: right; font-weight: 500;">${item.quantity}</div>`;
-            html += `</div>`;
+        // Item rows
+        sortedItems.forEach((item, index) => {
+            const rowClass = index % 2 === 0 ? 'inventory-row' : 'inventory-row inventory-row-alt';
+            html += `<div class="${rowClass}">`;
+            html += `<div class="inventory-item-name">${this.escapeHtml(item.id || item.name || '')}</div>`;
+            html += `<div class="inventory-quantity">${item.qty || 0}</div>`;
+            html += '</div>';
         });
         
         html += '</div>';
+        
+        // Add "Next Page" button if there are more items
+        if (hasMore) {
+            html += '<div style="margin-top: 15px; text-align: center;">';
+            html += '<button id="btn-inventory-next-page" class="btn btn-secondary" style="padding: 8px 20px;">Next Page</button>';
+            html += '</div>';
+        }
+        
         this.elements.inventoryGrid.innerHTML = html;
+        
+        // Attach event listener to "Next Page" button
+        if (hasMore) {
+            const nextPageBtn = document.getElementById('btn-inventory-next-page');
+            if (nextPageBtn) {
+                const self = this;
+                nextPageBtn.addEventListener('click', function() {
+                    if (window.App && window.App.loadInventoryNextPage) {
+                        window.App.loadInventoryNextPage();
+                    }
+                });
+            }
+        }
+    },
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+    
+    /**
+     * Render inventory list (Inventory v2 - subcollection)
+     * @param {Array} items - Array of { id, qty } objects
+     */
+    renderInventory(items) {
+        const panel = document.getElementById('inventory-list');
+        if (!panel) return;
+
+        if (!items || items.length === 0) {
+            panel.innerHTML = "<div class='empty'>No items</div>";
+            return;
+        }
+
+        panel.innerHTML = items
+            .map(item => `<div class='inv-item'><span>${item.id}</span><span>${item.qty}</span></div>`)
+            .join('');
     }
 };
 
