@@ -451,13 +451,31 @@ try {
                     console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
                     const characters = charsResult.data.characters;
                     
+                    // Always render characters list in Options panel
+                    await this.renderCharactersList(characters);
+                    
                     // If user has multiple characters, show selector
                     if (characters.length > 1) {
                         await this.loadCharacterSelector(characters);
                     }
                     
+                    // If no selected character, try to get active character from Bridge
+                    if (!this.state.selectedCharacterId) {
+                        await this.loadActiveCharacter();
+                    }
+                    
                     // Load first character by default (or selected character)
                     const characterId = this.state.selectedCharacterId || characters[0].id;
+                    
+                    // If we defaulted to first character and no active character was set, set it now
+                    if (!this.state.selectedCharacterId && characters.length > 0) {
+                        this.state.selectedCharacterId = characterId;
+                        // Set as active in Bridge
+                        this.sendToLSL('SET_ACTIVE_CHARACTER', { 
+                            userID: this.lsl.uuid,
+                            characterID: characterId 
+                        });
+                    }
                     const charResult = await API.getCharacterById(characterId);
                     
                     if (charResult.success) {
@@ -735,6 +753,199 @@ try {
         });
         
         selector.style.display = characters.length > 1 ? 'block' : 'none';
+        
+        // Also render characters list in Options panel
+        await this.renderCharactersList(characters);
+    },
+    
+    /**
+     * Render characters list in Options panel
+     * Groups by universe and shows character details
+     */
+    async renderCharactersList(characters) {
+        const container = document.getElementById('characters-list');
+        if (!container) return;
+        
+        if (!characters || characters.length === 0) {
+            container.innerHTML = '<p class="placeholder-text">No characters found. Create your first character!</p>';
+            return;
+        }
+        
+        // Group characters by universe
+        const byUniverse = {};
+        const universePromises = [];
+        
+        for (const char of characters) {
+            const universeId = char.universe_id || 'default';
+            if (!byUniverse[universeId]) {
+                byUniverse[universeId] = [];
+                // Load universe name
+                universePromises.push(
+                    API.getUniverse(universeId).then(result => {
+                        if (result.success) {
+                            byUniverse[universeId].universeName = result.data.universe.name;
+                        } else {
+                            byUniverse[universeId].universeName = universeId;
+                        }
+                    }).catch(() => {
+                        byUniverse[universeId].universeName = universeId;
+                    })
+                );
+            }
+            byUniverse[universeId].push(char);
+        }
+        
+        // Wait for all universe names to load
+        await Promise.all(universePromises);
+        
+        // Load species and classes for display
+        const speciesMap = {};
+        const classesMap = {};
+        const gendersMap = {};
+        
+        this.state.species.forEach(s => speciesMap[s.id] = s);
+        this.state.classes.forEach(c => classesMap[c.id] = c);
+        this.state.genders.forEach(g => gendersMap[g.id] = g);
+        
+        // Build HTML
+        let html = '';
+        for (const universeId in byUniverse) {
+            const chars = byUniverse[universeId];
+            const universeName = chars.universeName || universeId;
+            
+            html += `<div class="universe-group" style="margin-bottom: var(--space-lg);">`;
+            html += `<h3 style="margin-bottom: var(--space-sm); color: var(--text-primary); font-size: 1.1em;">${this.escapeHtml(universeName)}</h3>`;
+            
+            for (const char of chars) {
+                const species = speciesMap[char.species_id];
+                const classTemplate = classesMap[char.class_id];
+                const gender = gendersMap[char.gender];
+                const isActive = char.id === this.state.selectedCharacterId;
+                
+                html += `<div class="character-card" style="background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; padding: var(--space-md); margin-bottom: var(--space-sm); ${isActive ? 'border-color: var(--gold); border-width: 2px;' : ''}">`;
+                html += `<div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: var(--space-xs);">`;
+                html += `<div style="flex: 1;">`;
+                html += `<div style="font-weight: bold; font-size: 1.1em; margin-bottom: var(--space-xxs);">${this.escapeHtml(char.name || 'Unnamed')} ${isActive ? '<span style="background: var(--gold); color: var(--bg-dark); padding: 2px 8px; border-radius: 12px; font-size: 0.8em; margin-left: var(--space-xs);">ACTIVE</span>' : ''}</div>`;
+                html += `<div style="font-size: 0.9em; color: var(--text-muted);">`;
+                html += `${classTemplate ? this.escapeHtml(classTemplate.name) : 'No Career'} • ${species ? this.escapeHtml(species.name) : 'Unknown'} • ${gender ? this.escapeHtml(gender.name) : 'Unknown'}`;
+                html += `</div>`;
+                html += `</div>`;
+                html += `<button class="action-btn ${isActive ? 'secondary' : 'primary'}" data-character-id="${char.id}" style="margin-left: var(--space-sm);" ${isActive ? 'disabled' : ''}>${isActive ? '✓ Active' : 'Select'}</button>`;
+                html += `</div>`;
+                html += `</div>`;
+            }
+            
+            html += `</div>`;
+        }
+        
+        container.innerHTML = html;
+        
+        // Bind click events
+        container.querySelectorAll('button[data-character-id]').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const characterId = e.target.dataset.characterId;
+                if (characterId) {
+                    await this.selectCharacter(characterId);
+                }
+            });
+        });
+    },
+    
+    /**
+     * Escape HTML to prevent XSS
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+    
+    /**
+     * Load active character from Bridge on startup
+     */
+    async loadActiveCharacter() {
+        if (!this.lsl.uuid) {
+            console.warn('[loadActiveCharacter] No UUID available');
+            return;
+        }
+        
+        console.log('[loadActiveCharacter] Requesting active character from Bridge');
+        
+        // Check URL for active_char parameter (set by LSL after Bridge response)
+        const params = new URLSearchParams(window.location.search);
+        const activeCharId = params.get('active_char');
+        if (activeCharId) {
+            console.log('[loadActiveCharacter] Found active character in URL:', activeCharId);
+            this.state.selectedCharacterId = activeCharId;
+            // Remove from URL
+            params.delete('active_char');
+            window.history.replaceState({}, '', window.location.pathname + '?' + params.toString());
+            return;
+        }
+        
+        // Send GET_ACTIVE_CHARACTER command to Bridge via LSL
+        this.sendToLSL('GET_ACTIVE_CHARACTER', { 
+            userID: this.lsl.uuid
+        });
+        
+        // Poll for response in URL (LSL will update URL with active_char parameter)
+        // Check every 100ms for up to 2 seconds
+        let attempts = 0;
+        const maxAttempts = 20;
+        const checkInterval = setInterval(() => {
+            attempts++;
+            const currentParams = new URLSearchParams(window.location.search);
+            const responseCharId = currentParams.get('active_char');
+            if (responseCharId) {
+                console.log('[loadActiveCharacter] Received active character from Bridge:', responseCharId);
+                this.state.selectedCharacterId = responseCharId;
+                // Remove from URL
+                currentParams.delete('active_char');
+                window.history.replaceState({}, '', window.location.pathname + '?' + currentParams.toString());
+                clearInterval(checkInterval);
+            } else if (attempts >= maxAttempts) {
+                console.log('[loadActiveCharacter] No response from Bridge, using default');
+                clearInterval(checkInterval);
+            }
+        }, 100);
+    },
+    
+    /**
+     * Select a character and set it as active
+     * Updates LSD, sends to Bridge, and reloads data
+     */
+    async selectCharacter(characterId) {
+        if (!characterId) {
+            console.error('[selectCharacter] No character ID provided');
+            return;
+        }
+        
+        console.log('[selectCharacter] Selecting character:', characterId);
+        
+        // Update local state
+        this.state.selectedCharacterId = characterId;
+        
+        // Update navbar selector
+        const selector = document.getElementById('character-selector');
+        if (selector) {
+            selector.value = characterId;
+        }
+        
+        // Send SET_ACTIVE_CHARACTER command to Bridge via LSL
+        this.sendToLSL('SET_ACTIVE_CHARACTER', { 
+            userID: this.lsl.uuid,
+            characterID: characterId 
+        });
+        
+        // Reload all data for the new character
+        await this.loadData();
+        
+        // Re-render characters list to update ACTIVE badge
+        const charsResult = await API.listCharacters();
+        if (charsResult.success && charsResult.data && charsResult.data.characters) {
+            await this.renderCharactersList(charsResult.data.characters);
+        }
     },
     
     /**
@@ -1366,8 +1577,7 @@ try {
         document.getElementById('character-selector')?.addEventListener('change', async (e) => {
             const characterId = e.target.value;
             if (characterId) {
-                this.state.selectedCharacterId = characterId;
-                await this.loadData();
+                await this.selectCharacter(characterId);
             }
         });
         
@@ -1638,10 +1848,20 @@ try {
         console.log('[LSL] Sending command:', command, data);
         
         // Build command message for LSL
+        // Format: "COMMAND|param1|param2|..." for commands that need pipe-separated params
+        // Format: "COMMAND|key:value,key2:value2" for commands with key-value pairs
         let message = command;
         if (data && Object.keys(data).length > 0) {
-            const dataStr = Object.entries(data).map(([k, v]) => k + ":" + v).join(",");
-            message += "|" + dataStr;
+            // For SET_ACTIVE_CHARACTER and GET_ACTIVE_CHARACTER, use pipe-separated format
+            if (command === 'SET_ACTIVE_CHARACTER' && data.userID && data.characterID) {
+                message += "|" + data.userID + "|" + data.characterID;
+            } else if (command === 'GET_ACTIVE_CHARACTER' && data.userID) {
+                message += "|" + data.userID;
+            } else {
+                // Default: key-value pairs
+                const dataStr = Object.entries(data).map(([k, v]) => k + ":" + v).join(",");
+                message += "|" + dataStr;
+            }
         }
         
         // Store command in URL so LSL can poll for it
@@ -1785,6 +2005,12 @@ try {
                 this.state.character = result.data.character;
                 this.state.isNewCharacter = false;
                 this.state.selectedCharacterId = result.data.character.id; // Set selected character ID
+                
+                // Set new character as active in Bridge
+                this.sendToLSL('SET_ACTIVE_CHARACTER', { 
+                    userID: this.lsl.uuid,
+                    characterID: result.data.character.id 
+                });
                 UI.showToast('Character created!', 'success');
             } else {
                 // Update existing character
