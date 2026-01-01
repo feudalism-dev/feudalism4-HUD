@@ -2582,13 +2582,14 @@ const API = {
      * Set up real-time listener for active buffs
      * Returns unsubscribe function
      */
-    subscribeToActiveBuffs(characterId, callback) {
-        if (!characterId) {
+    subscribeToActiveBuffs(uid, callback) {
+        if (!uid) {
             return () => {};
         }
         
-        return db.collection('characters').doc(characterId)
-            .collection('active_buffs')
+        // Path: feud4/users/<uid>/active_buffs/<slug>
+        return db.collection('feud4').doc('users').collection(uid)
+            .doc('active_buffs').collection('buffs')
             .onSnapshot((snapshot) => {
                 const buffs = [];
                 snapshot.forEach(doc => {
