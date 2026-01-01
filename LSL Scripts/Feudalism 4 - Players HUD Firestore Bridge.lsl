@@ -280,9 +280,9 @@ requestConsumeItem(string itemId, string userUuid, integer senderLink) {
     // Let's write directly to Firestore (the Cloud Function will validate)
     
     // Step 3: Write to Firestore
-    // Path: users/<uid>/consume_requests (POST to create with auto-id)
+    // Path: feud4/users/<uid>/consume_requests/<auto-id>
     string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID
-        + "/databases/(default)/documents/users/" + userUuid + "/consume_requests";
+        + "/databases/(default)/documents/feud4/users/" + userUuid + "/consume_requests";
     
     // Build document JSON: { "fields": { "item_id": { "stringValue": "..." }, "timestamp": { "timestampValue": "..." } } }
     // Note: timestamp will be set by serverTimestamp() in Cloud Function, but we need to include it for the write

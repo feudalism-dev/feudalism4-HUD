@@ -1172,12 +1172,12 @@ try {
      * Load and display active buffs
      */
     async loadBuffs() {
-        if (!this.state.character?.id) {
+        if (!API.uuid) {
             return;
         }
         
         try {
-            const result = await API.getActiveBuffs(this.state.character.id);
+            const result = await API.getActiveBuffs(API.uuid);
             if (result.success) {
                 UI.renderBuffs(result.data.buffs || []);
             }
@@ -1196,12 +1196,12 @@ try {
             this.buffsUnsubscribe = null;
         }
         
-        if (!this.state.character?.id) {
+        if (!API.uuid) {
             return;
         }
         
         this.buffsUnsubscribe = API.subscribeToActiveBuffs(
-            this.state.character.id,
+            API.uuid,
             (result) => {
                 if (result.success) {
                     UI.renderBuffs(result.data.buffs || []);

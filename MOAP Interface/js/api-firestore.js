@@ -2419,10 +2419,10 @@ const API = {
      */
     async getConsumables() {
         try {
-            // Path: feud4/consumables/master (feud4 is doc, consumables is subcollection, master is doc, master subcollection has consumables)
-            // Simplified: consumables collection at root with master document
-            const snapshot = await db.collection('consumables').doc('master')
-                .collection('items').get();
+            // Path: feud4/consumables/master (feud4 is doc, consumables is subcollection, master is doc with consumables as subcollection)
+            // Actually: feud4/consumables/master/{slug} - feud4 is collection, consumables is doc, master is subcollection
+            const snapshot = await db.collection('feud4').doc('consumables')
+                .collection('master').get();
             
             const consumables = [];
             snapshot.forEach(doc => {
@@ -2459,8 +2459,8 @@ const API = {
                 disabled: consumableData.disabled || false
             };
             
-            await db.collection('consumables').doc('master')
-                .collection('items').doc(slug).set(consumable);
+            await db.collection('feud4').doc('consumables')
+                .collection('master').doc(slug).set(consumable);
             
             return { success: true, data: { id: slug, ...consumable } };
         } catch (error) {
@@ -2496,8 +2496,8 @@ const API = {
             if (consumableData.rp_only !== undefined) updateData.rp_only = consumableData.rp_only;
             if (consumableData.disabled !== undefined) updateData.disabled = consumableData.disabled;
             
-            await db.collection('consumables').doc('master')
-                .collection('items').doc(slug).update(updateData);
+            await db.collection('feud4').doc('consumables')
+                .collection('master').doc(slug).update(updateData);
             
             return { success: true };
         } catch (error) {
@@ -2511,8 +2511,8 @@ const API = {
      */
     async deleteConsumable(slug) {
         try {
-            await db.collection('consumables').doc('master')
-                .collection('items').doc(slug).delete();
+            await db.collection('feud4').doc('consumables')
+                .collection('master').doc(slug).delete();
             
             return { success: true };
         } catch (error) {
@@ -2527,13 +2527,12 @@ const API = {
      */
     async requestConsumeItem(uid, itemId) {
         try {
-            // Structure: feud4 (doc) -> users (subcollection) -> <uid> (doc) -> consume_requests (subcollection)
-            // But Firestore requires: collection -> doc -> subcollection
-            // So we use: feud4/users/<uid>/consume_requests
-            // Which means: collection 'feud4' -> doc 'users' -> subcollection '<uid>' -> doc 'consume_requests' -> subcollection 'requests'
-            // Actually, simpler: users collection at root -> <uid> doc -> consume_requests subcollection
-            await db.collection('users').doc(uid)
-                .collection('consume_requests').add({
+            // Path: feud4/users/<uid>/consume_requests/<auto-id>
+            // Structure: feud4 (collection) -> users (doc) -> <uid> (subcollection) -> consume_requests (doc) -> requests (subcollection)
+            // Actually: feud4/users/<uid>/consume_requests - feud4 is collection, users is doc, <uid> is subcollection, consume_requests is doc, requests is subcollection
+            // Simplified: feud4/users/<uid>/consume_requests where feud4 is collection, users is doc, <uid> is subcollection
+            await db.collection('feud4').doc('users').collection(uid)
+                .doc('consume_requests').collection('requests').add({
                     item_id: itemId,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -2549,10 +2548,11 @@ const API = {
      * Get active buffs for a character
      * Path: characters/<characterId>/active_buffs
      */
-    async getActiveBuffs(characterId) {
+    async getActiveBuffs(uid) {
         try {
-            const snapshot = await db.collection('characters').doc(characterId)
-                .collection('active_buffs').get();
+            // Path: feud4/users/<uid>/active_buffs/<slug>
+            const snapshot = await db.collection('feud4').doc('users').collection(uid)
+                .doc('active_buffs').collection('buffs').get();
             
             const buffs = [];
             snapshot.forEach(doc => {

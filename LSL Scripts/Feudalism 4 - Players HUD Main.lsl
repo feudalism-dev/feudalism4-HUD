@@ -5,6 +5,16 @@
 // Uses Firestore for character data instead of Experience database
 // ============================================================================
 
+// Debug settings
+integer DEBUG_MODE = FALSE;  // Enable debug logging (set to TRUE only when debugging)
+
+// Debug function - centralized logging
+debugLog(string message) {
+    if (DEBUG_MODE) {
+        llOwnerSay("[F4 Players HUD] " + message);
+    }
+}
+
 // Communication channels
 integer METER_CHANNEL = -77777;
 integer MENU_CHANNEL = -777799;
@@ -133,7 +143,7 @@ updateResourceDisplays() {
 
 default {
     state_entry() {
-        llOwnerSay("[F4 Players HUD] Initialized");
+        debugLog("Initialized");
         
         // Set up listener for external communications
         llListen(HUD_CHANNEL, "", NULL_KEY, "");
@@ -156,7 +166,7 @@ default {
     link_message(integer sender_num, integer num, string msg, key id) {
         // Character data loaded from Firestore
         if (msg == "character loaded from firestore") {
-            llOwnerSay("[F4 Players HUD] Character data received from Firestore, loading...");
+            debugLog("Character data received from Firestore, loading...");
             
             // Load species factors and has_mana from LSD (set by Data Manager)
             string healthFactorStr = llLinksetDataRead("health_factor");
@@ -166,19 +176,19 @@ default {
             
             if (healthFactorStr != "") {
                 healthFactor = (integer)healthFactorStr;
-                llOwnerSay("[F4 Players HUD] Health factor: " + (string)healthFactor);
+                debugLog("Health factor: " + (string)healthFactor);
             }
             if (staminaFactorStr != "") {
                 staminaFactor = (integer)staminaFactorStr;
-                llOwnerSay("[F4 Players HUD] Stamina factor: " + (string)staminaFactor);
+                debugLog("Stamina factor: " + (string)staminaFactor);
             }
             if (manaFactorStr != "") {
                 manaFactor = (integer)manaFactorStr;
-                llOwnerSay("[F4 Players HUD] Mana factor: " + (string)manaFactor);
+                debugLog("Mana factor: " + (string)manaFactor);
             }
             if (hasManaStr != "") {
                 hasMana = (integer)hasManaStr;
-                llOwnerSay("[F4 Players HUD] Has mana: " + (string)hasMana);
+                debugLog("Has mana: " + (string)hasMana);
             }
             
             // Request all data from Data Manager
@@ -191,7 +201,7 @@ default {
         else if (msg == "stats loaded") {
             myStats = llCSV2List((string)id);
             if (llGetListLength(myStats) == 20) {
-                llOwnerSay("[F4 Players HUD] Stats loaded: " + (string)llGetListLength(myStats) + " stats");
+                debugLog("Stats loaded: " + (string)llGetListLength(myStats) + " stats");
                 
                 // Ensure factors are loaded before calculating
                 string healthFactorStr = llLinksetDataRead("health_factor");
@@ -209,16 +219,16 @@ default {
                 calculateHealth();
                 calculateStamina();
                 calculateMana();
-                llOwnerSay("[F4 Players HUD] Calculated pools - Health: " + (string)baseHealth + ", Stamina: " + (string)baseStamina + ", Mana: " + (string)baseMana);
+                debugLog("Calculated pools - Health: " + (string)baseHealth + ", Stamina: " + (string)baseStamina + ", Mana: " + (string)baseMana);
                 
                 // If base values are still 0, something is wrong - set defaults
                 if (baseHealth == 0) {
-                    llOwnerSay("[F4 Players HUD] WARNING: baseHealth is 0, setting default");
+                    debugLog("WARNING: baseHealth is 0, setting default");
                     baseHealth = 100;
                     currentHealth = 100;
                 }
                 if (baseStamina == 0) {
-                    llOwnerSay("[F4 Players HUD] WARNING: baseStamina is 0, setting default");
+                    debugLog("WARNING: baseStamina is 0, setting default");
                     baseStamina = 100;
                     currentStamina = 100;
                 }
@@ -226,7 +236,7 @@ default {
                 // Update displays
                 updateResourceDisplays();
             } else {
-                llOwnerSay("[F4 Players HUD] ERROR: Stats list length is " + (string)llGetListLength(myStats) + ", expected 20");
+                debugLog("ERROR: Stats list length is " + (string)llGetListLength(myStats) + ", expected 20");
             }
         }
         // Health loaded from Data Manager
@@ -249,7 +259,7 @@ default {
                     currentHealth = 100;
                 }
             }
-            llOwnerSay("[F4 Players HUD] Health loaded: " + (string)currentHealth + "/" + (string)baseHealth);
+            debugLog("Health loaded: " + (string)currentHealth + "/" + (string)baseHealth);
             updateResourceDisplays();
         }
         // Stamina loaded from Data Manager
@@ -272,7 +282,7 @@ default {
                     currentStamina = 100;
                 }
             }
-            llOwnerSay("[F4 Players HUD] Stamina loaded: " + (string)currentStamina + "/" + (string)baseStamina);
+            debugLog("Stamina loaded: " + (string)currentStamina + "/" + (string)baseStamina);
             updateResourceDisplays();
         }
         // Mana loaded from Data Manager
@@ -293,7 +303,7 @@ default {
                 calculateMana();
                 // Note: baseMana can legitimately be 0 if hasMana is FALSE
             }
-            llOwnerSay("[F4 Players HUD] Mana loaded: " + (string)currentMana + "/" + (string)baseMana + " (has_mana: " + (string)hasMana + ")");
+            debugLog("Mana loaded: " + (string)currentMana + "/" + (string)baseMana + " (has_mana: " + (string)hasMana + ")");
             updateResourceDisplays();
         }
         // XP loaded from Data Manager
@@ -305,16 +315,16 @@ default {
         else if (msg == "class loaded") {
             myClass = (string)id;
             if (myClass == "") {
-                llOwnerSay("[F4 Players HUD] WARNING: Class is empty! (id='" + (string)id + "', length=" + (string)llStringLength((string)id) + ")");
+                debugLog("WARNING: Class is empty! (id='" + (string)id + "', length=" + (string)llStringLength((string)id) + ")");
                 // Try to read directly from LSD as fallback
                 string directRead = llLinksetDataRead("class");
                 if (directRead != "") {
-                    llOwnerSay("[F4 Players HUD] Found class in LSD directly: '" + directRead + "'");
+                    debugLog("Found class in LSD directly: '" + directRead + "'");
                     myClass = directRead;
                     setPrimText("rp_class", myClass);
                 }
             } else {
-                llOwnerSay("[F4 Players HUD] Class: " + myClass);
+                debugLog("Class: " + myClass);
                 setPrimText("rp_class", myClass);
             }
         }

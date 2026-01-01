@@ -715,6 +715,22 @@ input::placeholder {
     gap: var(--space-sm);
 }
 
+/* When inventory-grid contains inventory-container, switch to block layout */
+.inventory-grid > .inventory-container {
+    display: block;
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 100%;
+    min-width: 100%;
+}
+
+/* Override parent grid when container is present - use more specific selector */
+#inventory-grid:has(.inventory-container),
+.inventory-grid:has(.inventory-container) {
+    display: block;
+    grid-template-columns: none;
+}
+
 .inventory-slot {
     aspect-ratio: 1;
     background: var(--bg-dark);
@@ -734,6 +750,79 @@ input::placeholder {
 
 .inventory-slot.empty {
     opacity: 0.3;
+}
+
+/* === Inventory List (Read-Only Display) === */
+.inventory-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--bg-panel);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    width: 100%;
+    max-width: 100%;
+    min-width: 100%;
+    grid-column: 1 / -1; /* Span all columns in parent grid */
+    box-sizing: border-box;
+}
+
+.inventory-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--bg-medium);
+    border-bottom: 2px solid var(--border-accent);
+    font-weight: bold;
+    color: var(--gold-light);
+    font-size: 1.1em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.inventory-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.2s ease;
+    min-height: 44px;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.inventory-row:hover {
+    background: var(--bg-light);
+}
+
+.inventory-row-alt {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.inventory-item-name {
+    font-size: 1.05em;
+    color: var(--text-primary);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    min-width: 0; /* Allows text to wrap properly */
+    text-transform: capitalize;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.inventory-quantity {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: var(--gold);
+    text-align: right;
+    min-width: 60px;
+    white-space: nowrap;
 }
 
 /* === Admin Panel === */

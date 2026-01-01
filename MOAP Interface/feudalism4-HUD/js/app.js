@@ -3931,6 +3931,27 @@ try {
                        placeholder="0 for free" style="width: 100%;">
             </div>
             <div class="form-group">
+                <label>Weekly Stipend</label>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm);">
+                    <div>
+                        <label style="font-size: 0.85rem;">Gold</label>
+                        <input type="number" id="template-stipend-gold" value="${(c.stipend && typeof c.stipend === 'object' ? c.stipend.gold : (typeof c.stipend === 'number' ? Math.floor((c.stipend || 0) / 100) : 0))}" min="0" 
+                               placeholder="0" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.85rem;">Silver</label>
+                        <input type="number" id="template-stipend-silver" value="${(c.stipend && typeof c.stipend === 'object' ? c.stipend.silver : (typeof c.stipend === 'number' ? Math.floor((c.stipend || 0) % 100) : 0))}" min="0" 
+                               placeholder="0" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.85rem;">Copper</label>
+                        <input type="number" id="template-stipend-copper" value="${(c.stipend && typeof c.stipend === 'object' ? c.stipend.copper : 0)}" min="0" 
+                               placeholder="0" style="width: 100%;">
+                    </div>
+                </div>
+                <small style="color: var(--text-muted);">Weekly payment amount (1 gold = 100 silver = 10,000 copper)</small>
+            </div>
+            <div class="form-group">
                 <label>Free Advances (comma-separated class IDs)</label>
                 <input type="text" id="template-free-advances" value="${(c.free_advances || []).join(', ')}" 
                        placeholder="farmer, villager" style="width: 100%;">
@@ -4001,6 +4022,12 @@ try {
                     templateData.prerequisite = null;
                 }
                 templateData.xp_cost = parseInt(document.getElementById('template-xp-cost')?.value) || 0;
+                // Stipend: 3-currency model { gold, silver, copper }
+                templateData.stipend = {
+                    gold: parseInt(document.getElementById('template-stipend-gold')?.value) || 0,
+                    silver: parseInt(document.getElementById('template-stipend-silver')?.value) || 0,
+                    copper: parseInt(document.getElementById('template-stipend-copper')?.value) || 0
+                };
                 
                 const freeAdvances = document.getElementById('template-free-advances')?.value.trim();
                 templateData.free_advances = freeAdvances ? freeAdvances.split(',').map(s => s.trim()).filter(s => s) : [];
@@ -4050,7 +4077,7 @@ try {
             // Define CSV columns
             const headers = [
                 'id', 'name', 'icon', 'description', 'image', 'vocation_id',
-                'prerequisites', 'xp_cost', 'free_advances', 'stat_minimums', 'stat_maximums', 'enabled'
+                'prerequisites', 'xp_cost', 'stipend', 'free_advances', 'stat_minimums', 'stat_maximums', 'enabled'
             ];
             
             // Convert classes to CSV rows
@@ -4068,6 +4095,7 @@ try {
                     cls.vocation_id || '',
                     prerequisitesStr, // Semicolon-separated list (will be quoted)
                     cls.xp_cost || 0,
+                    JSON.stringify(cls.stipend && typeof cls.stipend === 'object' ? cls.stipend : (typeof cls.stipend === 'number' ? { gold: Math.floor(cls.stipend / 100), silver: Math.floor(cls.stipend % 100), copper: 0 } : { gold: 0, silver: 0, copper: 0 })), // JSON object
                     freeAdvancesStr, // Semicolon-separated list (will be quoted)
                     JSON.stringify(cls.stat_minimums || {}), // JSON string
                     JSON.stringify(cls.stat_maximums || {}), // JSON string
@@ -4125,7 +4153,7 @@ try {
             // Parse headers
             const headers = this.parseCSVLine(lines[0]);
             const expectedHeaders = ['id', 'name', 'icon', 'description', 'image', 'vocation_id',
-                'prerequisites', 'xp_cost', 'free_advances', 'stat_minimums', 'stat_maximums', 'enabled'];
+                'prerequisites', 'xp_cost', 'stipend', 'free_advances', 'stat_minimums', 'stat_maximums', 'enabled'];
             
             // Validate headers
             const missingHeaders = expectedHeaders.filter(h => !headers.includes(h));
@@ -4236,6 +4264,44 @@ try {
                             break;
                         case 'xp_cost':
                             classData[header] = parseInt(value) || 0;
+                            break;
+                        case 'stipend':
+                            // Support both new object format and legacy numeric format
+                            try {
+                                let parsed = value;
+                                // Remove outer quotes if present
+                                if (typeof parsed === 'string' && parsed.trim().startsWith('"') && parsed.trim().endsWith('"')) {
+                                    parsed = parsed.trim().slice(1, -1);
+                                }
+                                // Try parsing as JSON
+                                if (typeof parsed === 'string' && (parsed.trim().startsWith('{') || parsed.trim().startsWith('['))) {
+                                    parsed = JSON.parse(parsed);
+                                }
+                                // Check if it's an object with gold/silver/copper
+                                if (typeof parsed === 'object' && parsed !== null && ('gold' in parsed || 'silver' in parsed || 'copper' in parsed)) {
+                                    classData[header] = {
+                                        gold: parseInt(parsed.gold) || 0,
+                                        silver: parseInt(parsed.silver) || 0,
+                                        copper: parseInt(parsed.copper) || 0
+                                    };
+                                } else {
+                                    // Legacy numeric format (assumed to be in silver units)
+                                    const numValue = parseFloat(parsed) || 0;
+                                    classData[header] = {
+                                        gold: Math.floor(numValue / 100),
+                                        silver: Math.floor(numValue % 100),
+                                        copper: 0
+                                    };
+                                }
+                            } catch (e) {
+                                // If parsing fails, treat as legacy numeric format
+                                const numValue = parseFloat(value) || 0;
+                                classData[header] = {
+                                    gold: Math.floor(numValue / 100),
+                                    silver: Math.floor(numValue % 100),
+                                    copper: 0
+                                };
+                            }
                             break;
                         case 'free_advances':
                             // Accept semicolons (preferred) or commas as separators

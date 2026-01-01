@@ -16,7 +16,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 exports.processConsumeRequest = functions.firestore
-  .document('users/{uid}/consume_requests/{rid}')
+  .document('feud4/users/{uid}/consume_requests/{rid}')
   .onCreate(async (snap, context) => {
     const requestData = snap.data();
     const uid = context.params.uid;
@@ -70,8 +70,9 @@ exports.processConsumeRequest = functions.firestore
       }
       
       // - Get consumable from master registry
-      const consumableRef = db.collection('consumables').doc('master')
-        .collection('items').doc(itemId.toLowerCase());
+      // Path: feud4/consumables/master/{slug}
+      const consumableRef = db.collection('feud4').doc('consumables')
+        .collection('master').doc(itemId.toLowerCase());
       const consumableDoc = await consumableRef.get();
       
       if (!consumableDoc.exists) {
@@ -106,23 +107,21 @@ exports.processConsumeRequest = functions.firestore
       
       if (durationSeconds === 0) {
         // Instant effect - write to effects_log
-        // Path: users/<uid>/effects_log (or characters/<characterId>/effects_log)
-        // Instructions say: feud4/users/<uid>/effects_log, but we'll use characters for consistency
-        await db.collection('characters').doc(characterId)
-          .collection('effects_log').add({
+        // Path: feud4/users/<uid>/effects_log/<auto-id>
+        await db.collection('feud4').doc('users').collection(uid)
+          .doc('effects_log').collection('logs').add({
             type: effectType,
             value: effectValue,
             timestamp: admin.firestore.FieldValue.serverTimestamp()
           });
       } else {
         // Timed effect - write to active_buffs
-        // Path: users/<uid>/active_buffs/<slug> (or characters/<characterId>/active_buffs)
-        // Instructions say: feud4/users/<uid>/active_buffs/<slug>, but we'll use characters for consistency
+        // Path: feud4/users/<uid>/active_buffs/<slug>
         const expiresAt = new Date();
         expiresAt.setSeconds(expiresAt.getSeconds() + durationSeconds);
         
-        await db.collection('characters').doc(characterId)
-          .collection('active_buffs').doc(itemId.toLowerCase()).set({
+        await db.collection('feud4').doc('users').collection(uid)
+          .doc('active_buffs').collection('buffs').doc(itemId.toLowerCase()).set({
             effect_type: effectType,
             effect_value: effectValue,
             expires_at: admin.firestore.Timestamp.fromDate(expiresAt)

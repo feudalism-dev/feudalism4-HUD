@@ -41,25 +41,29 @@ service cloud.firestore {
     }
     
     // Consumables master registry - public read, admin write
-    match /consumables/master/items/{itemId} {
+    // Path: feud4/consumables/master/{slug}
+    match /feud4/consumables/master/{slug} {
       allow read: if true;  // Public read for HUD
       allow write: if true;  // Admin write (validation in app layer)
     }
     
     // User consume requests - write only (Cloud Function processes)
-    match /users/{uid}/consume_requests/{rid} {
+    // Path: feud4/users/<uid>/consume_requests/<auto-id>
+    match /feud4/users/{uid}/consume_requests/{rid} {
       allow read: if false;  // No read needed
       allow write: if true;  // Users can create consume requests
     }
     
-    // Character active buffs - read/write for character owner
-    match /characters/{characterId}/active_buffs/{buffId} {
+    // User active buffs - read/write
+    // Path: feud4/users/<uid>/active_buffs/<slug>
+    match /feud4/users/{uid}/active_buffs/buffs/{buffId} {
       allow read: if true;  // Public read for HUD display
       allow write: if true;  // Cloud Function writes (validation in function)
     }
     
-    // Character effects log - read for character owner
-    match /characters/{characterId}/effects_log/{logId} {
+    // User effects log - read
+    // Path: feud4/users/<uid>/effects_log/<auto-id>
+    match /feud4/users/{uid}/effects_log/logs/{logId} {
       allow read: if true;  // Public read for HUD display
       allow write: if true;  // Cloud Function writes
     }

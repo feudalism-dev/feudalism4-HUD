@@ -106,6 +106,21 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null;  // App validates sys_admin
     }
+    
+    // Universes - public read for character creation, write restricted in app layer
+    match /universes/{universeId} {
+      allow read: if true;  // Public read for character creation
+      allow write: if request.auth != null;  // Write validation in app layer (permissions checked there)
+      
+      // Prevent deletion of Default Universe
+      allow delete: if request.auth != null && universeId != "default";
+    }
+    
+    // Universe admins subcollection
+    match /universes/{universeId}/admins/{adminId} {
+      allow read: if request.auth != null;  // Authenticated users can read
+      allow write: if request.auth != null;  // Write validation in app layer
+    }
   }
 }
 

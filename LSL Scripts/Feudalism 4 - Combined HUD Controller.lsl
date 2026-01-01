@@ -463,6 +463,51 @@ default {
     
     // Handle link messages from other scripts
     link_message(integer sender_num, integer num, string msg, key id) {
+        // Handle Bridge responses on FS_BRIDGE_CHANNEL
+        if (num == -777001) {
+            // ACTIVE_CHARACTER_SET response
+            if (msg == "ACTIVE_CHARACTER_SET") {
+                string characterID = (string)id;
+                debugLog("Active character set: " + characterID);
+                // Update URL to notify HUD (HUD will poll for this)
+                if (setupModeActive && moapPrimLink > 0) {
+                    string hudUrl = MOAP_BASE_URL + "/hud.html";
+                    hudUrl += "?uuid=" + llEscapeURL(ownerUUID);
+                    hudUrl += "&username=" + llEscapeURL(ownerUsername);
+                    hudUrl += "&displayname=" + llEscapeURL(ownerDisplayName);
+                    hudUrl += "&channel=" + (string)hudChannel;
+                    hudUrl += "&active_char=" + llEscapeURL(characterID);
+                    hudUrl += "&t=" + (string)llGetUnixTime();
+                    setMOAPUrl(hudUrl);
+                }
+            }
+            // ACTIVE_CHARACTER response (from GET_ACTIVE_CHARACTER)
+            else if (msg == "ACTIVE_CHARACTER") {
+                string characterID = (string)id;
+                debugLog("Active character retrieved: " + characterID);
+                // Update URL to notify HUD
+                if (setupModeActive && moapPrimLink > 0) {
+                    string hudUrl = MOAP_BASE_URL + "/hud.html";
+                    hudUrl += "?uuid=" + llEscapeURL(ownerUUID);
+                    hudUrl += "&username=" + llEscapeURL(ownerUsername);
+                    hudUrl += "&displayname=" + llEscapeURL(ownerDisplayName);
+                    hudUrl += "&channel=" + (string)hudChannel;
+                    if (characterID != "null" && characterID != "") {
+                        hudUrl += "&active_char=" + llEscapeURL(characterID);
+                    }
+                    hudUrl += "&t=" + (string)llGetUnixTime();
+                    setMOAPUrl(hudUrl);
+                }
+            }
+            // Error responses
+            else if (llSubStringIndex(msg, "ACTIVE_CHARACTER") == 0 && llSubStringIndex(msg, "ERROR") != -1) {
+                string errorMsg = (string)id;
+                debugLog("Active character error: " + msg + " - " + errorMsg);
+                notify("Error setting active character: " + errorMsg);
+            }
+            return;
+        }
+        
         // Character data loaded from Firestore (via Data Manager)
         if (msg == "character loaded from firestore") {
                 debugLog("Character data received from Firestore");
@@ -717,6 +762,25 @@ default {
             else if (cmd == "STOP_RESTING") {
                 llMessageLinked(LINK_SET, 0, "stop resting", "");
                 notify("Stopped resting");
+            }
+            // Set Active Character
+            else if (cmd == "SET_ACTIVE_CHARACTER") {
+                string userID = llList2String(parts, 1);
+                string characterID = llList2String(parts, 2);
+                if (userID != "" && characterID != "") {
+                    // Forward to Bridge via link_message
+                    llMessageLinked(LINK_SET, 0, "SET_ACTIVE_CHARACTER|" + userID + "|" + characterID, "");
+                    debugLog("Forwarding SET_ACTIVE_CHARACTER to Bridge: " + userID + " -> " + characterID);
+                }
+            }
+            // Get Active Character
+            else if (cmd == "GET_ACTIVE_CHARACTER") {
+                string userID = llList2String(parts, 1);
+                if (userID != "") {
+                    // Forward to Bridge via link_message
+                    llMessageLinked(LINK_SET, 0, "GET_ACTIVE_CHARACTER|" + userID, "");
+                    debugLog("Forwarding GET_ACTIVE_CHARACTER to Bridge: " + userID);
+                }
             }
         }
         // Handle external HUD channel commands

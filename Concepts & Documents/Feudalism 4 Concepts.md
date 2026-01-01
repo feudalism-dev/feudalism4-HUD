@@ -285,6 +285,8 @@ Following a "Warhammer-style" horizontal progression, players do not gain levels
 * **Stat Envelopes**: Each Class defines a `Min` and `Max` cap for the 20 attributes. Players spend XP to increase stats only within these boundaries.
 * **Vocation Specialization**: Every Class provides a unique Vocation (e.g., "Knight’s Prowess"). These bonuses are **non-stacking**; when a player shifts to a new career, the old Vocation is replaced by the new one.
 * **Career Shifting**: To move to a new Class, a player must "max out" the current template's core stats and meet specific prerequisites (Species, Gender, or previous Class).
+* **Gender Changes**: Players can change their character's gender at any time through the Setup HUD. Gender has no mechanical impact and no universe restrictions apply. This behavior must remain unchanged.
+* **Species Changes**: Species is **permanently locked** after character creation. Players cannot change species through the HUD. Only Super Users or System Admins may change species manually in Firestore. If a character's species becomes disallowed in their universe, the character keeps their species - no forced change, no automatic change, no UI prompt. This rule must not be altered or generalized. No species change UI, backend endpoints, automatic reassignment, fallback logic, or migration logic may be implemented.
 
 ---
 

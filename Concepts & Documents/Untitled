@@ -1,0 +1,447 @@
+### Overview
+
+This spec defines how the Feudalism 4 Players HUD synchronizes character state between Firestore, LinksetData (LSD), and the in‑world HUD, with explicit flows for:
+
+- Reset (HUD scripts reset)
+- rp_update (manual “refresh” button)
+- Runtime reads/writes
+- Missing field repair
+- Resource pool recalculation
+- Mana eligibility and species factors
+
+Firestore is the **source of truth**.  
+LSD is the **runtime cache**.  
+The HUD UI reads **only from LSD**.
+
+---
+
+### Data model (Firestore character document)
+
+Collection: `characters`  
+Document ID: `characterId`
+
+Required fields:
+
+- **owner_uuid:** `string`
+- **universe_id:** `string` (e.g. `"default"`, `"spellmonger"`)
+- **name:** `string`
+- **title:** `string`
+- **gender:** `string` (e.g. `"male"`, `"female"`, `"unspecified"`)
+- **species_id:** `string`
+- **class_id:** `string | null`
+- **stats:** `map<string, integer>`  
+  e.g. `{ agility: 3, endurance: 4, will: 3, ... }`
+- **has_mana:** `boolean`
+- **species_factors:** `map<string, integer>`
+  - `health_factor`
+  - `stamina_factor`
+  - `mana_factor`
+- **health:** `map<string, integer>`
+  - `current`
+  - `base`
+  - `max`
+- **stamina:** `map<string, integer>`
+  - `current`
+  - `base`
+  - `max`
+- **mana:** `map<string, integer>`
+  - `current`
+  - `base`
+  - `max`
+- **xp_total:** `integer`
+- **xp_available:** `integer`
+- **currency:** `integer`
+- **action_slots:** `array<any>` (opaque to LSL; JS understands structure)
+- **mode:** `string` (`"roleplay" | "tournament" | "ooc" | "afk"`)
+- **inventory:** `map<string, integer>`  
+  e.g. `{ "banana": 3, "iron ore": 12 }`
+- **career_history:** `array<map>` (opaque to HUD)
+- **created_at:** Firestore timestamp
+- **updated_at:** Firestore timestamp
+
+If any of these are missing, the HUD repair logic must initialize them with defaults and write them back to Firestore.
+
+---
+
+### Data model (LSD keys)
+
+LSD keys are scoped per character. Recommended pattern:
+
+- `char:id` → `characterId`
+- `char:owner_uuid`
+- `char:universe_id`
+- `char:name`
+- `char:title`
+- `char:gender`
+- `char:species_id`
+- `char:class_id`
+- `char:mode`
+- `char:stats` → JSON string of stats map
+- `char:has_mana` → `"true"` / `"false"`
+- `char:species_factors` → JSON string
+- `char:health` → JSON `{ "current": x, "base": y, "max": z }`
+- `char:stamina` → JSON `{ "current": x, "base": y, "max": z }`
+- `char:mana` → JSON `{ "current": x, "base": y, "max": z }`
+- `char:xp_total`
+- `char:xp_available`
+- `char:currency`
+- `char:action_slots` → JSON array
+- `char:inventory` → JSON map `{ name: qty }`
+
+HUD scripts:
+
+- **always read from LSD**
+- **never read Firestore directly** (except in the Bridge sync flows described below)
+
+---
+
+### Mana eligibility and resource pool formulas
+
+#### Universe rule
+
+Universe documents (JS side) expose:
+
+- `manaEnabled: boolean`
+
+If `manaEnabled == false`:
+
+- `has_mana` must be `false`
+- `mana.current = mana.base = mana.max = 0`
+
+#### Species rule
+
+Species templates contain:
+
+- `mana_chance: integer` (0–100)
+- `health_factor: integer`
+- `stamina_factor: integer`
+- `mana_factor: integer`
+
+These map directly to:
+
+- `species_factors.health_factor`
+- `species_factors.stamina_factor`
+- `species_factors.mana_factor`
+
+#### Character mana roll
+
+On **character creation** (JS side) or **repair** (HUD/Bridge if missing):
+
+- If `universe.manaEnabled == false` → `has_mana = false`
+- Else:
+  - If `species.mana_chance <= 0` → `has_mana = false`
+  - If `species.mana_chance >= 100` → `has_mana = true`
+  - Else:
+    - roll `r` in `[0, 100)`
+    - `has_mana = (r < species.mana_chance)`
+
+JS side uses `Math.random() * 100`.  
+LSL side uses `llFrand(100.0)` if it ever needs to repair.
+
+#### Resource pool formulas
+
+Given:
+
+- stats map `S`
+- factors `F` from `species_factors`
+- `has_mana` boolean
+
+Use:
+
+- Health:
+
+  \[
+  \text{health.base} = (S.\text{endurance} + S.\text{will}) \cdot F.\text{health\_factor}
+  \]
+
+- Stamina:
+
+  \[
+  \text{stamina.base} = (S.\text{athletics} + S.\text{endurance}) \cdot F.\text{stamina\_factor}
+  \]
+
+- Mana (only if `has_mana`):
+
+  \[
+  \text{mana.base} = (S.\text{intelligence} + S.\text{wisdom}) \cdot F.\text{mana\_factor}
+  \]
+
+Set:
+
+- `pool.max = pool.base`
+- `pool.current = min(oldCurrent, pool.max)` if repairing
+- For fresh creation, `current = base`
+
+If `has_mana == false`:
+
+- `mana.current = 0`
+- `mana.base = 0`
+- `mana.max = 0`
+
+---
+
+### Reset workflow (HUD scripts reset)
+
+Trigger: HUD attachment or scripts reset in the Player HUD.
+
+#### Step 1 — Identify owner
+
+- Get `ownerUUID` from `llGetOwner()`.
+
+#### Step 2 — Find characterId
+
+Two options:
+
+- If HUD already has `char:id` in LSD, use that.
+- Otherwise, Firestore Bridge performs a `runQuery` on `characters` where `owner_uuid == ownerUUID`, `limit=1`, and extracts document ID.
+
+Write to LSD:
+
+- `char:id = characterId`
+- `char:owner_uuid = ownerUUID`
+
+#### Step 3 — Fetch character document from Firestore
+
+Bridge sends:
+
+- `GET /projects/<project>/databases/(default)/documents/characters/{characterId}`
+
+Store body in memory for this request.
+
+#### Step 4 — Validate / repair character document
+
+Parse `fields` from the GET response.
+
+For each required field:
+
+1. **stats**
+
+   - If missing: initialize to default stats (F4_SEED or all 2).
+   - If repaired: mark `needsUpdate = true`.
+
+2. **species_factors**
+
+   - If missing:
+     - Look up species template (JS side is authoritative; but LSL may fall back to default `{25,25,25}` for repair).
+     - Initialize:
+
+       ```json
+       {
+         "health_factor": 25,
+         "stamina_factor": 25,
+         "mana_factor": 25
+       }
+       ```
+
+     - `needsUpdate = true`.
+
+3. **has_mana**
+
+   - If missing:
+     - Fetch universe (JS side) or assume `manaEnabled = true` if unknown.
+     - Fetch species `mana_chance`.
+     - Run mana roll.
+     - Set `has_mana` accordingly.
+     - `needsUpdate = true`.
+
+4. **health, stamina, mana**
+
+   - Always recalculate base/max from current `stats` and `species_factors` using the formulas.
+   - If fields missing or inconsistent, repair them; preserve `current` when possible, clamped to new `max`.
+   - If `has_mana == false`, force mana pool to 0.
+   - If repaired: `needsUpdate = true`.
+
+5. **xp_total, xp_available, currency, mode, action_slots, inventory**
+
+   - Initialize to defaults if missing:
+     - `xp_total = 100`
+     - `xp_available = 100`
+     - `currency = 50`
+     - `mode = "roleplay"`
+     - `action_slots = []`
+     - `inventory = {}` (empty map)  
+   - If repaired: `needsUpdate = true`.
+
+#### Step 5 — Write repairs back to Firestore (if needed)
+
+If `needsUpdate == true`:
+
+- Build a PATCH with only the repaired/initialized fields.
+- Use field masks (`updateMask.fieldPaths`) to update only those fields.
+- Ensure `inventory` is stored as `mapValue`, not array.
+
+This ensures all new and existing characters are migrated forward.
+
+#### Step 6 — Write state into LSD
+
+After validation/repair:
+
+- Write all character fields into LSD with the key scheme above.
+- Stats, species_factors, pools, inventory, action_slots are stored as JSON strings.
+- `has_mana` stored as `"true"`/`"false"`.
+
+#### Step 7 — Update HUD UI
+
+- Read from LSD:
+  - Resource bars (health/stamina/mana)
+  - XP bar
+  - Mode
+  - Anything else needed by the HUD
+- No direct Firestore reads during rendering.
+
+---
+
+### rp_update workflow (manual refresh)
+
+Trigger: user clicks rp_update button in the HUD.
+
+The rp_update action is equivalent to a targeted reset of character state:
+
+1. **Use existing `char:id` and `char:owner_uuid` from LSD.**
+2. **Fetch character document from Firestore** (same as reset Step 3).
+3. **Run the same validate/repair logic** as in reset (Step 4 & 5).
+4. **Overwrite LSD with fresh values** (Step 6).
+5. **Re‑render HUD UI** from LSD.
+
+Additional behavior:
+
+- rp_update can log a chat message to owner:  
+  `"Character data synchronized with server."`
+- If Firestore GET fails (non‑200):
+  - Show error to owner.
+  - Do not wipe LSD; keep last known state.
+
+---
+
+### Runtime behavior (during play)
+
+#### Reads
+
+All runtime reads (health, stamina, mana, stats, class, mode, inventory, etc.) must:
+
+- read from LSD only
+- never call Firestore directly
+
+This gives deterministic performance and avoids HTTP delays mid‑combat.
+
+#### Writes
+
+When gameplay changes state (e.g. damage, resource use, inventory change, XP gain):
+
+1. **Update LSD first.**
+   - E.g. for damage:
+     - Read `char:health` JSON
+     - Adjust `current`
+     - Write back JSON to `char:health`
+
+2. **Schedule or send Firestore updates.**
+   - Immediate for critical updates (inventory, XP, death).
+   - Batched or delayed for frequently changing values (e.g. periodic HP ticks).
+
+Inventory changes are already handled via the Firestore Bridge’s REST calls; LSD should be updated in parallel to keep HUD display consistent.
+
+---
+
+### Inventory handling
+
+Inventory is:
+
+- A Firestore `mapValue` of `itemName → integerValue`
+- A LSD JSON map with the same structure.
+
+#### GIVE / TAKE (world objects → Bridge)
+
+Flow:
+
+1. World object sends:
+
+   - `fGiveItem,<name>,<qty>`
+   - `fTakeItem,<name>,<qty>`
+
+2. Firestore Bridge:
+   - Normalizes name (lowercase, trimmed).
+   - Gets `characterId` via `owner_uuid` query if needed.
+   - GETs character document.
+   - Reads `fields.inventory.mapValue.fields[itemName].integerValue`.
+   - Computes new quantity:
+     - GIVE: `current + qty`
+     - TAKE: `max(current - qty, 0)`
+   - PATCHes only `inventory.<itemName>` via nested field path.
+
+3. HUD:
+   - On successful PATCH, **updates LSD** for `char:inventory` if the HUD is tracking it.
+   - Setup HUD (JS) reads inventory directly from Firestore for display; Player HUD can rely on LSD or trigger rp_update to resync.
+
+#### PATCH format (for a single item)
+
+URL:
+
+- `PATCH /projects/<project>/databases/(default)/documents/characters/{characterId}?updateMask.fieldPaths=inventory.<itemName>`
+
+Body:
+
+```json
+{
+  "fields": {
+    "inventory": {
+      "mapValue": {
+        "fields": {
+          "<itemName>": { "integerValue": "<newQty>" }
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
+### Error handling and logging
+
+#### Firestore Bridge warnings
+
+On reset or rp_update, if a field is missing before repair:
+
+- Log a warning once, e.g.:
+
+  - `"WARNING: Document has no fields for has_mana - repairing"`
+  - `"WARNING: Document has no fields for species_factors - repairing"`
+
+After repair and successful PATCH:
+
+- Log:
+
+  - `"REPAIR: Initialized has_mana and species_factors for character <id>"`
+
+These are not downgraded to harmless warnings; they are signals that the repair logic ran and fixed real issues.
+
+#### Hard failures
+
+- If Firestore GET fails (4xx/5xx), log error and keep existing LSD state.
+- If PATCH fails, log detailed error (HTTP status + body), but do not corrupt LSD; HUD continues from its in‑memory/LSD state.
+
+---
+
+### Summary of guarantees
+
+After this spec is implemented:
+
+- Any newly created character will always have:
+  - `has_mana`
+  - `species_factors`
+  - properly calculated `health`, `stamina`, `mana`
+  - correct `inventory` map
+- Any existing character missing these will be repaired on:
+  - HUD reset
+  - rp_update
+- HUD UI will:
+  - always read from LSD
+  - never depend on transient URL blobs
+- Firestore will:
+  - be the single source of truth
+  - always contain fully initialized character documents
+- rp_update will:
+  - perform a full authoritative resync Firestore → LSD → HUD
+  - fix missing fields rather than hide them
+
+If you want, next step can be: a concrete LSL+JS change plan that maps this spec onto your existing Bridge + HUD scripts, with exact functions to add/modify.
