@@ -2410,6 +2410,208 @@ const API = {
             console.error('[checkItems] Error:', error);
             return { success: false, error: error.message };
         }
+    },
+    
+    // =========================== CONSUMABLES API ===========================
+    
+    /**
+     * Get all consumables from master registry
+     */
+    async getConsumables() {
+        try {
+            // Path: feud4/consumables/master (feud4 is doc, consumables is subcollection, master is doc, master subcollection has consumables)
+            // Simplified: consumables collection at root with master document
+            const snapshot = await db.collection('consumables').doc('master')
+                .collection('items').get();
+            
+            const consumables = [];
+            snapshot.forEach(doc => {
+                consumables.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+            
+            return { success: true, data: { consumables } };
+        } catch (error) {
+            console.error('[getConsumables] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Create a new consumable
+     */
+    async createConsumable(consumableData) {
+        try {
+            const slug = consumableData.slug || consumableData.name.toLowerCase().replace(/\s+/g, '_');
+            
+            const consumable = {
+                name: consumableData.name,
+                description: consumableData.description || '',
+                icon: consumableData.icon || '',
+                duration_seconds: consumableData.duration_seconds || 0,
+                effect_type: consumableData.effect_type || 'heal',
+                effect_value: consumableData.effect_value || 0,
+                stackable: consumableData.stackable || false,
+                max_stack: consumableData.stackable ? (consumableData.max_stack || 1) : 1,
+                rp_only: consumableData.rp_only || false,
+                disabled: consumableData.disabled || false
+            };
+            
+            await db.collection('consumables').doc('master')
+                .collection('items').doc(slug).set(consumable);
+            
+            return { success: true, data: { id: slug, ...consumable } };
+        } catch (error) {
+            console.error('[createConsumable] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Update an existing consumable
+     */
+    async updateConsumable(slug, consumableData) {
+        try {
+            const updateData = {};
+            
+            if (consumableData.name !== undefined) updateData.name = consumableData.name;
+            if (consumableData.description !== undefined) updateData.description = consumableData.description;
+            if (consumableData.icon !== undefined) updateData.icon = consumableData.icon;
+            if (consumableData.duration_seconds !== undefined) updateData.duration_seconds = consumableData.duration_seconds;
+            if (consumableData.effect_type !== undefined) updateData.effect_type = consumableData.effect_type;
+            if (consumableData.effect_value !== undefined) updateData.effect_value = consumableData.effect_value;
+            if (consumableData.stackable !== undefined) {
+                updateData.stackable = consumableData.stackable;
+                // If stackable is false, force max_stack to 1
+                if (!consumableData.stackable) {
+                    updateData.max_stack = 1;
+                } else if (consumableData.max_stack !== undefined) {
+                    updateData.max_stack = consumableData.max_stack;
+                }
+            } else if (consumableData.max_stack !== undefined) {
+                updateData.max_stack = consumableData.max_stack;
+            }
+            if (consumableData.rp_only !== undefined) updateData.rp_only = consumableData.rp_only;
+            if (consumableData.disabled !== undefined) updateData.disabled = consumableData.disabled;
+            
+            await db.collection('consumables').doc('master')
+                .collection('items').doc(slug).update(updateData);
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[updateConsumable] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Delete a consumable
+     */
+    async deleteConsumable(slug) {
+        try {
+            await db.collection('consumables').doc('master')
+                .collection('items').doc(slug).delete();
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[deleteConsumable] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Request to consume an item (writes to consume_requests)
+     * Path: feud4/users/<uid>/consume_requests/<auto-id>
+     */
+    async requestConsumeItem(uid, itemId) {
+        try {
+            // Structure: feud4 (doc) -> users (subcollection) -> <uid> (doc) -> consume_requests (subcollection)
+            // But Firestore requires: collection -> doc -> subcollection
+            // So we use: feud4/users/<uid>/consume_requests
+            // Which means: collection 'feud4' -> doc 'users' -> subcollection '<uid>' -> doc 'consume_requests' -> subcollection 'requests'
+            // Actually, simpler: users collection at root -> <uid> doc -> consume_requests subcollection
+            await db.collection('users').doc(uid)
+                .collection('consume_requests').add({
+                    item_id: itemId,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[requestConsumeItem] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get active buffs for a character
+     * Path: characters/<characterId>/active_buffs
+     */
+    async getActiveBuffs(characterId) {
+        try {
+            const snapshot = await db.collection('characters').doc(characterId)
+                .collection('active_buffs').get();
+            
+            const buffs = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const expiresAt = data.expires_at?.toDate();
+                const now = new Date();
+                
+                // Only include non-expired buffs
+                if (expiresAt && expiresAt > now) {
+                    buffs.push({
+                        id: doc.id,
+                        effect_type: data.effect_type,
+                        effect_value: data.effect_value,
+                        expires_at: expiresAt
+                    });
+                }
+            });
+            
+            return { success: true, data: { buffs } };
+        } catch (error) {
+            console.error('[getActiveBuffs] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Set up real-time listener for active buffs
+     * Returns unsubscribe function
+     */
+    subscribeToActiveBuffs(characterId, callback) {
+        if (!characterId) {
+            return () => {};
+        }
+        
+        return db.collection('characters').doc(characterId)
+            .collection('active_buffs')
+            .onSnapshot((snapshot) => {
+                const buffs = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const expiresAt = data.expires_at?.toDate();
+                    const now = new Date();
+                    
+                    // Only include non-expired buffs
+                    if (expiresAt && expiresAt > now) {
+                        buffs.push({
+                            id: doc.id,
+                            effect_type: data.effect_type,
+                            effect_value: data.effect_value,
+                            expires_at: expiresAt
+                        });
+                    }
+                });
+                
+                callback({ success: true, data: { buffs } });
+            }, (error) => {
+                console.error('[subscribeToActiveBuffs] Error:', error);
+                callback({ success: false, error: error.message });
+            });
     }
 };
 

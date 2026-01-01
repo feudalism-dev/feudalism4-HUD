@@ -1514,14 +1514,25 @@ const UI = {
         html += '<div class="inventory-header">';
         html += '<div class="inventory-item-name">Item Name</div>';
         html += '<div class="inventory-quantity">Quantity</div>';
+        html += '<div class="inventory-actions">Actions</div>';
         html += '</div>';
         
         // Item rows
         sortedItems.forEach((item, index) => {
             const rowClass = index % 2 === 0 ? 'inventory-row' : 'inventory-row inventory-row-alt';
-            html += `<div class="${rowClass}">`;
-            html += `<div class="inventory-item-name">${this.escapeHtml(item.id || item.name || '')}</div>`;
-            html += `<div class="inventory-quantity">${item.qty || 0}</div>`;
+            const itemId = item.id || item.name || '';
+            const itemQty = item.qty || 0;
+            const itemType = item.type || '';
+            const isConsumable = itemType === 'consumable' && itemQty > 0;
+            
+            html += `<div class="${rowClass}" data-item-id="${this.escapeHtml(itemId)}" data-item-type="${this.escapeHtml(itemType)}">`;
+            html += `<div class="inventory-item-name">${this.escapeHtml(itemId)}</div>`;
+            html += `<div class="inventory-quantity">${itemQty}</div>`;
+            html += '<div class="inventory-actions">';
+            if (isConsumable) {
+                html += `<button class="btn btn-sm btn-primary btn-consume" data-item-id="${this.escapeHtml(itemId)}">Consume</button>`;
+            }
+            html += '</div>';
             html += '</div>';
         });
         
@@ -1535,6 +1546,16 @@ const UI = {
         }
         
         this.elements.inventoryGrid.innerHTML = html;
+        
+        // Attach event listeners to Consume buttons
+        document.querySelectorAll('.btn-consume').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const itemId = e.target.dataset.itemId;
+                if (itemId && window.App && window.App.requestConsumeItem) {
+                    await window.App.requestConsumeItem(itemId);
+                }
+            });
+        });
         
         // Attach event listener to "Next Page" button
         if (hasMore) {
@@ -1572,6 +1593,51 @@ const UI = {
         panel.innerHTML = items
             .map(item => `<div class='inv-item'><span>${item.id}</span><span>${item.qty}</span></div>`)
             .join('');
+    },
+    
+    /**
+     * Render active buffs
+     * @param {Array} buffs - Array of buff objects with id, effect_type, effect_value, expires_at
+     */
+    renderBuffs(buffs) {
+        const buffsList = document.getElementById('buffs-list');
+        if (!buffsList) return;
+        
+        if (!buffs || buffs.length === 0) {
+            buffsList.innerHTML = '<p class="placeholder-text">No active buffs...</p>';
+            return;
+        }
+        
+        const now = new Date();
+        let html = '<div class="buffs-container">';
+        
+        buffs.forEach(buff => {
+            const expiresAt = buff.expires_at instanceof Date ? buff.expires_at : new Date(buff.expires_at);
+            const remainingMs = expiresAt.getTime() - now.getTime();
+            const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+            const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Get consumable data from master registry to display name and icon
+            // For now, use the buff ID as name
+            const buffName = buff.id || 'Unknown Buff';
+            const effectDesc = `${buff.effect_type}: ${buff.effect_value > 0 ? '+' : ''}${buff.effect_value}`;
+            
+            html += `
+                <div class="buff-item">
+                    <div class="buff-icon">✨</div>
+                    <div class="buff-info">
+                        <div class="buff-name">${this.escapeHtml(buffName)}</div>
+                        <div class="buff-effect">${this.escapeHtml(effectDesc)}</div>
+                    </div>
+                    <div class="buff-time">${timeStr}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        buffsList.innerHTML = html;
     }
 };
 

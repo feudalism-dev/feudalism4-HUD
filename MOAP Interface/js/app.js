@@ -530,6 +530,10 @@ try {
                             // Broadcast character data to Players HUD via Setup HUD
                             // This happens automatically when character loads
                             this.broadcastCharacterToPlayersHUD(this.state.character);
+                            
+                            // Load and set up buffs listener
+                            await this.loadBuffs();
+                            this.setupBuffsListener();
                         }
                     }
                 } else {
@@ -1134,6 +1138,76 @@ try {
         }
         
         await this.loadInventory(this.state.inventoryPagination.cursor, true);
+    },
+    
+    /**
+     * Request to consume an item
+     */
+    async requestConsumeItem(itemId) {
+        if (!itemId) {
+            UI.showToast('Invalid item', 'error');
+            return;
+        }
+        
+        if (!API.uuid) {
+            UI.showToast('Not authenticated', 'error');
+            return;
+        }
+        
+        try {
+            const result = await API.requestConsumeItem(API.uuid, itemId);
+            if (result.success) {
+                UI.showToast('Consume request sent', 'success');
+                // Inventory will update via real-time listener
+            } else {
+                UI.showToast('Failed to consume: ' + result.error, 'error');
+            }
+        } catch (error) {
+            console.error('[requestConsumeItem] Error:', error);
+            UI.showToast('Error: ' + error.message, 'error');
+        }
+    },
+    
+    /**
+     * Load and display active buffs
+     */
+    async loadBuffs() {
+        if (!this.state.character?.id) {
+            return;
+        }
+        
+        try {
+            const result = await API.getActiveBuffs(this.state.character.id);
+            if (result.success) {
+                UI.renderBuffs(result.data.buffs || []);
+            }
+        } catch (error) {
+            console.error('[loadBuffs] Error:', error);
+        }
+    },
+    
+    /**
+     * Set up real-time listener for buffs
+     */
+    setupBuffsListener() {
+        // Unsubscribe from previous listener if exists
+        if (this.buffsUnsubscribe) {
+            this.buffsUnsubscribe();
+            this.buffsUnsubscribe = null;
+        }
+        
+        if (!this.state.character?.id) {
+            return;
+        }
+        
+        this.buffsUnsubscribe = API.subscribeToActiveBuffs(
+            this.state.character.id,
+            (result) => {
+                if (result.success) {
+                    UI.renderBuffs(result.data.buffs || []);
+                }
+            }
+        );
     },
     
     /**
@@ -1934,6 +2008,9 @@ try {
             case 'vocations':
                 this.showTemplateManager('vocations');
                 break;
+            case 'consumables':
+                this.showConsumablesManagement();
+                break;
             case 'xp':
                 this.showXPAward();
                 break;
@@ -2053,6 +2130,293 @@ try {
     /**
      * Show XP award panel
      */
+    /**
+     * Show consumables management panel
+     */
+    async showConsumablesManagement() {
+        const adminContent = UI.elements.adminContent;
+        if (!adminContent) return;
+        
+        UI.showLoading(adminContent, 'Loading consumables...');
+        
+        try {
+            const result = await API.getConsumables();
+            if (!result.success) {
+                UI.showError(adminContent, 'Failed to load consumables: ' + result.error);
+                return;
+            }
+            
+            const consumables = result.data.consumables || [];
+            
+            let html = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                    <h2>Consumables Management</h2>
+                    <button class="btn btn-primary" id="btn-create-consumable">➕ Create Consumable</button>
+                </div>
+                <div class="admin-table-container" style="overflow-x: auto;">
+                    <table class="admin-table" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Effect</th>
+                                <th>Duration</th>
+                                <th>Stackable</th>
+                                <th>RP Only</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            if (consumables.length === 0) {
+                html += `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: var(--space-lg); color: var(--text-muted);">
+                            No consumables found. Create one to get started.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                consumables.forEach(consumable => {
+                    const effectDesc = `${consumable.effect_type}: ${consumable.effect_value}`;
+                    const durationDesc = consumable.duration_seconds === 0 ? 'Instant' : `${consumable.duration_seconds}s`;
+                    html += `
+                        <tr>
+                            <td>${consumable.name || consumable.id}</td>
+                            <td>${effectDesc}</td>
+                            <td>${durationDesc}</td>
+                            <td>${consumable.stackable ? 'Yes' : 'No'}</td>
+                            <td>${consumable.rp_only ? 'Yes' : 'No'}</td>
+                            <td>${consumable.disabled ? '<span style="color: var(--error);">Disabled</span>' : '<span style="color: var(--success);">Active</span>'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-secondary" data-consumable-id="${consumable.id}" data-action="edit">Edit</button>
+                                <button class="btn btn-sm ${consumable.disabled ? 'btn-success' : 'btn-warning'}" data-consumable-id="${consumable.id}" data-action="toggle">${consumable.disabled ? 'Enable' : 'Disable'}</button>
+                                <button class="btn btn-sm btn-danger" data-consumable-id="${consumable.id}" data-action="delete">Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            adminContent.innerHTML = html;
+            
+            // Bind event handlers
+            document.getElementById('btn-create-consumable')?.addEventListener('click', () => {
+                this.showConsumableForm();
+            });
+            
+            document.querySelectorAll('[data-action="edit"]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const consumableId = e.target.closest('[data-consumable-id]').dataset.consumableId;
+                    const consumable = consumables.find(c => c.id === consumableId);
+                    if (consumable) {
+                        this.showConsumableForm(consumable);
+                    }
+                });
+            });
+            
+            document.querySelectorAll('[data-action="toggle"]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const consumableId = e.target.closest('[data-consumable-id]').dataset.consumableId;
+                    const consumable = consumables.find(c => c.id === consumableId);
+                    if (consumable) {
+                        const result = await API.updateConsumable(consumableId, {
+                            disabled: !consumable.disabled
+                        });
+                        if (result.success) {
+                            UI.showToast(`Consumable ${consumable.disabled ? 'enabled' : 'disabled'}`, 'success');
+                            this.showConsumablesManagement();
+                        } else {
+                            UI.showToast('Failed: ' + result.error, 'error');
+                        }
+                    }
+                });
+            });
+            
+            document.querySelectorAll('[data-action="delete"]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const consumableId = e.target.closest('[data-consumable-id]').dataset.consumableId;
+                    if (confirm(`Delete consumable "${consumableId}"? This cannot be undone.`)) {
+                        const result = await API.deleteConsumable(consumableId);
+                        if (result.success) {
+                            UI.showToast('Consumable deleted', 'success');
+                            this.showConsumablesManagement();
+                        } else {
+                            UI.showToast('Failed: ' + result.error, 'error');
+                        }
+                    }
+                });
+            });
+            
+        } catch (error) {
+            UI.showError(adminContent, 'Error: ' + error.message);
+        }
+    },
+    
+    /**
+     * Show consumable form (create or edit)
+     */
+    showConsumableForm(consumable = null) {
+        const adminContent = UI.elements.adminContent;
+        if (!adminContent) return;
+        
+        const isEdit = consumable !== null;
+        const slug = consumable?.id || '';
+        
+        adminContent.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+                <h2>${isEdit ? 'Edit' : 'Create'} Consumable</h2>
+                <button class="btn btn-secondary" id="btn-back-consumables">← Back</button>
+            </div>
+            <form id="consumable-form">
+                <div class="form-group">
+                    <label for="consumable-slug">Slug (ID) ${isEdit ? '(read-only)' : ''}</label>
+                    <input type="text" id="consumable-slug" value="${slug}" ${isEdit ? 'readonly' : ''} placeholder="e.g., health_potion" required>
+                </div>
+                <div class="form-group">
+                    <label for="consumable-name">Name *</label>
+                    <input type="text" id="consumable-name" value="${consumable?.name || ''}" placeholder="Health Potion" required>
+                </div>
+                <div class="form-group">
+                    <label for="consumable-description">Description</label>
+                    <textarea id="consumable-description" rows="3" placeholder="Restores health...">${consumable?.description || ''}</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="consumable-icon">Icon (HUD asset name)</label>
+                    <input type="text" id="consumable-icon" value="${consumable?.icon || ''}" placeholder="health_potion.png">
+                </div>
+                <div class="form-group">
+                    <label for="consumable-duration">Duration (seconds) *</label>
+                    <input type="number" id="consumable-duration" value="${consumable?.duration_seconds || 0}" min="0" required>
+                    <small>0 = instant effect</small>
+                </div>
+                <div class="form-group">
+                    <label for="consumable-effect-type">Effect Type *</label>
+                    <select id="consumable-effect-type" required>
+                        <option value="heal" ${consumable?.effect_type === 'heal' ? 'selected' : ''}>Heal</option>
+                        <option value="stamina" ${consumable?.effect_type === 'stamina' ? 'selected' : ''}>Stamina</option>
+                        <option value="mana" ${consumable?.effect_type === 'mana' ? 'selected' : ''}>Mana</option>
+                        <option value="buff" ${consumable?.effect_type === 'buff' ? 'selected' : ''}>Buff</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="consumable-effect-value">Effect Value *</label>
+                    <input type="number" id="consumable-effect-value" value="${consumable?.effect_value || 0}" required>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="consumable-stackable" ${consumable?.stackable ? 'checked' : ''}>
+                        Stackable
+                    </label>
+                </div>
+                <div class="form-group" id="max-stack-group" style="${consumable?.stackable ? '' : 'display: none;'}">
+                    <label for="consumable-max-stack">Max Stack *</label>
+                    <input type="number" id="consumable-max-stack" value="${consumable?.max_stack || 1}" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="consumable-rp-only" ${consumable?.rp_only ? 'checked' : ''}>
+                        RP Only (usable only in RP mode)
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="consumable-disabled" ${consumable?.disabled ? 'checked' : ''}>
+                        Disabled
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-primary">${isEdit ? 'Update' : 'Create'} Consumable</button>
+            </form>
+        `;
+        
+        // Show/hide max_stack based on stackable
+        document.getElementById('consumable-stackable')?.addEventListener('change', (e) => {
+            const maxStackGroup = document.getElementById('max-stack-group');
+            if (maxStackGroup) {
+                maxStackGroup.style.display = e.target.checked ? 'block' : 'none';
+                if (!e.target.checked) {
+                    document.getElementById('consumable-max-stack').value = '1';
+                }
+            }
+        });
+        
+        // Back button
+        document.getElementById('btn-back-consumables')?.addEventListener('click', () => {
+            this.showConsumablesManagement();
+        });
+        
+        // Form submit
+        document.getElementById('consumable-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const slug = document.getElementById('consumable-slug').value.trim();
+            const name = document.getElementById('consumable-name').value.trim();
+            const description = document.getElementById('consumable-description').value.trim();
+            const icon = document.getElementById('consumable-icon').value.trim();
+            const duration = parseInt(document.getElementById('consumable-duration').value) || 0;
+            const effectType = document.getElementById('consumable-effect-type').value;
+            const effectValue = parseInt(document.getElementById('consumable-effect-value').value) || 0;
+            const stackable = document.getElementById('consumable-stackable').checked;
+            const maxStack = stackable ? (parseInt(document.getElementById('consumable-max-stack').value) || 1) : 1;
+            const rpOnly = document.getElementById('consumable-rp-only').checked;
+            const disabled = document.getElementById('consumable-disabled').checked;
+            
+            // Validation
+            if (!name || duration < 0 || maxStack < 1 || (stackable && maxStack < 1)) {
+                UI.showToast('Please fill in all required fields correctly', 'warning');
+                return;
+            }
+            
+            try {
+                let result;
+                if (isEdit) {
+                    result = await API.updateConsumable(slug, {
+                        name,
+                        description,
+                        icon,
+                        duration_seconds: duration,
+                        effect_type: effectType,
+                        effect_value: effectValue,
+                        stackable,
+                        max_stack: maxStack,
+                        rp_only: rpOnly,
+                        disabled
+                    });
+                } else {
+                    result = await API.createConsumable({
+                        slug,
+                        name,
+                        description,
+                        icon,
+                        duration_seconds: duration,
+                        effect_type: effectType,
+                        effect_value: effectValue,
+                        stackable,
+                        max_stack: maxStack,
+                        rp_only: rpOnly,
+                        disabled
+                    });
+                }
+                
+                if (result.success) {
+                    UI.showToast(`Consumable ${isEdit ? 'updated' : 'created'}`, 'success');
+                    this.showConsumablesManagement();
+                } else {
+                    UI.showToast('Failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                UI.showToast('Error: ' + error.message, 'error');
+            }
+        });
+    },
+    
     showXPAward() {
         const adminContent = UI.elements.adminContent;
         

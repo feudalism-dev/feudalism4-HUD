@@ -3,6 +3,9 @@
     "rules": "firestore.rules",
     "indexes": "Firebase/firestore.indexes.json"
   },
+  "functions": {
+    "source": "functions"
+  },
   "hosting": {
     "public": "MOAP Interface",
     "ignore": [

@@ -253,6 +253,225 @@ string normalizeItemName(string name) {
     return llToLower(llStringTrim(name, STRING_TRIM));
 }
 
+// Request to consume an item
+// Writes to users/<uid>/consume_requests/<auto-id>
+// Steps:
+//   1. Read the local HUD inventory cache (via InventoryCache)
+//   2. Confirm the item exists and quantity > 0
+//   3. Send a Firestore write to users/<uid>/consume_requests/<auto-id>
+requestConsumeItem(string itemId, string userUuid, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Project ID not configured");
+        return;
+    }
+    
+    if (itemId == "" || userUuid == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Invalid parameters");
+        return;
+    }
+    
+    // Step 1 & 2: Check inventory cache via InventoryCache
+    // Request inventory cache to check if item exists and qty > 0
+    llMessageLinked(LINK_SET, INVENTORY_CACHE_CHANNEL, "CACHE_GET_ITEM", itemId);
+    
+    // We'll handle the cache response in link_message and then write to Firestore
+    // For now, track this request: [itemId, userUuid, senderLink]
+    // Actually, we need to wait for cache response, so we'll handle it differently
+    // Let's write directly to Firestore (the Cloud Function will validate)
+    
+    // Step 3: Write to Firestore
+    // Path: users/<uid>/consume_requests (POST to create with auto-id)
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID
+        + "/databases/(default)/documents/users/" + userUuid + "/consume_requests";
+    
+    // Build document JSON: { "fields": { "item_id": { "stringValue": "..." }, "timestamp": { "timestampValue": "..." } } }
+    // Note: timestamp will be set by serverTimestamp() in Cloud Function, but we need to include it for the write
+    // Actually, we can't set serverTimestamp in REST API directly, so we'll let the Cloud Function handle it
+    // For now, just write item_id and let Cloud Function add timestamp
+    
+    list docParts = [
+        "{\"fields\":{",
+            "\"item_id\":{\"stringValue\":\"", itemId, "\"}",
+        "}}"
+    ];
+    string docJson = llDumpList2String(docParts, "");
+    
+    key requestId = llHTTPRequest(
+        url,
+        [
+            HTTP_METHOD, "POST",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        docJson
+    );
+    
+    // Track request: [requestId, "REQUEST_CONSUME_ITEM", itemId, userUuid, senderLink]
+    pendingInventoryUpdates += [requestId, "REQUEST_CONSUME_ITEM", itemId, userUuid, senderLink];
+    cleanupTrackingLists();
+}
+
+// Set active character for a user
+// Validates ownership before setting
+setActiveCharacter(string userID, string characterID, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_SET_ERROR", "Project ID not configured");
+        return;
+    }
+    
+    if (userID == "" || characterID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_SET_ERROR", "Invalid parameters");
+        return;
+    }
+    
+    // First, validate ownership by checking if character exists and belongs to user
+    string validateUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents:runQuery";
+    
+    list validateQueryParts = [
+        "{\"structuredQuery\":{\"from\":[{\"collectionId\":\"characters\"}],\"where\":{\"compositeFilter\":{\"op\":\"AND\",\"filters\":[{\"fieldFilter\":{\"field\":{\"fieldPath\":\"owner_uuid\"},\"op\":\"EQUAL\",\"value\":{\"stringValue\":\"",
+        userID,
+        "\"}}},{\"fieldFilter\":{\"field\":{\"fieldPath\":\"__name__\"},\"op\":\"EQUAL\",\"value\":{\"referenceValue\":\"projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/",
+        characterID,
+        "\"}}}]}},\"select\":{\"fields\":[{\"fieldPath\":\"__name__\"}]},\"limit\":1}}"
+    ];
+    string validateQueryJson = llDumpList2String(validateQueryParts, "");
+    
+    key validateRequestId = llHTTPRequest(
+        validateUrl,
+        [
+            HTTP_METHOD, "POST",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        validateQueryJson
+    );
+    
+    // Track validation request: [requestId, "VALIDATE_OWNERSHIP", userID, characterID, senderLink]
+    pendingInventoryUpdates += [validateRequestId, "VALIDATE_OWNERSHIP", userID, characterID, senderLink];
+    cleanupTrackingLists();
+}
+
+// Get active character for a user
+getActiveCharacter(string userID, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", "null");
+        return;
+    }
+    
+    if (userID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", "null");
+        return;
+    }
+    
+    // Get activeCharacter field from users/<userID> document
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/users/" + userID;
+    
+    key requestId = llHTTPRequest(
+        url,
+        [
+            HTTP_METHOD, "GET",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        ""
+    );
+    
+    // Track request: [requestId, "GET_ACTIVE_CHARACTER", senderLink]
+    pendingInventoryUpdates += [requestId, "GET_ACTIVE_CHARACTER", senderLink];
+    cleanupTrackingLists();
+}
+
+// Check if character is banned in universe
+checkBanned(string characterID, string universeID, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+        return;
+    }
+    
+    if (characterID == "" || universeID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+        return;
+    }
+    
+    // Get universe document and check bannedCharacters array
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/universes/" + universeID;
+    
+    key requestId = llHTTPRequest(
+        url,
+        [
+            HTTP_METHOD, "GET",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        ""
+    );
+    
+    // Track request: [requestId, "IS_BANNED", senderLink, characterID]
+    pendingInventoryUpdates += [requestId, "IS_BANNED", senderLink, characterID];
+    cleanupTrackingLists();
+}
+
+// Get stipend data for a character
+getStipendData(string characterID, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA_ERROR", "Project ID not configured");
+        return;
+    }
+    
+    if (characterID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA_ERROR", "Invalid character ID");
+        return;
+    }
+    
+    // Get character document to read classId and lastPaidTimestamp
+    string charUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID;
+    
+    key requestId = llHTTPRequest(
+        charUrl,
+        [
+            HTTP_METHOD, "GET",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        ""
+    );
+    
+    // Track request: [requestId, "GET_STIPEND_DATA", senderLink]
+    pendingInventoryUpdates += [requestId, "GET_STIPEND_DATA", senderLink];
+    cleanupTrackingLists();
+}
+
+// Update lastPaidTimestamp for a character
+updateLastPaid(string characterID, integer timestamp, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "LAST_PAID_UPDATED_ERROR", "Project ID not configured");
+        return;
+    }
+    
+    if (characterID == "" || timestamp < 0) {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "LAST_PAID_UPDATED_ERROR", "Invalid parameters");
+        return;
+    }
+    
+    // PATCH character document with lastPaidTimestamp
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?updateMask.fieldPaths=lastPaidTimestamp";
+    
+    list patchBodyParts = [
+        "{\"fields\":{\"lastPaidTimestamp\":{\"integerValue\":\"",
+        (string)timestamp,
+        "\"}}}"
+    ];
+    string patchBody = llDumpList2String(patchBodyParts, "");
+    
+    key requestId = llHTTPRequest(
+        url,
+        [
+            HTTP_METHOD, "PATCH",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        patchBody
+    );
+    
+    // Track request: [requestId, "UPDATE_LAST_PAID", senderLink]
+    pendingInventoryUpdates += [requestId, "UPDATE_LAST_PAID", senderLink];
+    cleanupTrackingLists();
+}
+
 // Get character document ID and universe_id from Firestore
 // Returns requestId for tracking
 // Note: This gets the first character for the user (if multiple exist, gets the first one)
@@ -605,6 +824,29 @@ default {
                 llMessageLinked(sender_num, FS_BRIDGE_CHANNEL, "inventoryPage", "{\"items\":[],\"cursor\":\"\",\"hasMore\":false}");
             }
         }
+        // Request to consume an item
+        else if (msg == "requestConsumeItem") {
+            // Parse JSON: { "itemId": "...", "userUuid": "..." }
+            // Or simple format: itemId as msg, userUuid from ownerUUID
+            string payload = (string)id;
+            string itemId = llJsonGetValue(payload, ["itemId"]);
+            
+            // Remove quotes if present
+            if (itemId != JSON_INVALID && itemId != "") {
+                if (llStringLength(itemId) >= 2 && llGetSubString(itemId, 0, 0) == "\"" && llGetSubString(itemId, -1, -1) == "\"") {
+                    itemId = llGetSubString(itemId, 1, -2);
+                }
+            } else {
+                // Try as simple string
+                itemId = payload;
+            }
+            
+            if (itemId != JSON_INVALID && itemId != "" && itemId != "JSON_INVALID") {
+                requestConsumeItem(itemId, ownerUUID, sender_num);
+            } else {
+                llMessageLinked(sender_num, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Invalid item ID");
+            }
+        }
         // Apply inventory deltas from cache
         else if (msg == "applyInventoryDeltas") {
             // Parse JSON: { "characterId": "...", "deltas": { full JSON from InventoryCache } }
@@ -621,6 +863,81 @@ default {
             
             if (characterId != JSON_INVALID && characterId != "" && deltasFullJson != JSON_INVALID && deltasFullJson != "") {
                 applyInventoryDeltas(characterId, deltasFullJson);
+            }
+        }
+        // Handle SET_ACTIVE_CHARACTER
+        // Format: "SET_ACTIVE_CHARACTER|userID|characterID"
+        else if (llSubStringIndex(msg, "SET_ACTIVE_CHARACTER|") == 0) {
+            list parts = llParseString2List(msg, ["|"], []);
+            if (llGetListLength(parts) == 3) {
+                string userID = llList2String(parts, 1);
+                string characterID = llList2String(parts, 2);
+                setActiveCharacter(userID, characterID, sender_num);
+            }
+        }
+        // Handle GET_ACTIVE_CHARACTER
+        // Format: "GET_ACTIVE_CHARACTER|<transactionId>|<userId>" or "GET_ACTIVE_CHARACTER|<userId>" (backward compatible)
+        else if (llSubStringIndex(msg, "GET_ACTIVE_CHARACTER|") == 0) {
+            list parts = llParseString2List(msg, ["|"], []);
+            if (llGetListLength(parts) >= 2) {
+                string userID;
+                // Support both formats: with transactionId or without
+                if (llGetListLength(parts) == 3) {
+                    // Format: GET_ACTIVE_CHARACTER|<transactionId>|<userId>
+                    userID = llList2String(parts, 2);
+                } else {
+                    // Format: GET_ACTIVE_CHARACTER|<userId> (backward compatible)
+                    userID = llList2String(parts, 1);
+                }
+                getActiveCharacter(userID, sender_num);
+            }
+        }
+        // Handle IS_BANNED
+        // Format: "IS_BANNED|<transactionId>|<characterId>|<universeId>"
+        else if (llSubStringIndex(msg, "IS_BANNED|") == 0) {
+            list parts = llParseString2List(msg, ["|"], []);
+            if (llGetListLength(parts) == 4) {
+                string characterID = llList2String(parts, 2);
+                string universeID = llList2String(parts, 3);
+                checkBanned(characterID, universeID, sender_num);
+            }
+        }
+        // Handle GET_STIPEND_DATA
+        // Format: "GET_STIPEND_DATA|<transactionId>|<characterId>"
+        else if (llSubStringIndex(msg, "GET_STIPEND_DATA|") == 0) {
+            list parts = llParseString2List(msg, ["|"], []);
+            if (llGetListLength(parts) >= 2) {
+                string characterID;
+                // Support both formats: with transactionId or without
+                if (llGetListLength(parts) == 3) {
+                    // Format: GET_STIPEND_DATA|<transactionId>|<characterId>
+                    characterID = llList2String(parts, 2);
+                } else {
+                    // Format: GET_STIPEND_DATA|<characterId> (backward compatible)
+                    characterID = llList2String(parts, 1);
+                }
+                getStipendData(characterID, sender_num);
+            }
+        }
+        // Handle UPDATE_LAST_PAID
+        // Format: "UPDATE_LAST_PAID|<transactionId>|<characterId>|<timestamp>"
+        else if (llSubStringIndex(msg, "UPDATE_LAST_PAID|") == 0) {
+            list parts = llParseString2List(msg, ["|"], []);
+            if (llGetListLength(parts) >= 3) {
+                string characterID;
+                string timestampStr;
+                // Support both formats: with transactionId or without
+                if (llGetListLength(parts) == 4) {
+                    // Format: UPDATE_LAST_PAID|<transactionId>|<characterId>|<timestamp>
+                    characterID = llList2String(parts, 2);
+                    timestampStr = llList2String(parts, 3);
+                } else {
+                    // Format: UPDATE_LAST_PAID|<characterId>|<timestamp> (backward compatible)
+                    characterID = llList2String(parts, 1);
+                    timestampStr = llList2String(parts, 2);
+                }
+                integer timestamp = (integer)timestampStr;
+                updateLastPaid(characterID, timestamp, sender_num);
             }
         }
     }
@@ -782,6 +1099,286 @@ default {
                     // Send error response to HUD Controller
                     llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "inventoryDeltasError", "Status " + (string)status);
                     // On error, don't clear cache - deltas remain in cache for retry
+                }
+                return;
+            }
+            // Handle REQUEST_CONSUME_ITEM (POST to consume_requests)
+            if (operation == "REQUEST_CONSUME_ITEM") {
+                string itemId = llList2String(pendingInventoryUpdates, inventoryIndex + 2);
+                string userUuid = llList2String(pendingInventoryUpdates, inventoryIndex + 3);
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 4);
+                
+                // Remove from tracking (5 elements: requestId, "REQUEST_CONSUME_ITEM", itemId, userUuid, senderLink)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 4);
+                
+                if (status == 200 || status == 201) {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_SENT", itemId);
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle VALIDATE_OWNERSHIP (for SET_ACTIVE_CHARACTER)
+            if (operation == "VALIDATE_OWNERSHIP") {
+                string userID = llList2String(pendingInventoryUpdates, inventoryIndex + 2);
+                string characterID = llList2String(pendingInventoryUpdates, inventoryIndex + 3);
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 4);
+                
+                // Remove from tracking (5 elements: requestId, "VALIDATE_OWNERSHIP", userID, characterID, senderLink)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 4);
+                
+                if (status == 200) {
+                    // Check if character was found (ownership validated)
+                    string firstResult = llJsonGetValue(body, [0]);
+                    if (firstResult != JSON_INVALID && firstResult != "") {
+                        // Ownership validated, now set activeCharacter
+                        string patchUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/users/" + userID + "?updateMask.fieldPaths=activeCharacter";
+                        
+                        list patchBodyParts = [
+                            "{\"fields\":{\"activeCharacter\":{\"stringValue\":\"",
+                            characterID,
+                            "\"}}}"
+                        ];
+                        string patchBody = llDumpList2String(patchBodyParts, "");
+                        
+                        key patchRequestId = llHTTPRequest(
+                            patchUrl,
+                            [
+                                HTTP_METHOD, "PATCH",
+                                HTTP_MIMETYPE, "application/json"
+                            ],
+                            patchBody
+                        );
+                        
+                        // Track patch request: [requestId, "SET_ACTIVE_CHARACTER", senderLink, characterID]
+                        pendingInventoryUpdates += [patchRequestId, "SET_ACTIVE_CHARACTER", senderLink, characterID];
+                    } else {
+                        // Ownership validation failed
+                        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_SET_ERROR", "Ownership validation failed");
+                    }
+                } else {
+                    // Validation request failed
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_SET_ERROR", "Validation failed: Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle SET_ACTIVE_CHARACTER (PATCH response)
+            if (operation == "SET_ACTIVE_CHARACTER") {
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 2);
+                string characterID = llList2String(pendingInventoryUpdates, inventoryIndex + 3);
+                
+                // Remove from tracking (4 elements: requestId, "SET_ACTIVE_CHARACTER", senderLink, characterID)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 3);
+                
+                if (status == 200) {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_SET", characterID);
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_SET_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle GET_ACTIVE_CHARACTER
+            if (operation == "GET_ACTIVE_CHARACTER") {
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 2);
+                
+                // Remove from tracking (3 elements: requestId, "GET_ACTIVE_CHARACTER", senderLink)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 2);
+                
+                if (status == 200) {
+                    // Extract activeCharacter field
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    if (fields != JSON_INVALID && fields != "") {
+                        string activeCharacterField = llJsonGetValue(fields, ["activeCharacter"]);
+                        if (activeCharacterField != JSON_INVALID && activeCharacterField != "") {
+                            string characterID = extractFirestoreValue(activeCharacterField);
+                            if (characterID != "") {
+                                llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", characterID);
+                            } else {
+                                llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", "null");
+                            }
+                        } else {
+                            llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", "null");
+                        }
+                    } else {
+                        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", "null");
+                    }
+                } else if (status == 404) {
+                    // User document doesn't exist yet - return null
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER", "null");
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "ACTIVE_CHARACTER_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle IS_BANNED
+            if (operation == "IS_BANNED") {
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 2);
+                string characterID = llList2String(pendingInventoryUpdates, inventoryIndex + 3);
+                
+                // Remove from tracking (4 elements: requestId, "IS_BANNED", senderLink, characterID)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 3);
+                
+                if (status == 200) {
+                    // Extract bannedCharacters array from universe document
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    if (fields != JSON_INVALID && fields != "") {
+                        string bannedCharsField = llJsonGetValue(fields, ["bannedCharacters"]);
+                        if (bannedCharsField != JSON_INVALID && bannedCharsField != "") {
+                            // Check if bannedCharacters is an arrayValue
+                            string arrayValue = llJsonGetValue(bannedCharsField, ["arrayValue"]);
+                            if (arrayValue != JSON_INVALID && arrayValue != "") {
+                                string values = llJsonGetValue(arrayValue, ["values"]);
+                                if (values != JSON_INVALID && values != "") {
+                                    // Parse array and check if characterID is in it
+                                    // Firestore arrays are JSON arrays, so we need to iterate through indices
+                                    integer isBanned = 0;
+                                    integer i = 0;
+                                    // Try to get first element to see if array exists
+                                    string firstItem = llJsonGetValue(values, [0]);
+                                    if (firstItem != JSON_INVALID && firstItem != "") {
+                                        // Array has at least one element, iterate through
+                                        while (i < 100) { // Safety limit
+                                            string item = llJsonGetValue(values, [i]);
+                                            if (item == JSON_INVALID || item == "") {
+                                                jump done;
+                                            }
+                                            string stringVal = extractFirestoreValue(item);
+                                            if (stringVal == characterID) {
+                                                isBanned = 1;
+                                                jump done;
+                                            }
+                                            i++;
+                                        }
+                                    }
+                                    @done;
+                                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", (string)isBanned);
+                                } else {
+                                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+                                }
+                            } else {
+                                llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+                            }
+                        } else {
+                            llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+                        }
+                    } else {
+                        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+                    }
+                } else if (status == 404) {
+                    // Universe doesn't exist - not banned
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED", "false");
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "BANNED_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle GET_STIPEND_DATA
+            if (operation == "GET_STIPEND_DATA") {
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 2);
+                
+                // Remove from tracking (3 elements: requestId, "GET_STIPEND_DATA", senderLink)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 2);
+                
+                if (status == 200) {
+                    // Extract classId and lastPaidTimestamp from character document
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    if (fields != JSON_INVALID && fields != "") {
+                        // Try both class_id and classId (check which one exists)
+                        string classIdField = llJsonGetValue(fields, ["class_id"]);
+                        if (classIdField == JSON_INVALID || classIdField == "") {
+                            classIdField = llJsonGetValue(fields, ["classId"]);
+                        }
+                        string lastPaidField = llJsonGetValue(fields, ["lastPaidTimestamp"]);
+                        
+                        string classId = "";
+                        if (classIdField != JSON_INVALID && classIdField != "") {
+                            classId = extractFirestoreValue(classIdField);
+                        }
+                        
+                        integer lastPaidTimestamp = 0;
+                        if (lastPaidField != JSON_INVALID && lastPaidField != "") {
+                            string lastPaidStr = extractFirestoreValue(lastPaidField);
+                            lastPaidTimestamp = (integer)lastPaidStr;
+                        }
+                        
+                        // Now get class document to read stipend
+                        if (classId != "") {
+                            string classUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/classes/" + classId;
+                            
+                            key classRequestId = llHTTPRequest(
+                                classUrl,
+                                [
+                                    HTTP_METHOD, "GET",
+                                    HTTP_MIMETYPE, "application/json"
+                                ],
+                                ""
+                            );
+                            
+                            // Track: [requestId, "GET_STIPEND_CLASS", senderLink, lastPaidTimestamp]
+                            pendingInventoryUpdates += [classRequestId, "GET_STIPEND_CLASS", senderLink, (string)lastPaidTimestamp];
+                        } else {
+                            // No class - return 0 stipend
+                            llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA", "0|" + (string)lastPaidTimestamp);
+                        }
+                    } else {
+                        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA_ERROR", "No fields in character document");
+                    }
+                } else if (status == 404) {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA_ERROR", "Character not found");
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle GET_STIPEND_CLASS (second step of GET_STIPEND_DATA)
+            if (operation == "GET_STIPEND_CLASS") {
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 2);
+                string lastPaidTimestampStr = llList2String(pendingInventoryUpdates, inventoryIndex + 3);
+                
+                // Remove from tracking (4 elements: requestId, "GET_STIPEND_CLASS", senderLink, lastPaidTimestampStr)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 3);
+                
+                if (status == 200) {
+                    // Extract stipend from class document
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    if (fields != JSON_INVALID && fields != "") {
+                        string stipendField = llJsonGetValue(fields, ["stipend"]);
+                        float stipend = 0.0;
+                        if (stipendField != JSON_INVALID && stipendField != "") {
+                            string stipendStr = extractFirestoreValue(stipendField);
+                            stipend = (float)stipendStr;
+                        }
+                        // Return: STIPEND_DATA|<stipend>|<lastPaidTimestamp>
+                        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA", (string)stipend + "|" + lastPaidTimestampStr);
+                    } else {
+                        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA", "0|" + lastPaidTimestampStr);
+                    }
+                } else if (status == 404) {
+                    // Class not found - return 0 stipend
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA", "0|" + lastPaidTimestampStr);
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "STIPEND_DATA_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle UPDATE_LAST_PAID
+            if (operation == "UPDATE_LAST_PAID") {
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 2);
+                
+                // Remove from tracking (3 elements: requestId, "UPDATE_LAST_PAID", senderLink)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 2);
+                
+                if (status == 200) {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "LAST_PAID_UPDATED", "OK");
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "LAST_PAID_UPDATED_ERROR", "Status " + (string)status);
                 }
                 return;
             }

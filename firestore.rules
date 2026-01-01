@@ -28,6 +28,42 @@ service cloud.firestore {
       allow read, write: if true;
     }
     
+    // Universes - public read for character creation, write restricted in app layer
+    match /universes/{universeId} {
+      allow read: if true;  // Public read for character creation
+      allow write: if true;  // Write validation in app layer (will be restricted later)
+    }
+    
+    // Universe admins subcollection
+    match /universes/{universeId}/admins/{adminId} {
+      allow read: if true;  // Public read
+      allow write: if true;  // Write validation in app layer
+    }
+    
+    // Consumables master registry - public read, admin write
+    match /consumables/master/items/{itemId} {
+      allow read: if true;  // Public read for HUD
+      allow write: if true;  // Admin write (validation in app layer)
+    }
+    
+    // User consume requests - write only (Cloud Function processes)
+    match /users/{uid}/consume_requests/{rid} {
+      allow read: if false;  // No read needed
+      allow write: if true;  // Users can create consume requests
+    }
+    
+    // Character active buffs - read/write for character owner
+    match /characters/{characterId}/active_buffs/{buffId} {
+      allow read: if true;  // Public read for HUD display
+      allow write: if true;  // Cloud Function writes (validation in function)
+    }
+    
+    // Character effects log - read for character owner
+    match /characters/{characterId}/effects_log/{logId} {
+      allow read: if true;  // Public read for HUD display
+      allow write: if true;  // Cloud Function writes
+    }
+    
     // Everything else - open for testing
     match /{document=**} {
       allow read, write: if true;
