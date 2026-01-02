@@ -50,6 +50,7 @@ string getDomainForCommand(string command) {
     // Inventory domain
     if (command == "getInventory" || command == "getInventoryPage" ||
         command == "applyInventoryDeltas" ||
+        command == "requestConsumeItem" ||
         llSubStringIndex(command, "fGiveItem") == 0 ||
         llSubStringIndex(command, "fTakeItem") == 0) {
         return DOMAIN_INV;

@@ -25,16 +25,47 @@ string KEY_CLASS = "class";
 
 // =========================== HELPER FUNCTIONS ================================
 
-// Load stats list from LSD
+// Load stats list from LSD (reads from rp_stats_current JSON)
 list loadStats() {
-    string statsString = llLinksetDataRead(KEY_STATS);
-    debugLog("loadStats() -> statsString='" + statsString + "' (length: " + (string)llStringLength(statsString) + ")");
-    if (statsString == "") {
-        debugLog("No stats found in LSD, returning default (all 2s)");
+    // Read current stats from rp_stats_current (JSON format)
+    string statsJson = llLinksetDataRead("rp_stats_current");
+    debugLog("loadStats() -> statsJson='" + statsJson + "' (length: " + (string)llStringLength(statsJson) + ")");
+    
+    if (statsJson == "" || statsJson == "JSON_INVALID" || statsJson == "{}") {
+        debugLog("No current stats found in LSD, returning default (all 2s)");
         // Return default stats (all 2s)
         return [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2];
     }
-    list stats = llCSV2List(statsString);
+    
+    // Parse JSON and convert to list
+    // Stat names in order: agility, animal handling, athletics, awareness, crafting,
+    // deception, endurance, entertaining, fighting, healing,
+    // influence, intelligence, knowledge, marksmanship, persuasion,
+    // stealth, survival, thievery, will, wisdom
+    list statNames = [
+        "agility", "animal handling", "athletics", "awareness", "crafting",
+        "deception", "endurance", "entertaining", "fighting", "healing",
+        "influence", "intelligence", "knowledge", "marksmanship", "persuasion",
+        "stealth", "survival", "thievery", "will", "wisdom"
+    ];
+    
+    list stats = [];
+    integer i;
+    integer len = llGetListLength(statNames);
+    for (i = 0; i < len; i++) {
+        string statName = llList2String(statNames, i);
+        string valueStr = llJsonGetValue(statsJson, [statName]);
+        integer value = 2;  // Default
+        if (valueStr != JSON_INVALID && valueStr != "") {
+            // Remove quotes if present
+            if (llStringLength(valueStr) >= 2 && llGetSubString(valueStr, 0, 0) == "\"" && llGetSubString(valueStr, -1, -1) == "\"") {
+                valueStr = llGetSubString(valueStr, 1, -2);
+            }
+            value = (integer)valueStr;
+        }
+        stats += [value];
+    }
+    
     debugLog("Parsed stats: " + (string)llGetListLength(stats) + " values: " + llDumpList2String(stats, ","));
     return stats;
 }

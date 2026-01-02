@@ -23,7 +23,7 @@ integer STATE_WAIT_BAN  = 2;
 integer STATE_WAIT_STIP = 3;
 integer STATE_WAIT_UPDATE = 4;
 
-integer state = STATE_IDLE;
+integer currentState = STATE_IDLE;
 
 key toucher;
 string activeCharacter;
@@ -44,14 +44,14 @@ default
 
     touch_start(integer n)
     {
-        if (state != STATE_IDLE)
+        if (currentState != STATE_IDLE)
         {
             llRegionSayTo(llDetectedKey(0), 0, "Please wait...");
             return;
         }
 
         toucher = llDetectedKey(0);
-        state = STATE_WAIT_CHAR;
+        currentState = STATE_WAIT_CHAR;
 
         string tx = (string)llGenerateKey();
         llMessageLinked(LINK_THIS, MODULE_CHANNEL,
@@ -70,19 +70,19 @@ default
         // -------------------------------
         // 1. ACTIVE CHARACTER RECEIVED
         // -------------------------------
-        if (cmd == "ACTIVE_CHARACTER" && state == STATE_WAIT_CHAR)
+        if (cmd == "ACTIVE_CHARACTER" && currentState == STATE_WAIT_CHAR)
         {
             activeCharacter = llList2String(parts, 2);
 
             if (activeCharacter == "" || activeCharacter == "NULL")
             {
                 llRegionSayTo(toucher, 0, "No active character selected.");
-                state = STATE_IDLE;
+                currentState = STATE_IDLE;
                 return;
             }
 
             // Check ban status
-            state = STATE_WAIT_BAN;
+            currentState = STATE_WAIT_BAN;
             string tx2 = (string)llGenerateKey();
             llMessageLinked(LINK_THIS, MODULE_CHANNEL,
                 "IS_BANNED|" + tx2 + "|" + universeId + "|" + activeCharacter,
@@ -93,19 +93,19 @@ default
         // -------------------------------
         // 2. BAN CHECK
         // -------------------------------
-        if (cmd == "BANNED_STATUS" && state == STATE_WAIT_BAN)
+        if (cmd == "BANNED_STATUS" && currentState == STATE_WAIT_BAN)
         {
             string banned = llList2String(parts, 2);
 
             if (banned == "YES")
             {
                 llRegionSayTo(toucher, 0, "You are banned from stipends in this universe.");
-                state = STATE_IDLE;
+                currentState = STATE_IDLE;
                 return;
             }
 
             // Request stipend + lastPaidTimestamp
-            state = STATE_WAIT_STIP;
+            currentState = STATE_WAIT_STIP;
             string tx3 = (string)llGenerateKey();
             llMessageLinked(LINK_THIS, MODULE_CHANNEL,
                 "GET_STIPEND_DATA|" + tx3 + "|" + activeCharacter,
@@ -116,7 +116,7 @@ default
         // -------------------------------
         // 3. STIPEND DATA RECEIVED
         // -------------------------------
-        if (cmd == "STIPEND_DATA" && state == STATE_WAIT_STIP)
+        if (cmd == "STIPEND_DATA" && currentState == STATE_WAIT_STIP)
         {
             gold       = (integer)llList2String(parts, 2);
             silver     = (integer)llList2String(parts, 3);
@@ -131,7 +131,7 @@ default
                 integer hours = (604800 - (now - lastPaid)) / 3600;
                 llRegionSayTo(toucher, 0,
                     "You have already been paid. Try again in " + (string)hours + " hours.");
-                state = STATE_IDLE;
+                currentState = STATE_IDLE;
                 return;
             }
 
@@ -148,7 +148,7 @@ default
                 (string)gold + "|" + (string)silver + "|" + (string)copper);
 
             // Update lastPaidTimestamp
-            state = STATE_WAIT_UPDATE;
+            currentState = STATE_WAIT_UPDATE;
             string tx5 = (string)llGenerateKey();
             llMessageLinked(LINK_THIS, MODULE_CHANNEL,
                 "UPDATE_LAST_PAID|" + tx5 + "|" + activeCharacter + "|" + (string)now,
@@ -159,10 +159,10 @@ default
         // -------------------------------
         // 4. LAST PAID UPDATED
         // -------------------------------
-        if (cmd == "LAST_PAID_UPDATED" && state == STATE_WAIT_UPDATE)
+        if (cmd == "LAST_PAID_UPDATED" && currentState == STATE_WAIT_UPDATE)
         {
             llRegionSayTo(toucher, 0, "Stipend paid successfully.");
-            state = STATE_IDLE;
+            currentState = STATE_IDLE;
             return;
         }
     }

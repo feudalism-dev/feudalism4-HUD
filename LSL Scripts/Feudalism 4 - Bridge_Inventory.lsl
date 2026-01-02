@@ -292,6 +292,44 @@ updateInventory(string itemName, integer qty, string operation) {
     pendingInventoryUpdates += [requestId, "GET_CHARACTER_ID", operation, itemName, delta];
 }
 
+// Request to consume an item
+// Writes to users/<uid>/consume_requests/<auto-id>
+requestConsumeItem(string itemId, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Project ID not configured");
+        return;
+    }
+    
+    if (itemId == "" || ownerUUID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Invalid parameters");
+        return;
+    }
+    
+    // Write to Firestore: feud4/users/<uid>/consume_requests/<auto-id>
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID
+        + "/databases/(default)/documents/feud4/users/" + ownerUUID + "/consume_requests";
+    
+    list docParts = [
+        "{\"fields\":{",
+            "\"item_id\":{\"stringValue\":\"", itemId, "\"}",
+        "}}"
+    ];
+    string docJson = llDumpList2String(docParts, "");
+    
+    key requestId = llHTTPRequest(
+        url,
+        [
+            HTTP_METHOD, "POST",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        docJson
+    );
+    
+    // Track request: [requestId, "REQUEST_CONSUME_ITEM", itemId, senderLink]
+    pendingInventoryUpdates += [requestId, "REQUEST_CONSUME_ITEM", itemId, senderLink];
+    cleanupTrackingLists();
+}
+
 // =========================== MAIN STATE =====================================
 
 default {
@@ -372,6 +410,15 @@ default {
                         llOwnerSay("Removed " + (string)qty + " " + itemName);
                     }
                 }
+            }
+        }
+        else if (command == "requestConsumeItem") {
+            // Parse: itemId (payload is just the itemId)
+            string itemId = payload;
+            if (itemId != "") {
+                requestConsumeItem(itemId, originalSenderLink);
+            } else {
+                llMessageLinked(originalSenderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Invalid item ID");
             }
         }
     }
@@ -490,6 +537,107 @@ default {
                 } else {
                     llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "inventoryDeltasError", "Status " + (string)status);
                 }
+                return;
+            }
+            
+            // Handle REQUEST_CONSUME_ITEM (POST to consume_requests)
+            if (operation == "REQUEST_CONSUME_ITEM") {
+                string itemId = llList2String(pendingInventoryUpdates, inventoryIndex + 2);
+                integer senderLink = llList2Integer(pendingInventoryUpdates, inventoryIndex + 3);
+                
+                // Remove from tracking (4 elements: requestId, "REQUEST_CONSUME_ITEM", itemId, senderLink)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 3);
+                
+                if (status == 200 || status == 201) {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_SENT", itemId);
+                    
+                    // Server confirmed consumable was processed - fetch consumable definition and send BUFF_TRIGGER
+                    // Path: feud4/consumables/master/{itemId}
+                    string consumableUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID
+                        + "/databases/(default)/documents/feud4/consumables/master/" + llToLower(itemId);
+                    
+                    key consumableRequestId = llHTTPRequest(
+                        consumableUrl,
+                        [
+                            HTTP_METHOD, "GET",
+                            HTTP_MIMETYPE, "application/json"
+                        ],
+                        ""
+                    );
+                    
+                    // Track: [requestId, "GET_CONSUMABLE", itemId]
+                    pendingInventoryUpdates += [consumableRequestId, "GET_CONSUMABLE", itemId];
+                    cleanupTrackingLists();
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle GET_CONSUMABLE (fetch consumable definition to get effect data)
+            if (operation == "GET_CONSUMABLE") {
+                string itemId = llList2String(pendingInventoryUpdates, inventoryIndex + 2);
+                
+                // Remove from tracking (3 elements: requestId, "GET_CONSUMABLE", itemId)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 2);
+                
+                if (status == 200) {
+                    // Parse consumable definition
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    if (fields != JSON_INVALID && fields != "") {
+                        // Extract effect_type, effect_value, duration_seconds
+                        string effectTypeField = llJsonGetValue(fields, ["effect_type"]);
+                        string effectValueField = llJsonGetValue(fields, ["effect_value"]);
+                        string durationField = llJsonGetValue(fields, ["duration_seconds"]);
+                        
+                        string effectType = "";
+                        integer effectValue = 0;
+                        integer durationSeconds = 0;
+                        
+                        // Extract effect_type (stringValue)
+                        if (effectTypeField != JSON_INVALID && effectTypeField != "") {
+                            string stringValue = llJsonGetValue(effectTypeField, ["stringValue"]);
+                            if (stringValue != JSON_INVALID && stringValue != "") {
+                                // Remove quotes if present
+                                if (llStringLength(stringValue) >= 2 && llGetSubString(stringValue, 0, 0) == "\"" && llGetSubString(stringValue, -1, -1) == "\"") {
+                                    stringValue = llGetSubString(stringValue, 1, -2);
+                                }
+                                effectType = stringValue;
+                            }
+                        }
+                        
+                        // Extract effect_value (integerValue)
+                        if (effectValueField != JSON_INVALID && effectValueField != "") {
+                            string intValue = llJsonGetValue(effectValueField, ["integerValue"]);
+                            if (intValue != JSON_INVALID && intValue != "") {
+                                // Remove quotes if present
+                                if (llStringLength(intValue) >= 2 && llGetSubString(intValue, 0, 0) == "\"" && llGetSubString(intValue, -1, -1) == "\"") {
+                                    intValue = llGetSubString(intValue, 1, -2);
+                                }
+                                effectValue = (integer)intValue;
+                            }
+                        }
+                        
+                        // Extract duration_seconds (integerValue)
+                        if (durationField != JSON_INVALID && durationField != "") {
+                            string intValue = llJsonGetValue(durationField, ["integerValue"]);
+                            if (intValue != JSON_INVALID && intValue != "") {
+                                // Remove quotes if present
+                                if (llStringLength(intValue) >= 2 && llGetSubString(intValue, 0, 0) == "\"" && llGetSubString(intValue, -1, -1) == "\"") {
+                                    intValue = llGetSubString(intValue, 1, -2);
+                                }
+                                durationSeconds = (integer)intValue;
+                            }
+                        }
+                        
+                        // Only send BUFF_TRIGGER if duration > 0 (timed buffs only, instant effects are handled server-side)
+                        if (durationSeconds > 0 && effectType != "") {
+                            string buffTrigger = "BUFF_TRIGGER|" + effectType + "|" + (string)effectValue + "|" + (string)durationSeconds;
+                            llMessageLinked(LINK_SET, 0, buffTrigger, NULL_KEY);
+                        }
+                    }
+                }
+                // If status != 200, silently fail (consumable might not exist, but that's okay)
                 return;
             }
             

@@ -22,6 +22,10 @@ integer meterModeChannel = -7777777;
 integer menuListener;
 integer menuActive = FALSE;
 
+// Buff slot prim names (max 3 buffs)
+list BUFF_SLOTS = ["rp_slot2", "rp_slot3", "rp_slot4"];
+string GENERIC_BUFF_TEXTURE = "buff_generic";  // Generic buff icon texture
+
 // =========================== UTILITY FUNCTIONS ==============================
 
 integer getLinkNumberByName(string linkName) {
@@ -70,6 +74,112 @@ setPrimText(string primName, string value) {
     }
 }
 
+// Update buff slots with buff data
+updateBuffSlots(string jsonArray) {
+    // Parse JSON array
+    list buffEntries = [];
+    
+    integer i = 0;
+    while (TRUE) {
+        string entryJson = llJsonGetValue(jsonArray, [i]);
+        if (entryJson == JSON_INVALID || entryJson == "") {
+            jump done_parsing;
+        }
+        
+        // Extract stat, amount, remaining
+        string stat = llJsonGetValue(entryJson, ["stat"]);
+        string amountStr = llJsonGetValue(entryJson, ["amount"]);
+        string remainingStr = llJsonGetValue(entryJson, ["remaining"]);
+        
+        // Remove quotes if present
+        if (stat != JSON_INVALID && stat != "") {
+            if (llStringLength(stat) >= 2 && llGetSubString(stat, 0, 0) == "\"" && llGetSubString(stat, -1, -1) == "\"") {
+                stat = llGetSubString(stat, 1, -2);
+            }
+        }
+        if (amountStr != JSON_INVALID && amountStr != "") {
+            if (llStringLength(amountStr) >= 2 && llGetSubString(amountStr, 0, 0) == "\"" && llGetSubString(amountStr, -1, -1) == "\"") {
+                amountStr = llGetSubString(amountStr, 1, -2);
+            }
+        }
+        if (remainingStr != JSON_INVALID && remainingStr != "") {
+            if (llStringLength(remainingStr) >= 2 && llGetSubString(remainingStr, 0, 0) == "\"" && llGetSubString(remainingStr, -1, -1) == "\"") {
+                remainingStr = llGetSubString(remainingStr, 1, -2);
+            }
+        }
+        
+        if (stat != JSON_INVALID && stat != "" && amountStr != JSON_INVALID && amountStr != "" && remainingStr != JSON_INVALID && remainingStr != "") {
+            integer amount = (integer)amountStr;
+            integer remaining = (integer)remainingStr;
+            buffEntries += [stat, amount, remaining];
+        }
+        
+        i++;
+    }
+    @done_parsing;
+    
+    // Sort entries alphabetically by stat name
+    integer len = llGetListLength(buffEntries);
+    integer j;
+    integer k;
+    for (j = 0; j < len - 3; j += 3) {
+        for (k = j + 3; k < len; k += 3) {
+            string stat1 = llList2String(buffEntries, j);
+            string stat2 = llList2String(buffEntries, k);
+            if ((integer)stat1 > (integer)stat2) {
+                // Swap entries
+                string tempStat = stat1;
+                integer tempAmount = llList2Integer(buffEntries, j + 1);
+                integer tempRemaining = llList2Integer(buffEntries, j + 2);
+                buffEntries = llListReplaceList(buffEntries, [stat2, llList2Integer(buffEntries, k + 1), llList2Integer(buffEntries, k + 2)], j, j + 2);
+                buffEntries = llListReplaceList(buffEntries, [tempStat, tempAmount, tempRemaining], k, k + 2);
+            }
+        }
+    }
+    
+    // Assign to slots (max 3)
+    integer slotIndex;
+    integer entryIndex = 0;
+    integer maxSlots = llGetListLength(BUFF_SLOTS);
+    
+    for (slotIndex = 0; slotIndex < maxSlots; slotIndex++) {
+        string slotName = llList2String(BUFF_SLOTS, slotIndex);
+        integer linkNum = getLinkNumberByName(slotName);
+        
+        if (entryIndex < len) {
+            // Has buff to display
+            string stat = llList2String(buffEntries, entryIndex);
+            integer amount = llList2Integer(buffEntries, entryIndex + 1);
+            integer remaining = llList2Integer(buffEntries, entryIndex + 2);
+            
+            // Build hover text: "<stat> <+amount or -amount> (<seconds remaining>s)"
+            string amountStr;
+            if (amount > 0) {
+                amountStr = "+" + (string)amount;
+            } else {
+                amountStr = (string)amount;
+            }
+            string hoverText = stat + " " + amountStr + " (" + (string)remaining + "s)";
+            
+            if (linkNum != -1) {
+                // Set generic buff icon texture
+                setLinkTextureFast(linkNum, GENERIC_BUFF_TEXTURE, ALL_SIDES);
+                // Set hover text
+                llSetLinkPrimitiveParamsFast(linkNum, [PRIM_TEXT, hoverText, <1.0, 1.0, 1.0>, 1.0]);
+            }
+            
+            entryIndex += 3;
+        } else {
+            // Clear unused slot
+            if (linkNum != -1) {
+                // Clear texture and text
+                llSetLinkPrimitiveParamsFast(linkNum, [PRIM_TEXTURE, ALL_SIDES, TEXTURE_BLANK, <1,1,0>, ZERO_VECTOR, 0.0]);
+                llSetLinkPrimitiveParamsFast(linkNum, [PRIM_TEXT, "", <1,1,1>, 0.0]);
+            }
+        }
+    }
+}
+
 // =========================== MAIN STATE =====================================
 
 default {
@@ -77,6 +187,13 @@ default {
     }
     
     link_message(integer sender_num, integer num, string msg, key id) {
+        // Handle BUFF_UI_UPDATE
+        if (llSubStringIndex(msg, "BUFF_UI_UPDATE|") == 0) {
+            string jsonStr = llGetSubString(msg, 15, -1);  // Extract JSON after "BUFF_UI_UPDATE|"
+            updateBuffSlots(jsonStr);
+            return;
+        }
+        
         // Health Display
         if (msg == "set health display") {
             string linkName = "rp_health";

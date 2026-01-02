@@ -680,13 +680,8 @@ default {
             llMessageLinked(LINK_SET, 0, "save action_slots", (key)newSlotsJson);
             debugLog("Action slots updated (length: " + (string)llStringLength(newSlotsJson) + ")");
         }
-        // Setup HUD commands
-        else if (msg == "show setup hud") {
-            showSetupHUD();
-        }
-        else if (msg == "hide setup hud") {
-            hideSetupHUD();
-        }
+        // Setup HUD can ONLY be opened/closed via touch handlers (rp_options or btn_setup)
+        // Link messages to show/hide Setup HUD are disabled to enforce single control point
         // Inventory messages are now handled by HUD Inventory Controller script
         // Data Manager requests are now handled by Firestore Bridge (HTTP-based)
         // No longer needed here - removed to eliminate MOAP dependency

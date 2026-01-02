@@ -1113,9 +1113,96 @@ default {
                 
                 if (status == 200 || status == 201) {
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_SENT", itemId);
+                    
+                    // Server confirmed consumable was processed - fetch consumable definition and send BUFF_TRIGGER
+                    // Path: feud4/consumables/master/{itemId}
+                    // Note: itemId should be lowercase (server stores it lowercase)
+                    string consumableUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID
+                        + "/databases/(default)/documents/feud4/consumables/master/" + llToLower(itemId);
+                    
+                    key consumableRequestId = llHTTPRequest(
+                        consumableUrl,
+                        [
+                            HTTP_METHOD, "GET",
+                            HTTP_MIMETYPE, "application/json"
+                        ],
+                        ""
+                    );
+                    
+                    // Track: [requestId, "GET_CONSUMABLE", itemId]
+                    pendingInventoryUpdates += [consumableRequestId, "GET_CONSUMABLE", itemId];
+                    cleanupTrackingLists();
                 } else {
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CONSUME_REQUEST_ERROR", "Status " + (string)status);
                 }
+                return;
+            }
+            
+            // Handle GET_CONSUMABLE (fetch consumable definition to get effect data)
+            if (operation == "GET_CONSUMABLE") {
+                string itemId = llList2String(pendingInventoryUpdates, inventoryIndex + 2);
+                
+                // Remove from tracking (3 elements: requestId, "GET_CONSUMABLE", itemId)
+                pendingInventoryUpdates = llDeleteSubList(pendingInventoryUpdates, inventoryIndex, inventoryIndex + 2);
+                
+                if (status == 200) {
+                    // Parse consumable definition
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    if (fields != JSON_INVALID && fields != "") {
+                        // Extract effect_type, effect_value, duration_seconds
+                        string effectTypeField = llJsonGetValue(fields, ["effect_type"]);
+                        string effectValueField = llJsonGetValue(fields, ["effect_value"]);
+                        string durationField = llJsonGetValue(fields, ["duration_seconds"]);
+                        
+                        string effectType = "";
+                        integer effectValue = 0;
+                        integer durationSeconds = 0;
+                        
+                        // Extract effect_type (stringValue)
+                        if (effectTypeField != JSON_INVALID && effectTypeField != "") {
+                            string stringValue = llJsonGetValue(effectTypeField, ["stringValue"]);
+                            if (stringValue != JSON_INVALID && stringValue != "") {
+                                // Remove quotes if present
+                                if (llStringLength(stringValue) >= 2 && llGetSubString(stringValue, 0, 0) == "\"" && llGetSubString(stringValue, -1, -1) == "\"") {
+                                    stringValue = llGetSubString(stringValue, 1, -2);
+                                }
+                                effectType = stringValue;
+                            }
+                        }
+                        
+                        // Extract effect_value (integerValue)
+                        if (effectValueField != JSON_INVALID && effectValueField != "") {
+                            string intValue = llJsonGetValue(effectValueField, ["integerValue"]);
+                            if (intValue != JSON_INVALID && intValue != "") {
+                                // Remove quotes if present
+                                if (llStringLength(intValue) >= 2 && llGetSubString(intValue, 0, 0) == "\"" && llGetSubString(intValue, -1, -1) == "\"") {
+                                    intValue = llGetSubString(intValue, 1, -2);
+                                }
+                                effectValue = (integer)intValue;
+                            }
+                        }
+                        
+                        // Extract duration_seconds (integerValue)
+                        if (durationField != JSON_INVALID && durationField != "") {
+                            string intValue = llJsonGetValue(durationField, ["integerValue"]);
+                            if (intValue != JSON_INVALID && intValue != "") {
+                                // Remove quotes if present
+                                if (llStringLength(intValue) >= 2 && llGetSubString(intValue, 0, 0) == "\"" && llGetSubString(intValue, -1, -1) == "\"") {
+                                    intValue = llGetSubString(intValue, 1, -2);
+                                }
+                                durationSeconds = (integer)intValue;
+                            }
+                        }
+                        
+                        // Only send BUFF_TRIGGER if duration > 0 (timed buffs only, instant effects are handled server-side)
+                        if (durationSeconds > 0 && effectType != "") {
+                            string buffTrigger = "BUFF_TRIGGER|" + effectType + "|" + (string)effectValue + "|" + (string)durationSeconds;
+                            llMessageLinked(LINK_SET, 0, buffTrigger, NULL_KEY);
+                            debugLog("Sent BUFF_TRIGGER: " + buffTrigger);
+                        }
+                    }
+                }
+                // If status != 200, silently fail (consumable might not exist, but that's okay)
                 return;
             }
             
