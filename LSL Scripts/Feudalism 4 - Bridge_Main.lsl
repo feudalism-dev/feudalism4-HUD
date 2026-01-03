@@ -9,6 +9,15 @@ integer FS_BRIDGE_CHANNEL = -777001;
 integer INVENTORY_CHANNEL = -454545;
 integer MODULE_CHANNEL = -777002;
 
+// Debug
+integer DEBUG_MODE = TRUE;
+
+debugLog(string msg) {
+    if (DEBUG_MODE) {
+        llOwnerSay("[Bridge_Main] " + msg);
+    }
+}
+
 // Module domain prefixes
 string DOMAIN_CHAR = "CHAR";
 string DOMAIN_CLASS = "CLASS";
@@ -58,8 +67,15 @@ string getDomainForCommand(string command) {
     
     // Stipend domain
     if (llSubStringIndex(command, "GET_STIPEND_DATA") == 0 ||
-        llSubStringIndex(command, "UPDATE_LAST_PAID") == 0) {
+        llSubStringIndex(command, "UPDATE_LAST_PAID") == 0 ||
+        llSubStringIndex(command, "SET_CLASS_STIPEND") == 0) {
         return DOMAIN_STIP;
+    }
+    
+    // Class domain
+    if (llSubStringIndex(command, "GET_CLASS_LIST") == 0 ||
+        llSubStringIndex(command, "GET_CLASS_STIPEND") == 0) {
+        return DOMAIN_CLASS;
     }
     
     // Universe domain
@@ -73,8 +89,8 @@ string getDomainForCommand(string command) {
 
 // Route command to appropriate module
 routeToModule(string domain, string command, string payload, integer senderLink) {
-    // Format: DOMAIN|COMMAND|PAYLOAD|SENDERLINK
-    string routedMsg = domain + "|" + command + "|" + payload + "|" + (string)senderLink;
+    // Format: DOMAIN|COMMAND|PAYLOAD
+    string routedMsg = domain + "|" + command + "|" + payload;
     llMessageLinked(LINK_SET, MODULE_CHANNEL, routedMsg, NULL_KEY);
 }
 
@@ -88,12 +104,16 @@ default {
         ownerKey = llGetOwner();
         ownerUUID = (string)ownerKey;
         
+        debugLog("Bridge_Main INIT: FS_BRIDGE_CHANNEL=" + (string)FS_BRIDGE_CHANNEL + ", MODULE_CHANNEL=" + (string)MODULE_CHANNEL);
+        
         // Listen for inventory messages from world objects
         llListen(INVENTORY_CHANNEL, "", NULL_KEY, "");
     }
     
     // Handle link messages from HUD controllers
     link_message(integer sender_num, integer num, string msg, key id) {
+        debugLog("Bridge_Main LINK_MESSAGE: sender=" + (string)sender_num + ", channel=" + (string)num + ", msg='" + msg + "'");
+        
         // Only process messages on FS_BRIDGE_CHANNEL or standard link messages (0)
         // Ignore MODULE_CHANNEL messages (those are module-to-module)
         if (num == MODULE_CHANNEL) {
@@ -104,32 +124,16 @@ default {
             return;
         }
         
-        string targetUUID = (string)id;
-        string command = msg;
-        string payload = "";
-        
-        // Parse command if it contains pipe separators
-        integer pipeIndex = llSubStringIndex(msg, "|");
-        if (pipeIndex != -1) {
-            command = llGetSubString(msg, 0, pipeIndex - 1);
-            payload = llGetSubString(msg, pipeIndex + 1, -1);
-        }
-        
-        // Determine domain
-        string domain = getDomainForCommand(command);
-        
-        // Build full payload (include targetUUID if provided)
-        string fullPayload = payload;
-        if (targetUUID != "" && targetUUID != NULL_KEY) {
-            if (fullPayload != "") {
-                fullPayload = targetUUID + "|" + fullPayload;
-            } else {
-                fullPayload = targetUUID;
-            }
-        }
+        list parts = llParseString2List(msg, ["|"], []);
+        string domain = llList2String(parts, 0);
+        string command = llList2String(parts, 1);
+        string payload = llDumpList2String(llList2List(parts, 2, -1), "|");
         
         // Route to module
-        routeToModule(domain, command, fullPayload, sender_num);
+        if (domain == DOMAIN_STIP) {
+            debugLog("Bridge_Main → Bridge_Stipends: '" + msg + "'");
+        }
+        routeToModule(domain, command, payload, sender_num);
     }
     
     // Handle inventory messages from world objects (fGiveItem, fTakeItem)

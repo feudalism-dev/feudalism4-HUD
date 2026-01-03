@@ -5,6 +5,13 @@
 // Uses Firestore for character data instead of Experience database
 // ============================================================================
 
+// =========================== CONFIGURATION ==================================
+// Universe ID for this HUD (enforces one character → one universe rule)
+string HUD_UNIVERSE_ID = "feud4_core";
+
+// Button to toggle Setup HUD (touch this prim to open/close Setup HUD)
+string SETUP_BUTTON_NAME = "btn_setup";  // Optional: can be empty to use chat command
+
 // Debug settings
 integer DEBUG_MODE = FALSE;  // Enable debug logging (set to TRUE only when debugging)
 
@@ -69,6 +76,15 @@ string mode = "roleplay";
 integer isResting = FALSE;
 integer isPassedOut = FALSE;
 integer timerCount = 0;  // For rest timer
+
+// Owner info (for touch handling)
+key ownerKey;
+string ownerUUID;
+string ownerUsername;
+string ownerDisplayName;
+
+// Toggle debounce
+float lastToggleTime = 0.0;  // Time of last toggle for debouncing
 
 // Firebase/Firestore communication
 // Note: LSL cannot directly access Firestore, so we rely on the Setup HUD
@@ -139,11 +155,22 @@ updateResourceDisplays() {
     llMessageLinked(LINK_SET, myXP, "set xp display", "");
 }
 
+// Send notification
+notify(string message) {
+    llOwnerSay("[Feudalism 4] " + message);
+}
+
 // =========================== MAIN STATE =====================================
 
 default {
     state_entry() {
         debugLog("Initialized");
+        
+        // Initialize owner information
+        ownerKey = llGetOwner();
+        ownerUUID = (string)ownerKey;
+        ownerUsername = llGetUsername(ownerKey);
+        ownerDisplayName = llGetDisplayName(ownerKey);
         
         // Set up listener for external communications
         llListen(HUD_CHANNEL, "", NULL_KEY, "");
@@ -163,10 +190,84 @@ default {
         // This prevents cascade of load requests from multiple scripts
     }
     
+    // Handle touch events
+    touch_start(integer num) {
+        key toucher = llDetectedKey(0);
+        if (toucher != ownerKey) return;
+        
+        integer linkNum = llDetectedLinkNumber(0);
+        string linkName = llGetLinkName(linkNum);
+        
+        // Toggle Setup HUD if setup button is touched
+        if (SETUP_BUTTON_NAME != "" && linkName == SETUP_BUTTON_NAME) {
+            // Route to HUD_MOAP (HUD_MOAP will handle state check internally)
+            llMessageLinked(LINK_SET, 2001, "TOGGLE_SETUP_HUD", "");
+            return;
+        }
+        // Toggle Setup HUD if rp_options is touched
+        else if (linkName == "rp_options") {
+            // Debounce: Check time since last toggle using stored time
+            float currentTime = llGetTime();
+            float elapsed = currentTime - lastToggleTime;
+            if (elapsed < 1.0 && lastToggleTime > 0.0) {
+                debugLog("Toggle debounce - ignoring rapid click (elapsed: " + (string)elapsed + ")");
+                return;
+            }
+            
+            // Update last toggle time
+            lastToggleTime = currentTime;
+            
+            // Route toggle to HUD_MOAP (HUD_MOAP will handle state check internally)
+            llMessageLinked(LINK_SET, 2001, "TOGGLE_SETUP_HUD", "");
+        }
+        // Show inventory menu if rp_inventory is touched (route to Inventory Controller)
+        else if (linkName == "rp_inventory") {
+            llMessageLinked(LINK_SET, 0, "show_inventory_menu", "");
+        }
+        // Show coins if rp_coins is touched (route to HUD_Stats)
+        else if (linkName == "rp_coins") {
+            llMessageLinked(LINK_SET, 2002, "SHOW_COINS", "");
+        }
+        // Handle rp_update button (refresh/sync character data from Firestore)
+        else if (linkName == "rp_update") {
+            // Read characterId from LSD (stored by Firestore Bridge)
+            string characterId = llLinksetDataRead("characterId");
+            if (characterId == "" || characterId == "JSON_INVALID") {
+                // No characterId in LSD - need to query Firestore first
+                llMessageLinked(LINK_SET, 0, "get_character_info", NULL_KEY);
+                notify("Querying character information...");
+            } else {
+                // Use atomic field gets instead of fetching full document (prevents truncation)
+                // Send all field requests in parallel (fastest approach)
+                llMessageLinked(LINK_SET, 0, "getStats", "");
+                llMessageLinked(LINK_SET, 0, "getHealth", "");
+                llMessageLinked(LINK_SET, 0, "getStamina", "");
+                llMessageLinked(LINK_SET, 0, "getMana", "");
+                llMessageLinked(LINK_SET, 0, "getXP", "");
+                llMessageLinked(LINK_SET, 0, "getClass", "");
+                llMessageLinked(LINK_SET, 0, "getSpecies", "");
+                llMessageLinked(LINK_SET, 0, "getHasMana", "");
+                llMessageLinked(LINK_SET, 0, "getSpeciesFactors", "");
+                llMessageLinked(LINK_SET, 0, "getGender", "");
+                llMessageLinked(LINK_SET, 0, "getCurrency", "");
+                llMessageLinked(LINK_SET, 0, "getMode", "");
+                llMessageLinked(LINK_SET, 0, "getUniverseId", "");
+                notify("Synchronizing character data with server...");
+            }
+        }
+    }
+    
     link_message(integer sender_num, integer num, string msg, key id) {
         // Character data loaded from Firestore
         if (msg == "character loaded from firestore") {
             debugLog("Character data received from Firestore, loading...");
+            
+            // Check universe_id to enforce one character → one universe rule
+            string universeId = llLinksetDataRead("universe_id");
+            if (universeId != "" && universeId != HUD_UNIVERSE_ID) {
+                notify("Warning: This character belongs to universe '" + universeId +
+                       "' but this HUD is for universe '" + HUD_UNIVERSE_ID + "'.");
+            }
             
             // Load species factors and has_mana from LSD (set by Data Manager)
             string healthFactorStr = llLinksetDataRead("health_factor");
@@ -196,6 +297,16 @@ default {
             llMessageLinked(LINK_SET, 0, "load health", "");
             llMessageLinked(LINK_SET, 0, "load stamina", "");
             llMessageLinked(LINK_SET, 0, "load mana", "");
+            
+            // Check if Setup HUD was auto-shown and should be hidden after character creation
+            string autoHide = llLinksetDataRead("auto_hide_setup");
+            if (autoHide == "TRUE") {
+                llLinksetDataDelete("auto_hide_setup");
+                llSleep(2.0);  // Wait for data to be fully saved
+                // Route hide command to HUD_MOAP
+                llMessageLinked(LINK_SET, 2001, "HIDE_SETUP_HUD", "");
+                debugLog("Character created! Switching to Players HUD...");
+            }
         }
         // Stats loaded from Data Manager
         else if (msg == "stats loaded") {
