@@ -4821,14 +4821,14 @@ window.onSpeciesSelected = async function(speciesId) {
             manaAmount = (wisdom + intelligence) * manaFactor;
         }
         
-        // Show confirmation dialog
+        // Show confirmation dialog with clear messaging
         const manaMessage = hasMana 
-            ? `✨ <strong>You have MANA!</strong><br>Your character will have <strong>${manaAmount} mana points</strong> based on your Wisdom and Intelligence stats.`
-            : `❌ <strong>No Mana</strong><br>Your character will not have mana abilities.`;
+            ? `✨ <strong>Your character has access to arcane energy known as mana!</strong><br><br>Your character will have <strong>${manaAmount} mana points</strong> based on your Wisdom and Intelligence stats.<br><br><strong>You will be able to select arcane-related classes.</strong>`
+            : `❌ <strong>Your character does not have access to arcane energy known as mana.</strong><br><br>Your character will not have mana abilities.<br><br><strong>You will not be able to select arcane-related classes.</strong>`;
         
         const manaChance = species.mana_chance || 0;
         const chanceText = universeManaEnabled && manaChance > 0 && manaChance < 100
-            ? `<br><small style="color: var(--text-muted);">This species has a ${manaChance}% chance to develop mana.</small>`
+            ? `<br><br><small style="color: var(--text-muted); font-style: italic;">This species has a ${manaChance}% chance to develop mana.</small>`
             : '';
         
         UI.showModal(`
