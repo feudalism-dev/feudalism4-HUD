@@ -380,8 +380,8 @@ const UI = {
             if (typeof window.onSpeciesSelected === 'function') {
                 window.onSpeciesSelected(species.id);
             }
-            this.hideModal();
-            this.showToast(`Selected: ${species.name}`, 'success', 2000);
+            // Don't hide modal or show toast here - onSpeciesSelected will handle it
+            // (It may show a mana confirmation dialog instead)
         });
         
         // Bind cancel button

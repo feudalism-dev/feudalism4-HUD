@@ -457,7 +457,10 @@ const API = {
                 // Resource pools (object structure: {current, base, max})
                 health: charData.health || { current: 100, base: 100, max: 100 },
                 stamina: charData.stamina || { current: 100, base: 100, max: 100 },
-                mana: charData.mana || { current: 50, base: 50, max: 50 },
+                // Mana: use provided value (calculated in app.js based on has_mana and stats)
+                // If has_mana is true, mana should be calculated from stats
+                // If has_mana is false, mana should be { current: 0, base: 0, max: 0 }
+                mana: charData.mana !== undefined ? charData.mana : (charData.has_mana ? { current: 50, base: 50, max: 50 } : { current: 0, base: 0, max: 0 }),
                 has_mana: charData.has_mana !== undefined ? charData.has_mana : false,
                 
                 // Action slots for readied items/spells/buffs

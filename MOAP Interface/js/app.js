@@ -1702,6 +1702,18 @@ try {
                 const species = this.state.species.find(s => s.id === char.species_id);
                 const hasMana = universe.manaEnabled && species && App.rollManaChance(species);
                 
+                // Calculate mana based on stats if has_mana is true
+                // Use character stats if available, otherwise use default stats (all 2s)
+                const stats = char.stats || this.getDefaultStats();
+                let manaPool = { current: 0, base: 0, max: 0 };
+                if (hasMana && species) {
+                    const manaFactor = species.mana_factor || 25;
+                    const wisdom = stats.wisdom || 2;
+                    const intelligence = stats.intelligence || 2;
+                    const baseMana = (wisdom + intelligence) * manaFactor;
+                    manaPool = { current: baseMana, base: baseMana, max: baseMana };
+                }
+                
                 // Create new character
                 console.log('[saveCharacter] Creating new character with data:', {
                     name: char.name,
@@ -1710,7 +1722,8 @@ try {
                     species_id: char.species_id,
                     class_id: char.class_id,
                     universe_id: this.state.selectedUniverseId,
-                    has_mana: hasMana
+                    has_mana: hasMana,
+                    mana: manaPool
                 });
                 
                 const result = await API.createCharacter({
@@ -1720,7 +1733,9 @@ try {
                     species_id: char.species_id,
                     class_id: char.class_id,
                     universe_id: this.state.selectedUniverseId,
-                    has_mana: hasMana
+                    has_mana: hasMana,
+                    mana: manaPool,
+                    stats: char.stats
                 });
                 
                 console.log('[saveCharacter] createCharacter result:', result);
@@ -4779,11 +4794,119 @@ window.onSpeciesSelected = async function(speciesId) {
     if (!App.state.character) return;
     
     const previousSpeciesId = App.state.character.species_id;
-    App.state.character.species_id = speciesId;
-    App.state.pendingChanges.species_id = speciesId;
     
     // Get species data
     const species = App.state.species.find(s => s.id === speciesId);
+    if (!species) return;
+    
+    // For new characters, check mana and show confirmation dialog
+    if (App.state.isNewCharacter) {
+        // Get universe to check if mana is enabled
+        const universe = App.state.currentUniverse;
+        const universeManaEnabled = universe?.manaEnabled || false;
+        
+        // Roll for mana if universe allows it
+        let hasMana = false;
+        if (universeManaEnabled && species) {
+            hasMana = App.rollManaChance(species);
+        }
+        
+        // Calculate mana amount if they have mana
+        let manaAmount = 0;
+        if (hasMana) {
+            const stats = App.state.character.stats || App.getDefaultStats();
+            const manaFactor = species.mana_factor || 25;
+            const wisdom = stats.wisdom || 2;
+            const intelligence = stats.intelligence || 2;
+            manaAmount = (wisdom + intelligence) * manaFactor;
+        }
+        
+        // Show confirmation dialog
+        const manaMessage = hasMana 
+            ? `✨ <strong>You have MANA!</strong><br>Your character will have <strong>${manaAmount} mana points</strong> based on your Wisdom and Intelligence stats.`
+            : `❌ <strong>No Mana</strong><br>Your character will not have mana abilities.`;
+        
+        const manaChance = species.mana_chance || 0;
+        const chanceText = universeManaEnabled && manaChance > 0 && manaChance < 100
+            ? `<br><small style="color: var(--text-muted);">This species has a ${manaChance}% chance to develop mana.</small>`
+            : '';
+        
+        UI.showModal(`
+            <div class="modal-content">
+                <h2 class="modal-title">Species Selected: ${species.name}</h2>
+                <div class="modal-text" style="text-align: center; padding: var(--space-md);">
+                    ${manaMessage}${chanceText}
+                </div>
+                <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: center; margin-top: var(--space-lg);">
+                    <button class="btn-secondary" id="btn-try-again-species">Try Again</button>
+                    <button class="btn-primary" id="btn-accept-species">Accept</button>
+                </div>
+            </div>
+        `);
+        
+        // Store the mana result temporarily
+        App.state.pendingManaResult = { hasMana, manaAmount, speciesId };
+        
+        // Bind accept button
+        document.getElementById('btn-accept-species')?.addEventListener('click', () => {
+            // Accept the species and mana result
+            App.state.character.species_id = speciesId;
+            App.state.character.has_mana = hasMana;
+            if (hasMana) {
+                App.state.character.mana = { current: manaAmount, base: manaAmount, max: manaAmount };
+            } else {
+                App.state.character.mana = { current: 0, base: 0, max: 0 };
+            }
+            
+            // Store species factors for LSL
+            App.state.character.species_factors = {
+                health_factor: species.health_factor || 25,
+                stamina_factor: species.stamina_factor || 25,
+                mana_factor: species.mana_factor || 25
+            };
+            
+            App.state.pendingChanges.species_id = speciesId;
+            App.state.pendingChanges.has_mana = hasMana;
+            App.state.pendingChanges.mana = App.state.character.mana;
+            App.state.pendingChanges.species_factors = App.state.character.species_factors;
+            
+            // Clear pending mana result
+            App.state.pendingManaResult = null;
+            
+            UI.hideModal();
+            UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
+            
+            // Apply species base stats if available
+            if (species?.base_stats && speciesId !== previousSpeciesId) {
+                const defaultStats = App.getDefaultStats();
+                const speciesStats = species.base_stats || {};
+                const mergedStats = { ...defaultStats };
+                Object.keys(speciesStats).forEach(stat => {
+                    mergedStats[stat] = speciesStats[stat];
+                });
+                App.state.character.stats = mergedStats;
+                App.state.pendingChanges.stats = mergedStats;
+                UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+            }
+            
+            // Re-render to update UI
+            App.renderAll();
+        });
+        
+        // Bind try again button
+        document.getElementById('btn-try-again-species')?.addEventListener('click', () => {
+            // Clear pending mana result
+            App.state.pendingManaResult = null;
+            UI.hideModal();
+            // User can select a different species
+        });
+        
+        return; // Don't proceed with normal selection flow
+    }
+    
+    // For existing characters, proceed normally
+    App.state.character.species_id = speciesId;
+    App.state.pendingChanges.species_id = speciesId;
     
     // Only reset stats to species base when species CHANGES on a new character
     if (App.state.isNewCharacter && species?.base_stats && speciesId !== previousSpeciesId) {
@@ -4803,24 +4926,14 @@ window.onSpeciesSelected = async function(speciesId) {
         UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
     }
     
-    // Update species factors and roll mana for new characters
-    if (App.state.isNewCharacter && species) {
+    // Update species factors for new characters (mana is handled in confirmation dialog above)
+    if (App.state.isNewCharacter && species && !App.state.pendingManaResult) {
         // Store species factors for LSL
         App.state.character.species_factors = {
             health_factor: species.health_factor || 25,
             stamina_factor: species.stamina_factor || 25,
             mana_factor: species.mana_factor || 25
         };
-        
-        // Roll for mana based on species chance (only for new characters and if universe allows mana)
-        // Get universe to check manaEnabled
-        let universeManaEnabled = true;
-        if (App.state.isNewCharacter && App.state.selectedUniverseId) {
-            const universeResult = await API.getUniverse(App.state.selectedUniverseId);
-            if (universeResult.success) {
-                universeManaEnabled = universeResult.data.universe.manaEnabled !== false;
-            }
-        }
         
         const hasMana = universeManaEnabled && App.rollManaChance(species);
         App.state.character.has_mana = hasMana;
