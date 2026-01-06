@@ -1214,6 +1214,20 @@ const UI = {
             }
         }
         
+        // Get resource pool values
+        const health = character.health || {};
+        const stamina = character.stamina || {};
+        const mana = character.mana || {};
+        const healthCurrent = health.current !== undefined ? health.current : (health.base !== undefined ? health.base : 0);
+        const healthMax = health.max !== undefined ? health.max : (health.base !== undefined ? health.base : 0);
+        const staminaCurrent = stamina.current !== undefined ? stamina.current : (stamina.base !== undefined ? stamina.base : 0);
+        const staminaMax = stamina.max !== undefined ? stamina.max : (stamina.base !== undefined ? stamina.base : 0);
+        const manaCurrent = mana.current !== undefined ? mana.current : (mana.base !== undefined ? mana.base : 0);
+        const manaMax = mana.max !== undefined ? mana.max : (mana.base !== undefined ? mana.base : 0);
+        
+        // Determine mana status - check has_mana field, or infer from mana value
+        const hasMana = character.has_mana === true || (character.has_mana === undefined && manaMax > 0);
+        
         this.elements.charSummary.innerHTML = `
             <div class="summary-grid">
                 <div class="summary-item">
@@ -1238,16 +1252,26 @@ const UI = {
                     <span class="summary-label">Career:</span>
                     <span class="summary-value">${classTemplate?.name || 'None'}</span>
                 </div>
-                ${character.has_mana !== undefined ? `
-                <div class="summary-item" style="background: ${character.has_mana ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; padding: var(--space-sm); border-radius: 4px; border: 1px solid ${character.has_mana ? 'rgba(59, 130, 246, 0.3)' : 'rgba(239, 68, 68, 0.3)'};">
-                    <span class="summary-label">${character.has_mana ? '✨' : '❌'} Arcane Energy:</span>
-                    <span class="summary-value" style="font-weight: bold; color: ${character.has_mana ? '#3b82f6' : '#ef4444'};">
-                        ${character.has_mana 
-                            ? `Available${character.mana?.base ? ` (${character.mana.base} mana)` : ''} - You can select arcane-related classes`
+                <div class="summary-item" style="background: rgba(239, 68, 68, 0.1); padding: var(--space-sm); border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3);">
+                    <span class="summary-label">❤️ Health:</span>
+                    <span class="summary-value" style="font-weight: bold; color: #ef4444;">
+                        ${healthCurrent}${healthMax > 0 ? ` / ${healthMax}` : ''}
+                    </span>
+                </div>
+                <div class="summary-item" style="background: rgba(234, 179, 8, 0.1); padding: var(--space-sm); border-radius: 4px; border: 1px solid rgba(234, 179, 8, 0.3);">
+                    <span class="summary-label">⚡ Stamina:</span>
+                    <span class="summary-value" style="font-weight: bold; color: #eab308;">
+                        ${staminaCurrent}${staminaMax > 0 ? ` / ${staminaMax}` : ''}
+                    </span>
+                </div>
+                <div class="summary-item" style="background: ${hasMana ? 'rgba(59, 130, 246, 0.1)' : 'rgba(107, 114, 128, 0.1)'}; padding: var(--space-sm); border-radius: 4px; border: 1px solid ${hasMana ? 'rgba(59, 130, 246, 0.3)' : 'rgba(107, 114, 128, 0.3)'};">
+                    <span class="summary-label">${hasMana ? '✨' : '❌'} Arcane Energy:</span>
+                    <span class="summary-value" style="font-weight: bold; color: ${hasMana ? '#3b82f6' : '#6b7280'};">
+                        ${hasMana 
+                            ? `Available${manaMax > 0 ? ` (${manaCurrent} / ${manaMax} mana)` : ''} - You can select arcane-related classes`
                             : 'Not Available - You cannot select arcane-related classes'}
                     </span>
                 </div>
-                ` : ''}
                 <div class="summary-item">
                     <span class="summary-label">Points:</span>
                     <span class="summary-value">${typeof window.calculateAvailablePoints === 'function' ? window.calculateAvailablePoints(character) : 0} available</span>
