@@ -1238,6 +1238,16 @@ const UI = {
                     <span class="summary-label">Career:</span>
                     <span class="summary-value">${classTemplate?.name || 'None'}</span>
                 </div>
+                ${character.has_mana !== undefined ? `
+                <div class="summary-item" style="background: ${character.has_mana ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; padding: var(--space-sm); border-radius: 4px; border: 1px solid ${character.has_mana ? 'rgba(59, 130, 246, 0.3)' : 'rgba(239, 68, 68, 0.3)'};">
+                    <span class="summary-label">${character.has_mana ? '✨' : '❌'} Arcane Energy:</span>
+                    <span class="summary-value" style="font-weight: bold; color: ${character.has_mana ? '#3b82f6' : '#ef4444'};">
+                        ${character.has_mana 
+                            ? `Available${character.mana?.base ? ` (${character.mana.base} mana)` : ''} - You can select arcane-related classes`
+                            : 'Not Available - You cannot select arcane-related classes'}
+                    </span>
+                </div>
+                ` : ''}
                 <div class="summary-item">
                     <span class="summary-label">Points:</span>
                     <span class="summary-value">${typeof window.calculateAvailablePoints === 'function' ? window.calculateAvailablePoints(character) : 0} available</span>
