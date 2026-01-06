@@ -70,6 +70,8 @@ const API = {
     async syncUser() {
         if (!this.uuid) return;
         
+        // IMPORTANT: UUID is the unique identifier - used as the Firestore document ID
+        // Display name is ONLY for UI display purposes, never used for identification
         const userRef = db.collection('users').doc(this.uuid);
         const userDoc = await userRef.get();
         
@@ -91,6 +93,11 @@ const API = {
             }
             
             this.role = this.user.role || 'player';
+            
+            // Update displayName from user document if available (UI display only, not used for identification)
+            if (this.user.display_name) {
+                this.displayName = this.user.display_name;
+            }
             
             // Update last login and refresh name from LSL
             await userRef.update({
@@ -116,6 +123,7 @@ const API = {
             await userRef.set(newUser);
             this.user = newUser;
             this.role = isSuperAdmin ? 'sys_admin' : 'player';
+            // For new users, displayName is already set from URL params or default
         }
         
         console.log('User synced:', this.role, '- Display:', this.displayName, isSuperAdmin ? '(Super Admin)' : '');
@@ -235,7 +243,133 @@ const API = {
     // =========================== CHARACTER CRUD =============================
     
     /**
-     * Get character for current user
+     * List all characters for current user
+     */
+    async listCharacters() {
+        if (!this.uuid) {
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            // SECURITY: Always filter by owner_uuid to ensure users can only access their own characters
+            // Try with orderBy first, but fallback to simple query if index doesn't exist
+            let snapshot;
+            let usedOrderBy = false;
+            
+            try {
+                snapshot = await db.collection('characters')
+                    .where('owner_uuid', '==', this.uuid)
+                    .orderBy('created_at', 'desc')
+                    .get();
+                usedOrderBy = true;
+                console.log('[listCharacters] Query with orderBy succeeded');
+            } catch (orderByError) {
+                // If orderBy fails (likely missing index), try without it
+                // Check error code or message for index-related errors
+                const errorMessage = orderByError.message || String(orderByError);
+                const isIndexError = orderByError.code === 'failed-precondition' || 
+                                    errorMessage.includes('index') || 
+                                    errorMessage.includes('Index') ||
+                                    errorMessage.includes('requires an index');
+                
+                if (isIndexError) {
+                    console.warn('[listCharacters] orderBy failed (missing index), trying without orderBy. Error:', errorMessage);
+                    try {
+                        snapshot = await db.collection('characters')
+                            .where('owner_uuid', '==', this.uuid)
+                            .get();
+                        usedOrderBy = false;
+                        console.log('[listCharacters] Fallback query without orderBy succeeded');
+                    } catch (fallbackError) {
+                        console.error('[listCharacters] Fallback query also failed:', fallbackError);
+                        throw fallbackError;
+                    }
+                } else {
+                    // Some other error, re-throw it
+                    console.error('[listCharacters] orderBy failed with non-index error:', orderByError);
+                    throw orderByError;
+                }
+            }
+            
+            const characters = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // SECURITY: Double-check ownership
+                if (data.owner_uuid === this.uuid) {
+                    characters.push({ id: doc.id, ...data });
+                }
+            });
+            
+            // Sort manually if we didn't use orderBy
+            if (!usedOrderBy && characters.length > 1) {
+                characters.sort((a, b) => {
+                    // Handle Firestore Timestamp objects
+                    let aTime = 0;
+                    let bTime = 0;
+                    
+                    if (a.created_at) {
+                        if (a.created_at.toMillis) {
+                            aTime = a.created_at.toMillis();
+                        } else if (a.created_at.seconds) {
+                            aTime = a.created_at.seconds * 1000;
+                        } else if (typeof a.created_at === 'number') {
+                            aTime = a.created_at;
+                        }
+                    }
+                    
+                    if (b.created_at) {
+                        if (b.created_at.toMillis) {
+                            bTime = b.created_at.toMillis();
+                        } else if (b.created_at.seconds) {
+                            bTime = b.created_at.seconds * 1000;
+                        } else if (typeof b.created_at === 'number') {
+                            bTime = b.created_at;
+                        }
+                    }
+                    
+                    return bTime - aTime; // Descending order (newest first)
+                });
+            }
+            
+            console.log(`[listCharacters] Found ${characters.length} character(s) for UUID: ${this.uuid}`);
+            return { success: true, data: { characters } };
+        } catch (error) {
+            console.error('[listCharacters] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get character by ID for current user
+     */
+    async getCharacterById(characterId) {
+        if (!this.uuid) {
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        try {
+            const doc = await db.collection('characters').doc(characterId).get();
+            
+            if (!doc.exists) {
+                return { success: false, error: 'Character not found' };
+            }
+            
+            const character = { id: doc.id, ...doc.data() };
+            
+            // SECURITY: Verify ownership
+            if (character.owner_uuid !== this.uuid) {
+                return { success: false, error: 'Access denied: Character ownership mismatch' };
+            }
+            
+            return { success: true, data: { character } };
+        } catch (error) {
+            console.error('getCharacterById error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get character for current user (first character, for backward compatibility)
      */
     async getCharacter() {
         if (!this.uuid) {
@@ -323,7 +457,10 @@ const API = {
                 // Resource pools (object structure: {current, base, max})
                 health: charData.health || { current: 100, base: 100, max: 100 },
                 stamina: charData.stamina || { current: 100, base: 100, max: 100 },
-                mana: charData.mana || { current: 50, base: 50, max: 50 },
+                // Mana: use provided value (calculated in app.js based on has_mana and stats)
+                // If has_mana is true, mana should be calculated from stats
+                // If has_mana is false, mana should be { current: 0, base: 0, max: 0 }
+                mana: charData.mana !== undefined ? charData.mana : (charData.has_mana ? { current: 50, base: 50, max: 50 } : { current: 0, base: 0, max: 0 }),
                 has_mana: charData.has_mana !== undefined ? charData.has_mana : false,
                 
                 // Action slots for readied items/spells/buffs
@@ -354,10 +491,14 @@ const API = {
             
             const docRef = await db.collection('characters').add(character);
             
+            // Fetch the created document to get actual server timestamp values
+            const createdDoc = await docRef.get();
+            const createdCharacter = { id: createdDoc.id, ...createdDoc.data() };
+            
             return { 
                 success: true, 
                 data: { 
-                    character: { id: docRef.id, ...character },
+                    character: createdCharacter,
                     message: 'Character created!' 
                 } 
             };
@@ -432,10 +573,14 @@ const API = {
             
             await doc.ref.update(updateData);
             
+            // Fetch the updated document to get actual server timestamp values
+            const updatedDoc = await doc.ref.get();
+            const updatedCharacter = { id: updatedDoc.id, ...updatedDoc.data() };
+            
             return { 
                 success: true, 
                 data: { 
-                    character: { id: doc.id, ...doc.data(), ...updateData },
+                    character: updatedCharacter,
                     message: 'Character saved!' 
                 } 
             };
@@ -2101,121 +2246,376 @@ const API = {
     // =========================== INVENTORY API (READ-ONLY) =====================
     // Note: Inventory modifications are done via LSL → Firestore REST API
     // JS functions here are read-only for display in Setup HUD
+    // v2: Inventory is now stored in subcollection: characters/{characterId}/inventory/{itemId}
     
     /**
-     * Get full inventory as {itemName: quantity} map
-     * Returns empty object if inventory doesn't exist
+     * Get inventory page from subcollection (v2: paginated)
+     * @param {string} characterId - The character document ID
+     * @param {string} cursor - Last itemId from previous page (empty string for first page)
+     * @param {number} pageSize - Number of items per page (default: 50, max: 100)
+     * @returns {Promise<{success: boolean, data?: {items: Array, cursor: string, hasMore: boolean}, error?: string}>}
      */
-    async getInventory() {
+    /**
+     * Get inventory from character subcollection (Inventory v2)
+     * Returns array of { id, qty } objects
+     * @param {string} characterId - The character document ID
+     */
+    async getInventory(characterId) {
+        console.log('[getInventory] Fetching Inventory v2 for character:', characterId);
+
+        const url = `https://firestore.googleapis.com/v1/projects/feudalism4-rpg/databases/(default)/documents/characters/${characterId}/inventory`;
+        const response = await fetch(url);
+        const json = await response.json();
+
+        const items = [];
+        if (json.documents) {
+            for (const doc of json.documents) {
+                const id = doc.name.split('/').pop();
+                const qty = parseInt(doc.fields?.qty?.integerValue || "0", 10);
+                items.push({ id, qty });
+            }
+        }
+
+        console.log('[getInventory] Inventory items:', items.length);
+        return items;
+    },
+
+    /**
+     * Get paginated inventory (Inventory v2)
+     * @param {string} characterId
+     * @param {number} page - 1-based page number
+     * @param {number} pageSize
+     * @returns {Promise<{ items: Array<{id, qty}>, page: number, totalPages: number }>}
+     */
+    async getInventoryPage(characterId, page = 1, pageSize = 50) {
+        console.log('[getInventoryPage] Fetching Inventory v2 page', page, 'for character:', characterId);
+
+        // Simple implementation: use the same subcollection fetch and slice locally
+        const allItems = await this.getInventory(characterId);
+
+        const start = (page - 1) * pageSize;
+        const end = start + pageSize;
+        const items = allItems.slice(start, end);
+
+        const totalPages = Math.max(1, Math.ceil(allItems.length / pageSize));
+
+        console.log('[getInventoryPage] Items:', items.length, 'Page:', page, 'TotalPages:', totalPages);
+        return { items, page, totalPages };
+    },    
+    /**
+     * Get quantity of a specific item (v2: queries subcollection document directly)
+     * @param {string} characterId - The character document ID
+     * @param {string} name - Item name (will be normalized to lowercase)
+     */
+    async getItemQuantity(characterId, name) {
         if (!this.uuid) {
-            console.error('[getInventory] No UUID - access denied');
+            console.error('[getItemQuantity] No UUID - access denied');
             return { success: false, error: 'No UUID - access denied' };
         }
         
-        try {
-            console.log('[getInventory] Reading from users collection, UUID:', this.uuid);
-            const userDoc = await db.collection('users').doc(this.uuid).get();
-            
-            if (!userDoc.exists) {
-                console.log('[getInventory] User document does not exist');
-                return { success: true, data: { inventory: {} } };
-            }
-            
-            const userData = userDoc.data();
-            console.log('[getInventory] User data keys:', Object.keys(userData || {}));
-            console.log('[getInventory] User data:', userData);
-            console.log('[getInventory] Inventory field:', userData?.inventory);
-            console.log('[getInventory] Inventory field type:', typeof userData?.inventory);
-            
-            // Get inventory - Firebase JS SDK automatically converts mapValue to plain object
-            let inventory = userData?.inventory || {};
-            
-            // Safety check: if inventory is null/undefined, use empty object
-            if (!inventory || typeof inventory !== 'object') {
-                console.warn('[getInventory] Inventory is not an object, using empty object');
-                inventory = {};
-            }
-            
-            // If inventory is an array (shouldn't happen), convert to object
-            if (Array.isArray(inventory)) {
-                console.warn('[getInventory] Inventory is an array, converting to object');
-                inventory = {};
-            }
-            
-            console.log('[getInventory] Final inventory:', inventory);
-            console.log('[getInventory] Inventory keys:', Object.keys(inventory));
-            console.log('[getInventory] Inventory entries:', Object.entries(inventory));
-            console.log('[getInventory] Inventory banana value:', inventory.banana);
-            
-            return { success: true, data: { inventory } };
-        } catch (error) {
-            console.error('getInventory error:', error);
-            return { success: false, error: error.message };
+        if (!characterId) {
+            console.error('[getItemQuantity] No characterId provided');
+            return { success: false, error: 'No characterId provided' };
         }
-    },
-    
-    /**
-     * Get quantity of a specific item
-     * @param {string} name - Item name (will be normalized to lowercase)
-     */
-    async getItemQuantity(name) {
+        
         if (!name || typeof name !== 'string') {
             return { success: false, error: 'Invalid item name' };
         }
         
         const normalizedName = name.toLowerCase().trim();
-        const inventoryResult = await this.getInventory();
         
-        if (!inventoryResult.success) {
-            return inventoryResult;
+        try {
+            // Query specific document: characters/{characterId}/inventory/{itemName}
+            const doc = await db.collection('characters').doc(characterId)
+                .collection('inventory').doc(normalizedName).get();
+            
+            if (!doc.exists) {
+                return { success: true, data: { quantity: 0 } };
+            }
+            
+            const data = doc.data();
+            const quantity = data.qty || 0;
+            
+            return { success: true, data: { quantity } };
+        } catch (error) {
+            console.error('[getItemQuantity] Error:', error);
+            return { success: false, error: error.message };
         }
-        
-        const quantity = inventoryResult.data.inventory[normalizedName] || 0;
-        return { success: true, data: { quantity } };
     },
     
     /**
-     * Check if required items are available
+     * Check if required items are available (v2: uses batch queries on subcollection)
+     * @param {string} characterId - The character document ID
      * @param {Array<{name: string, qty: number}>} items - Array of {name, qty} objects
      * @returns {Promise<{success: boolean, data?: {allAvailable: boolean, missing?: Array}, error?: string}>}
      */
-    async checkItems(items) {
+    async checkItems(characterId, items) {
+        if (!this.uuid) {
+            console.error('[checkItems] No UUID - access denied');
+            return { success: false, error: 'No UUID - access denied' };
+        }
+        
+        if (!characterId) {
+            console.error('[checkItems] No characterId provided');
+            return { success: false, error: 'No characterId provided' };
+        }
+        
         if (!Array.isArray(items)) {
             return { success: false, error: 'Items must be an array' };
         }
         
-        const inventoryResult = await this.getInventory();
-        if (!inventoryResult.success) {
-            return inventoryResult;
+        try {
+            // Build batch of document reads
+            const inventoryRef = db.collection('characters').doc(characterId).collection('inventory');
+            const reads = items.map(item => {
+                if (!item.name || typeof item.qty !== 'number') {
+                    return null;
+                }
+                const normalizedName = item.name.toLowerCase().trim();
+                return inventoryRef.doc(normalizedName).get();
+            }).filter(read => read !== null);
+            
+            // Execute all reads in parallel
+            const docs = await Promise.all(reads);
+            
+            const missing = [];
+            items.forEach((item, index) => {
+                if (!item.name || typeof item.qty !== 'number') {
+                    return;
+                }
+                
+                const normalizedName = item.name.toLowerCase().trim();
+                const doc = docs[index];
+                
+                let available = 0;
+                if (doc && doc.exists) {
+                    const data = doc.data();
+                    available = data.qty || 0;
+                }
+                
+                if (available < item.qty) {
+                    missing.push({
+                        name: normalizedName,
+                        required: item.qty,
+                        available: available
+                    });
+                }
+            });
+            
+            return {
+                success: true,
+                data: {
+                    allAvailable: missing.length === 0,
+                    missing: missing.length > 0 ? missing : undefined
+                }
+            };
+        } catch (error) {
+            console.error('[checkItems] Error:', error);
+            return { success: false, error: error.message };
         }
-        
-        const inventory = inventoryResult.data.inventory;
-        const missing = [];
-        
-        for (const item of items) {
-            if (!item.name || typeof item.qty !== 'number') {
-                return { success: false, error: 'Invalid item format - must have name (string) and qty (number)' };
-            }
+    },
+    
+    // =========================== CONSUMABLES API ===========================
+    
+    /**
+     * Get all consumables from master registry
+     */
+    async getConsumables() {
+        try {
+            // Path: feud4/consumables/master (feud4 is doc, consumables is subcollection, master is doc with consumables as subcollection)
+            // Actually: feud4/consumables/master/{slug} - feud4 is collection, consumables is doc, master is subcollection
+            const snapshot = await db.collection('feud4').doc('consumables')
+                .collection('master').get();
             
-            const normalizedName = item.name.toLowerCase().trim();
-            const available = inventory[normalizedName] || 0;
-            
-            if (available < item.qty) {
-                missing.push({
-                    name: normalizedName,
-                    required: item.qty,
-                    available: available
+            const consumables = [];
+            snapshot.forEach(doc => {
+                consumables.push({
+                    id: doc.id,
+                    ...doc.data()
                 });
+            });
+            
+            return { success: true, data: { consumables } };
+        } catch (error) {
+            console.error('[getConsumables] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Create a new consumable
+     */
+    async createConsumable(consumableData) {
+        try {
+            const slug = consumableData.slug || consumableData.name.toLowerCase().replace(/\s+/g, '_');
+            
+            const consumable = {
+                name: consumableData.name,
+                description: consumableData.description || '',
+                icon: consumableData.icon || '',
+                duration_seconds: consumableData.duration_seconds || 0,
+                effect_type: consumableData.effect_type || 'heal',
+                effect_value: consumableData.effect_value || 0,
+                stackable: consumableData.stackable || false,
+                max_stack: consumableData.stackable ? (consumableData.max_stack || 1) : 1,
+                rp_only: consumableData.rp_only || false,
+                disabled: consumableData.disabled || false
+            };
+            
+            await db.collection('feud4').doc('consumables')
+                .collection('master').doc(slug).set(consumable);
+            
+            return { success: true, data: { id: slug, ...consumable } };
+        } catch (error) {
+            console.error('[createConsumable] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Update an existing consumable
+     */
+    async updateConsumable(slug, consumableData) {
+        try {
+            const updateData = {};
+            
+            if (consumableData.name !== undefined) updateData.name = consumableData.name;
+            if (consumableData.description !== undefined) updateData.description = consumableData.description;
+            if (consumableData.icon !== undefined) updateData.icon = consumableData.icon;
+            if (consumableData.duration_seconds !== undefined) updateData.duration_seconds = consumableData.duration_seconds;
+            if (consumableData.effect_type !== undefined) updateData.effect_type = consumableData.effect_type;
+            if (consumableData.effect_value !== undefined) updateData.effect_value = consumableData.effect_value;
+            if (consumableData.stackable !== undefined) {
+                updateData.stackable = consumableData.stackable;
+                // If stackable is false, force max_stack to 1
+                if (!consumableData.stackable) {
+                    updateData.max_stack = 1;
+                } else if (consumableData.max_stack !== undefined) {
+                    updateData.max_stack = consumableData.max_stack;
+                }
+            } else if (consumableData.max_stack !== undefined) {
+                updateData.max_stack = consumableData.max_stack;
             }
+            if (consumableData.rp_only !== undefined) updateData.rp_only = consumableData.rp_only;
+            if (consumableData.disabled !== undefined) updateData.disabled = consumableData.disabled;
+            
+            await db.collection('feud4').doc('consumables')
+                .collection('master').doc(slug).update(updateData);
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[updateConsumable] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Delete a consumable
+     */
+    async deleteConsumable(slug) {
+        try {
+            await db.collection('feud4').doc('consumables')
+                .collection('master').doc(slug).delete();
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[deleteConsumable] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Request to consume an item (writes to consume_requests)
+     * Path: feud4/users/<uid>/consume_requests/<auto-id>
+     */
+    async requestConsumeItem(uid, itemId) {
+        try {
+            // Path: feud4/users/<uid>/consume_requests/<auto-id>
+            // Structure: feud4 (collection) -> users (doc) -> <uid> (subcollection) -> consume_requests (doc) -> requests (subcollection)
+            // Actually: feud4/users/<uid>/consume_requests - feud4 is collection, users is doc, <uid> is subcollection, consume_requests is doc, requests is subcollection
+            // Simplified: feud4/users/<uid>/consume_requests where feud4 is collection, users is doc, <uid> is subcollection
+            await db.collection('feud4').doc('users').collection(uid)
+                .doc('consume_requests').collection('requests').add({
+                    item_id: itemId,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            
+            return { success: true };
+        } catch (error) {
+            console.error('[requestConsumeItem] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Get active buffs for a character
+     * Path: characters/<characterId>/active_buffs
+     */
+    async getActiveBuffs(uid) {
+        try {
+            // Path: feud4/users/<uid>/active_buffs/<slug>
+            const snapshot = await db.collection('feud4').doc('users').collection(uid)
+                .doc('active_buffs').collection('buffs').get();
+            
+            const buffs = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const expiresAt = data.expires_at?.toDate();
+                const now = new Date();
+                
+                // Only include non-expired buffs
+                if (expiresAt && expiresAt > now) {
+                    buffs.push({
+                        id: doc.id,
+                        effect_type: data.effect_type,
+                        effect_value: data.effect_value,
+                        expires_at: expiresAt
+                    });
+                }
+            });
+            
+            return { success: true, data: { buffs } };
+        } catch (error) {
+            console.error('[getActiveBuffs] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Set up real-time listener for active buffs
+     * Returns unsubscribe function
+     */
+    subscribeToActiveBuffs(uid, callback) {
+        if (!uid) {
+            return () => {};
         }
         
-        return {
-            success: true,
-            data: {
-                allAvailable: missing.length === 0,
-                missing: missing.length > 0 ? missing : undefined
-            }
-        };
+        // Path: feud4/users/<uid>/active_buffs/<slug>
+        return db.collection('feud4').doc('users').collection(uid)
+            .doc('active_buffs').collection('buffs')
+            .onSnapshot((snapshot) => {
+                const buffs = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const expiresAt = data.expires_at?.toDate();
+                    const now = new Date();
+                    
+                    // Only include non-expired buffs
+                    if (expiresAt && expiresAt > now) {
+                        buffs.push({
+                            id: doc.id,
+                            effect_type: data.effect_type,
+                            effect_value: data.effect_value,
+                            expires_at: expiresAt
+                        });
+                    }
+                });
+                
+                callback({ success: true, data: { buffs } });
+            }, (error) => {
+                console.error('[subscribeToActiveBuffs] Error:', error);
+                callback({ success: false, error: error.message });
+            });
     }
 };
 
