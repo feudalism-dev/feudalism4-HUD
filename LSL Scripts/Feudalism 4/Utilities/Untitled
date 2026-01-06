@@ -1,0 +1,97 @@
+/* 
+    Feud4 – Stipend Loader (from Feud3 data)
+    ----------------------------------------
+    Uses the original Feud3 payByClass + classNames as the canonical stipend source.
+    Writes stipend = "gold|silver|copper" into each class document via Bridge.
+
+    Run once, verify in Firestore, then delete this script.
+*/
+
+integer BRIDGE_CHANNEL = -9001;   // Must match Bridge_Main MODULE_CHANNEL
+
+// Feud3 stipend data: <gold, silver, copper>
+list payByClass = [
+    <0,5,5>, <0,10,50>, <0,20,100>, <0,10,300>, <0,20,100>, <0,10,40>, <0,5,100>, <0,10,200>, <1,50,500>, <0,50,100>,
+    <1,5,100>, <0,20,30>, <0,50,100>, <0,25,100>, <1,5,100>, <0,0,40>, <0,2,40>, <1,5,100>, <0,20,100>, <0,50,100>,
+    <2,20,50>, <0,20,50>, <1,50,100>, <0,20,100>, <0,75,500>, <0,1,30>, <0,20,100>, <3,100,500>, <0,200,500>, <0,100,50>,
+    <0,10,50>, <0,40,80>, <0,50,500>, <1,100,200>, <1,100,200>, <1,100,200>, <0,5,100>, <0,100,200>, <1,10,100>, <0,2,50>,
+    <0,100,100>, <1,10,200>, <0,2,100>, <1,50,100>, <0,5,100>, <0,7,100>, <0,60,50>, <0,60,50>, <0,20,100>, <0,20,40>,
+    <0,10,100>, <1,100,200>, <0,30,100>, <0,50,100>, <0,100,250>, <0,40,100>, <10,200,500>, <20,100,500>, <1,100,200>, <5,200,500>,
+    <0,5,100>, <1,200,1000>, <0,30,100>, <0,2,100>, <0,1,50>, <1,100,200>, <50,200,500>, <0,1,50>, <0,50,100>, <20,200,500>,
+    <0,0,50>, <0,1,100>, <5,100,200>, <1,50,100>, <0,60,50>, <1,50,500>, <0,100,100>, <0,20,500>, <0,25,100>, <3,100,200>,
+    <100,200,500>, <0,10,100>, <0,5,100>, <0,20,200>, <0,10,100>, <0,10,100>, <0,2,100>, <0,3,50>, <1,500,200>, <0,200,200>,
+    <5,100,200>, <0,0,5>, <1,50,500>, <0,5,100>, <0,5,100>, <1,50,200>, <0,5,100>, <1,100,200>, <0,60,50>, <0,3,50>,
+    <4,100,200>, <0,40,100>, <1,100,200>, <0,50,100>, <0,2,100>, <2,100,200>, <0,50,1000>, <0,1,50>, <0,0,50>, <8,200,500>,
+    <0,10,50>, <1,200,500>, <0,5,100>, <0,5,100>, <1,50,50>, <0,20,50>, <0,1,50>, <0,10,50>, <1,100,200>, <1,100,200>,
+    <0,40,80>, <1,200,200>, <0,50,100>
+];
+
+// Canonical Feud3/Feud4 class names (single string, comma-separated)
+string classNamesCSV = "academic,adventurer,advisor,alchemist,apothecary,apprentice,archer,artillerist,artisan,artist,assassin,bailiff,bandit,barbarian,bard,beggar,boatman,bountyhunter,burgher,burglar,castellan,cavalry,censor,charlatan,cleric,coachman,conartist,courtesan,courtier,craftsman,cultist,cutpurse,druid,duelist,enchanter,engineer,entertainer,envoy,executioner,farmer,fence,footwizard,forager,forger,guard,healer,hedgeknight,hedgemage,herald,herbalist,herder,highwayman,hunter,interrogator,investigator,jailer,knight,lawyer,mage,marshal,mercenary,merchant,messenger,miner,monk,necromancer,noble,nun,outlaw,paladin,peasant,pedlar,physician,pirate,pitfighter,priest,raider,ranger,rogue,royalguard,royal,sage,sailor,scholar,scout,seer,sentinel,servant,shadowmage,shaman,sheriff,slave,smith,smuggler,soldier,sorcerer,spearman,spellmonger,spy,squire,steward,student,swordmaster,swornsword,tavernhelp,thaumaturge,thief,tribesman,villager,warden,warlock,warmage,warrior,watchman,whisperer,whore,wildling,witch,witchhunter,wizard,woodsman,yeoman,zealot";
+
+list classNames;   // parsed from CSV
+integer idx = 0;
+
+sendNext()
+{
+    integer classCount = llGetListLength(classNames);
+    integer stipendCount = llGetListLength(payByClass);
+
+    if (idx >= classCount || idx >= stipendCount)
+    {
+        llOwnerSay("✔ Stipend loader complete. Processed " + (string)idx + " classes. You can delete this script.");
+        llSetTimerEvent(0.0);
+        return;
+    }
+
+    string className = llList2String(classNames, idx);
+    vector stipendVec = llList2Vector(payByClass, idx);
+
+    integer gold   = (integer)stipendVec.x;
+    integer silver = (integer)stipendVec.y;
+    integer copper = (integer)stipendVec.z;
+
+    string goldStr   = (string)gold;
+    string silverStr = (string)silver;
+    string copperStr = (string)copper;
+
+    string stipendStr = goldStr + "|" + silverStr + "|" + copperStr;
+
+    // Bridge_Main expects:
+    // STIP|SET_CLASS_STIPEND|class|gold|silver|copper|senderLink
+    string msg = "STIP|SET_CLASS_STIPEND|" + className + "|" + goldStr + "|" + silverStr + "|" + copperStr;
+
+    llOwnerSay("→ Sending stipend for " + className + ": " + stipendStr);
+    llMessageLinked(LINK_SET, BRIDGE_CHANNEL, msg, (string)llGetLinkNumber());
+
+    idx++;
+    llSetTimerEvent(0.2); // throttle
+}
+
+default
+{
+    state_entry()
+    {
+        // Parse CSV into a proper list of class names
+        classNames = llParseString2List(classNamesCSV, [","], []);
+        integer classCount = llGetListLength(classNames);
+        integer stipendCount = llGetListLength(payByClass);
+
+        llOwnerSay("Feud4 Stipend Loader starting…");
+        llOwnerSay("Classes: " + (string)classCount + ", Stipend entries: " + (string)stipendCount);
+
+        if (classCount != stipendCount)
+        {
+            llOwnerSay("⚠ WARNING: classNames and payByClass length mismatch. Check data before trusting results.");
+        }
+
+        idx = 0;
+        sendNext();
+    }
+
+    timer()
+    {
+        llSetTimerEvent(0.0);
+        sendNext();
+    }
+}
