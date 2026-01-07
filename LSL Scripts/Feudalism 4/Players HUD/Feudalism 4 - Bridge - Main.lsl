@@ -20,6 +20,7 @@ integer CONSUMABLES_CHANNEL = -454547;   // example — replace with your real v
 integer CLASS_CHANNEL       = -454548;   // example — replace with your real value
 integer UNIVERSE_CHANNEL    = -454549;   // example — replace with your real value
 integer CHARACTER_CHANNEL   = -454550;   // example — replace with your real value
+integer MODULE_CHANNEL      = -777002;   // Channel used by Bridge Characters and Bridge Stipends
 
 // ====================== DEBUG ======================
 
@@ -67,6 +68,8 @@ string getDomainForCommand(string command) {
 
     if (llSubStringIndex(command, "GET_ACTIVE_CHARACTER") == 0 ||
         llSubStringIndex(command, "SET_ACTIVE_CHARACTER") == 0 ||
+        llSubStringIndex(command, "UPDATE_CURRENCY") == 0 ||
+        llSubStringIndex(command, "FORCE_STIPEND_PAYOUT") == 0 ||
         command == "fetchFullCharacterDocument") {
         return DOMAIN_CHAR;
     }
@@ -154,7 +157,10 @@ default {
 
         if (domain == DOMAIN_STIP) {
             debugLog("→ Stipends");
-            llMessageLinked(LINK_SET, STIPEND_CHANNEL, command, payload);
+            // Bridge Stipends expects MODULE_CHANNEL with format: DOMAIN|COMMAND|PAYLOAD
+            integer senderLink = sender_num;
+            string fullMessage = domain + "|" + command + "|" + payload;
+            llMessageLinked(LINK_SET, MODULE_CHANNEL, fullMessage, NULL_KEY);
             return;
         }
 
@@ -166,7 +172,10 @@ default {
 
         if (domain == DOMAIN_CLASS) {
             debugLog("→ Class");
-            llMessageLinked(LINK_SET, CLASS_CHANNEL, command, payload);
+            // CLASS commands are also routed to MODULE_CHANNEL (handled by Bridge Stipends or Bridge Characters)
+            integer senderLink = sender_num;
+            string fullMessage = domain + "|" + command + "|" + payload;
+            llMessageLinked(LINK_SET, MODULE_CHANNEL, fullMessage, NULL_KEY);
             return;
         }
 
@@ -178,7 +187,10 @@ default {
 
         // Default → Character module
         debugLog("→ Character");
-        llMessageLinked(LINK_SET, CHARACTER_CHANNEL, command, payload);
+        // Bridge Characters expects MODULE_CHANNEL with format: DOMAIN|COMMAND|PAYLOAD|SENDERLINK
+        integer senderLink = sender_num;
+        string fullMessage = domain + "|" + command + "|" + payload + "|" + (string)senderLink;
+        llMessageLinked(LINK_SET, MODULE_CHANNEL, fullMessage, NULL_KEY);
     }
 
     // World object inventory messages (fGiveItem, fTakeItem)
