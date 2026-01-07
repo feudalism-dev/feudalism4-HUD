@@ -380,7 +380,8 @@ updateCurrency(string characterID, integer goldDelta, integer silverDelta, integ
     cleanupTrackingLists();
     
     // First, get current currency to add deltas
-    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID;
+    // Include mask to ensure currency field is returned
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?mask.fieldPaths=currency";
     
     key getRequestId = llHTTPRequest(
         url,
@@ -792,7 +793,15 @@ default {
                         fieldsStatus = "YES";
                         debugLog("GET_CURRENCY_FOR_UPDATE: fields value: " + fields);
                     } else {
-                        debugLog("GET_CURRENCY_FOR_UPDATE: fields is JSON_INVALID or empty. JSON_INVALID check: " + (fields == JSON_INVALID ? "TRUE" : "FALSE") + ", empty check: " + (fields == "" ? "TRUE" : "FALSE"));
+                        string jsonInvalidStatus = "FALSE";
+                        if (fields == JSON_INVALID) {
+                            jsonInvalidStatus = "TRUE";
+                        }
+                        string emptyStatus = "FALSE";
+                        if (fields == "") {
+                            emptyStatus = "TRUE";
+                        }
+                        debugLog("GET_CURRENCY_FOR_UPDATE: fields is JSON_INVALID or empty. JSON_INVALID check: " + jsonInvalidStatus + ", empty check: " + emptyStatus);
                     }
                     debugLog("GET_CURRENCY_FOR_UPDATE: fields extracted: " + fieldsStatus);
                     
