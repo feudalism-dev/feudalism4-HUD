@@ -773,6 +773,14 @@ default {
                 if (status == 200) {
                     debugLog("GET_CURRENCY_FOR_UPDATE: HTTP 200, characterID=" + characterID + ", deltas: gold=" + (string)goldDelta + ", silver=" + (string)silverDelta + ", copper=" + (string)copperDelta);
                     
+                    // Debug: log body length and first 500 chars to see structure
+                    integer bodyLen = llStringLength(body);
+                    string bodyPreview = body;
+                    if (bodyLen > 500) {
+                        bodyPreview = llGetSubString(body, 0, 499) + "...";
+                    }
+                    debugLog("GET_CURRENCY_FOR_UPDATE: Response body length=" + (string)bodyLen + ", preview: " + bodyPreview);
+                    
                     // Extract current currency
                     string fields = llJsonGetValue(body, ["fields"]);
                     integer currentGold = 0;
@@ -782,6 +790,9 @@ default {
                     string fieldsStatus = "NO";
                     if (fields != JSON_INVALID && fields != "") {
                         fieldsStatus = "YES";
+                        debugLog("GET_CURRENCY_FOR_UPDATE: fields value: " + fields);
+                    } else {
+                        debugLog("GET_CURRENCY_FOR_UPDATE: fields is JSON_INVALID or empty. JSON_INVALID check: " + (fields == JSON_INVALID ? "TRUE" : "FALSE") + ", empty check: " + (fields == "" ? "TRUE" : "FALSE"));
                     }
                     debugLog("GET_CURRENCY_FOR_UPDATE: fields extracted: " + fieldsStatus);
                     
