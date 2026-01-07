@@ -45,61 +45,62 @@
 
         <!-- Main Content Area -->
         <main class="content-area">
-            <!-- Character Tab -->
-            <section id="tab-character" class="tab-content active">
-                <!-- Top Section: Character Selector & Status -->
-                <div class="character-header-section" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); padding: var(--space-md); background: rgba(30, 58, 95, 0.3); border-radius: 8px;">
-                    <!-- Character Selector -->
-                    <div class="character-selector-container" style="flex: 1;">
-                        <label for="character-selector" style="display: block; margin-bottom: var(--space-xs); color: #e0e0e0; font-size: 0.9em;">Character</label>
-                        <select id="character-selector" style="width: 100%; max-width: 300px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px; font-size: 1em;">
-                            <option value="">Loading characters...</option>
-                        </select>
-                        <div id="no-character-message" style="display: none; margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 4px; color: #fca5a5;">
-                            <strong>You do not have a character.</strong> Click "Create New Character" in the dropdown above to start the process.
-                        </div>
-                    </div>
-                    
-                    <!-- Status Indicator -->
-                    <div class="status-indicator-container" style="display: flex; align-items: center; gap: var(--space-sm);">
-                        <div id="character-status" class="status-badge" style="padding: 6px 12px; border-radius: 4px; font-size: 0.85em; font-weight: 500;">
-                            <span id="status-text">No Character</span>
-                        </div>
+            <!-- Top Section: Character Selector & Status (Always Visible) -->
+            <div class="character-header-section" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); padding: var(--space-md); background: rgba(30, 58, 95, 0.3); border-radius: 8px;">
+                <!-- Character Selector -->
+                <div class="character-selector-container" style="flex: 1;">
+                    <label for="character-selector" style="display: block; margin-bottom: var(--space-xs); color: #e0e0e0; font-size: 0.9em;">Character</label>
+                    <select id="character-selector" style="width: 100%; max-width: 300px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px; font-size: 1em;">
+                        <option value="">Loading characters...</option>
+                    </select>
+                    <div id="no-character-message" style="display: none; margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 4px; color: #fca5a5;">
+                        <strong>You do not have a character.</strong> Click "Create New Character" in the dropdown above to start the process.
                     </div>
                 </div>
                 
-                <!-- Step Guide Panel -->
-                <div class="step-guide-panel" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: rgba(30, 58, 95, 0.5); border: 1px solid #3a5f8f; border-radius: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-md);">
-                        <!-- Step Indicators -->
-                        <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center;">
-                            <div class="step-item" data-step="name" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
-                                <span class="step-marker" style="font-size: 1.2em;">○</span>
-                                <span class="step-name">Name/Title</span>
-                            </div>
-                            <div style="color: #6b7280;">→</div>
-                            <div class="step-item" data-step="gender" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
-                                <span class="step-marker" style="font-size: 1.2em;">○</span>
-                                <span class="step-name">Gender</span>
-                            </div>
-                            <div style="color: #6b7280;">→</div>
-                            <div class="step-item" data-step="species" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
-                                <span class="step-marker" style="font-size: 1.2em;">○</span>
-                                <span class="step-name">Species</span>
-                            </div>
-                            <div style="color: #6b7280;">→</div>
-                            <div class="step-item" data-step="career" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
-                                <span class="step-marker" style="font-size: 1.2em;">○</span>
-                                <span class="step-name">Career</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Save Button -->
-                        <button id="btn-save-character" class="action-btn primary" style="padding: 10px 24px; font-size: 1em; font-weight: 600;" disabled>
-                            💾 Save Character
-                        </button>
+                <!-- Status Indicator -->
+                <div class="status-indicator-container" style="display: flex; align-items: center; gap: var(--space-sm);">
+                    <div id="character-status" class="status-badge" style="padding: 6px 12px; border-radius: 4px; font-size: 0.85em; font-weight: 500;">
+                        <span id="status-text">No Character</span>
                     </div>
                 </div>
+            </div>
+            
+            <!-- Step Guide Panel (Always Visible) -->
+            <div class="step-guide-panel" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: rgba(30, 58, 95, 0.5); border: 1px solid #3a5f8f; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-md);">
+                    <!-- Step Indicators -->
+                    <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center;">
+                        <div class="step-item" data-step="name" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Name/Title</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="gender" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Gender</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="species" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Species</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="career" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Career</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Save Button -->
+                    <button id="btn-save-character" class="action-btn primary" style="padding: 10px 24px; font-size: 1em; font-weight: 600;">
+                        💾 Save Character
+                    </button>
+                </div>
+            </div>
+
+            <!-- Character Tab -->
+            <section id="tab-character" class="tab-content active">
                 
                 <!-- Hero callout for no character -->
                 <div id="no-character-hero" class="hero-callout" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-xl); background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6b 100%); border: 2px solid #3a5f8f; border-radius: 8px; text-align: center;">
