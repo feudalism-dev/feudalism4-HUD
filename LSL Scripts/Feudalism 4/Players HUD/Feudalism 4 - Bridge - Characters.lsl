@@ -14,6 +14,15 @@ key ownerKey;
 string ownerUUID;
 string firestoreRestBase;
 
+// Debug
+integer DEBUG_MODE = TRUE;  // Enable for currency debugging
+
+debugLog(string msg) {
+    if (DEBUG_MODE) {
+        llOwnerSay("[Bridge_Characters] " + msg);
+    }
+}
+
 // Request tracking for character field requests
 list pendingRequests;
 integer MAX_PENDING_REQUESTS = 20;
@@ -762,21 +771,29 @@ default {
                 integer copperDelta = (integer)copperDeltaStr;
                 
                 if (status == 200) {
+                    debugLog("GET_CURRENCY_FOR_UPDATE: HTTP 200, characterID=" + characterID + ", deltas: gold=" + (string)goldDelta + ", silver=" + (string)silverDelta + ", copper=" + (string)copperDelta);
+                    
                     // Extract current currency
                     string fields = llJsonGetValue(body, ["fields"]);
                     integer currentGold = 0;
                     integer currentSilver = 0;
                     integer currentCopper = 0;
                     
+                    debugLog("GET_CURRENCY_FOR_UPDATE: fields extracted: " + (fields != JSON_INVALID && fields != "" ? "YES" : "NO"));
+                    
                     if (fields != JSON_INVALID && fields != "") {
                         // Extract currency mapFields directly using same pattern as Bridge Stipends
                         string currencyFields = llJsonGetValue(fields, ["currency","mapValue","fields"]);
+                        
+                        debugLog("GET_CURRENCY_FOR_UPDATE: currencyFields extracted: " + (currencyFields != JSON_INVALID && currencyFields != "" ? currencyFields : "EMPTY/INVALID"));
                         
                         if (currencyFields != JSON_INVALID && currencyFields != "") {
                             // Directly extract integerValue strings (same pattern as Bridge Stipends)
                             string goldStr = llJsonGetValue(currencyFields, ["gold","integerValue"]);
                             string silverStr = llJsonGetValue(currencyFields, ["silver","integerValue"]);
                             string copperStr = llJsonGetValue(currencyFields, ["copper","integerValue"]);
+                            
+                            debugLog("GET_CURRENCY_FOR_UPDATE: Extracted values - goldStr='" + goldStr + "', silverStr='" + silverStr + "', copperStr='" + copperStr + "'");
                             
                             if (goldStr != JSON_INVALID && goldStr != "") {
                                 currentGold = (integer)goldStr;
@@ -787,13 +804,21 @@ default {
                             if (copperStr != JSON_INVALID && copperStr != "") {
                                 currentCopper = (integer)copperStr;
                             }
+                        } else {
+                            debugLog("GET_CURRENCY_FOR_UPDATE: WARNING - currencyFields is empty/invalid, using defaults (0,0,0)");
                         }
+                    } else {
+                        debugLog("GET_CURRENCY_FOR_UPDATE: WARNING - fields is empty/invalid");
                     }
+                    
+                    debugLog("GET_CURRENCY_FOR_UPDATE: Current currency - gold=" + (string)currentGold + ", silver=" + (string)currentSilver + ", copper=" + (string)currentCopper);
                     
                     // Add deltas
                     integer newGold = currentGold + goldDelta;
                     integer newSilver = currentSilver + silverDelta;
                     integer newCopper = currentCopper + copperDelta;
+                    
+                    debugLog("GET_CURRENCY_FOR_UPDATE: New totals - gold=" + (string)newGold + ", silver=" + (string)newSilver + ", copper=" + (string)newCopper);
                     
                     // Now update with new totals
                     string patchUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?updateMask.fieldPaths=currency.gold&updateMask.fieldPaths=currency.silver&updateMask.fieldPaths=currency.copper";
@@ -832,8 +857,10 @@ default {
                 pendingCharOps = llDeleteSubList(pendingCharOps, opIndex, opIndex + 2);
                 
                 if (status == 200) {
+                    debugLog("UPDATE_CURRENCY: HTTP 200 - Currency updated successfully");
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CURRENCY_UPDATED|OK", "");
                 } else {
+                    debugLog("UPDATE_CURRENCY: ERROR - HTTP " + (string)status + ", body: " + body);
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CURRENCY_UPDATED_ERROR", "Status " + (string)status);
                 }
                 return;
