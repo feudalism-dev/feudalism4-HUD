@@ -1286,7 +1286,23 @@ try {
             UI.elements.charName.value = char.name || '';
             UI.elements.charTitle.value = char.title || '';
             UI.selectGender(char.gender || 'unspecified');
-            UI.elements.currencyAmount.textContent = char.currency || 0;
+            
+            // Handle currency - can be object {gold, silver, copper} or number (legacy)
+            let currencyDisplay = '0';
+            if (char.currency) {
+                if (typeof char.currency === 'object' && char.currency !== null) {
+                    // Currency is object: {gold, silver, copper}
+                    const gold = char.currency.gold || 0;
+                    const silver = char.currency.silver || 0;
+                    const copper = char.currency.copper || 0;
+                    currencyDisplay = this.formatCurrency(gold, silver, copper);
+                } else if (typeof char.currency === 'number') {
+                    // Legacy: currency is a number (convert to display format)
+                    // Assume it's all gold for backwards compatibility
+                    currencyDisplay = this.formatCurrency(char.currency, 0, 0);
+                }
+            }
+            UI.elements.currencyAmount.textContent = currencyDisplay;
         }
     },
     
