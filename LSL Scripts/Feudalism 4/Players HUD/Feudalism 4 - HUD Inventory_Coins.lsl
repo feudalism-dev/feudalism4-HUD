@@ -89,6 +89,9 @@ showCoinMainMenu() {
     requestCoinCounts();
     // Store flag to show menu after counts are loaded
     llLinksetDataWrite("_coin_menu_after_counts", "TRUE");
+    
+    // Set timer as fallback - if currency doesn't respond within 3 seconds, show menu with cached/default values
+    llSetTimerEvent(3.0);
 }
 
 // Request coin counts from currency field (not inventory items)
@@ -608,6 +611,8 @@ default {
                 if (coinMenuAfterCounts == "TRUE") {
                     llLinksetDataDelete("_coin_menu_after_counts");
                     debugLog("Calling showCoinMenuWithCounts()");
+                    // Cancel the timeout timer since we got the response
+                    llSetTimerEvent(60.0);
                     showCoinMenuWithCounts();
                 }
                 // Check if we need to continue to coin type selection (for give coins flow)
@@ -972,6 +977,21 @@ default {
     }
     
     timer() {
+        // Check if we're waiting for currency response but haven't shown menu yet
+        if (coinMenuMode == COIN_MENU_MODE_MAIN) {
+            string coinMenuAfterCounts = llLinksetDataRead("_coin_menu_after_counts");
+            if (coinMenuAfterCounts == "TRUE") {
+                // Currency response timeout - show menu with current coin counts (may be 0 if not loaded yet)
+                debugLog("Currency response timeout - showing menu with cached counts");
+                llLinksetDataDelete("_coin_menu_after_counts");
+                llLinksetDataDelete("_coin_counts_request");
+                showCoinMenuWithCounts();
+                // Reset timer to normal 60-second menu timeout
+                llSetTimerEvent(60.0);
+                return;
+            }
+        }
+        
         // Check vault proximity timeout
         string vaultTimeoutStr = llLinksetDataRead("_vault_proximity_timeout");
         if (vaultTimeoutStr != "" && vaultTimeoutStr != "JSON_INVALID") {
