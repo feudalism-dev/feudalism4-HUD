@@ -24,7 +24,7 @@ integer MODULE_CHANNEL      = -777002;   // Channel used by Bridge Characters an
 
 // ====================== DEBUG ======================
 
-integer DEBUG_MODE = FALSE;
+integer DEBUG_MODE = TRUE;
 
 debugLog(string msg) {
     if (DEBUG_MODE) {
@@ -128,10 +128,12 @@ default {
         // Bridge Characters sends responses on channel 0 with format: fieldName or fieldName_ERROR
         // These need to be forwarded back to the original requester
         if (num == 0 && sender_num != llGetLinkNumber()) {
+            debugLog("Response from module: sender=" + (string)sender_num + ", msg='" + msg + "'");
             // This might be a response from a module - check if it's a known field response
             // For now, forward currency responses (and errors) back to all listeners via LINK_SET
             // This allows all scripts to receive currency updates
             if (msg == "currency" || msg == "currency_ERROR") {
+                debugLog("Forwarding currency response to LINK_SET");
                 llMessageLinked(LINK_SET, 0, msg, id);
                 return;
             }
