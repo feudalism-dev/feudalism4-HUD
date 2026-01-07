@@ -402,7 +402,8 @@ default {
         
         // Parse routed message: DOMAIN|COMMAND|PAYLOAD|SENDERLINK
         list parts = llParseString2List(msg, ["|"], []);
-        if (llGetListLength(parts) < 4) return;
+        // Support both 3-part (domain|command|payload) and 4+ part (domain|command|payload|senderLink) formats
+        if (llGetListLength(parts) < 3) return;
         
         string domain = llList2String(parts, 0);
         if (domain != DOMAIN_CHAR) return; // Not for us
