@@ -124,19 +124,22 @@ default {
                  ", channel=" + (string)num +
                  ", msg='" + msg + "'");
 
-        // Check for response messages FIRST (before sender checks)
-        // Responses from Bridge Characters on channel 0 should be forwarded to all listeners
+        // Check for response messages FIRST (on channel 0 only)
+        // Responses from Bridge modules on channel 0 should be forwarded to all listeners
         // BUT: Don't forward our own forwarded messages (prevent infinite loop)
-        if (num == 0 && sender_num != llGetLinkNumber() && 
-            (msg == "currency" || msg == "currency_ERROR" || 
-             llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0)) {
-            debugLog("Response detected: '" + msg + "' from link " + (string)sender_num + " - forwarding to LINK_SET");
-            llMessageLinked(LINK_SET, 0, msg, id);
+        if (num == 0) {
+            if (sender_num != llGetLinkNumber() && 
+                (msg == "currency" || msg == "currency_ERROR" || 
+                 llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0)) {
+                debugLog("Response detected: '" + msg + "' from link " + (string)sender_num + " - forwarding to LINK_SET");
+                llMessageLinked(LINK_SET, 0, msg, id);
+            }
+            // All other channel 0 messages are internal HUD commands - ignore them for routing
             return;
         }
 
-        // Only accept HUD messages for routing
-        if (num != 0 && num != FS_BRIDGE_CHANNEL) {
+        // Only accept messages on FS_BRIDGE_CHANNEL for routing
+        if (num != FS_BRIDGE_CHANNEL) {
             return;
         }
 
