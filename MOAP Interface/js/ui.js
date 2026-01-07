@@ -927,7 +927,18 @@ const UI = {
         
         const health = character.health || { current: 100, max: 100 };
         const stamina = character.stamina || { current: 100, max: 100 };
-        const mana = character.mana || { current: 50, max: 50 };
+        // Handle mana - could be object {current, max} or number, or missing
+        let mana;
+        if (!character.mana) {
+            // If no mana data, check if character has_mana and calculate or default to 0
+            mana = { current: 0, max: 0 };
+        } else if (typeof character.mana === 'number') {
+            // If mana is just a number, use it as both current and max
+            mana = { current: character.mana, max: character.mana };
+        } else {
+            // Mana is already an object
+            mana = character.mana;
+        }
         
         // Update health sphere (RED)
         const healthPercent = Math.max(0, Math.min(100, (health.current / health.max) * 100));

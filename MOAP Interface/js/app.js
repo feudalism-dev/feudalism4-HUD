@@ -501,8 +501,10 @@ try {
                             if (!this.state.character.stamina || typeof this.state.character.stamina !== 'object') {
                                 this.state.character.stamina = { current: 100, base: 100, max: 100 };
                             }
+                            // Initialize mana - if missing, will be recalculated by recalculateResourcePools()
                             if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
-                                this.state.character.mana = { current: 50, base: 50, max: 50 };
+                                // Don't set default here - let recalculateResourcePools() calculate it based on stats
+                                this.state.character.mana = { current: 0, base: 0, max: 0 };
                             }
                             
                             // Initialize action_slots if missing
@@ -1426,13 +1428,22 @@ try {
             }
         }
         
-        if (!this.state.character.mana) {
+        // Handle mana - convert from number to object if needed, then recalculate
+        if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
+            // If mana is missing or a number, create object with calculated value
             this.state.character.mana = { current: baseMana, base: baseMana, max: baseMana };
         } else {
+            // Mana exists as object - update max and base
+            const oldCurrent = this.state.character.mana.current || 0;
+            const oldMax = this.state.character.mana.max || 0;
             this.state.character.mana.max = baseMana;
             this.state.character.mana.base = baseMana;
-            if (this.state.character.mana.current > baseMana) {
+            // If max changed or current is invalid, set current to max (like health/stamina on first load)
+            if (baseMana > 0 && (oldCurrent <= 0 || oldMax !== baseMana || oldCurrent > baseMana)) {
                 this.state.character.mana.current = baseMana;
+            } else {
+                // Preserve current value only if it's valid
+                this.state.character.mana.current = oldCurrent > baseMana ? baseMana : oldCurrent;
             }
         }
     },
