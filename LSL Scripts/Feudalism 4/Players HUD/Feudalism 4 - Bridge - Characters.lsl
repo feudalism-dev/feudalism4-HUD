@@ -476,7 +476,30 @@ default {
             getFieldByUUID("species_factors", getUUIDToUse(targetUUID, ownerUUID), originalSenderLink);
         }
         else if (command == "getCurrency") {
-            getFieldByUUID("currency", getUUIDToUse(targetUUID, ownerUUID), originalSenderLink);
+            // Currency needs to be fetched by characterID, not UUID
+            // targetUUID is actually characterID in this case
+            string characterID = targetUUID;
+            if (characterID == "" || characterID == "JSON_INVALID") {
+                llMessageLinked(originalSenderLink, 0, "currency_ERROR", "Invalid character ID");
+                return;
+            }
+            
+            cleanupTrackingLists();
+            
+            // Query Firestore for currency field by document ID
+            string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?mask.fieldPaths=currency";
+            
+            key getRequestId = llHTTPRequest(
+                url,
+                [
+                    HTTP_METHOD, "GET",
+                    HTTP_MIMETYPE, "application/json"
+                ],
+                ""
+            );
+            
+            // Track: [requestId, "GET_CURRENCY", senderLink, characterID]
+            pendingCharOps += [getRequestId, "GET_CURRENCY", originalSenderLink, characterID];
         }
         else if (command == "getMode") {
             getFieldByUUID("mode", getUUIDToUse(targetUUID, ownerUUID), originalSenderLink);
@@ -644,6 +667,32 @@ default {
             
             // Error or empty result
             llMessageLinked(senderLink, 0, fieldName + "_ERROR", "Field not found or error");
+            return;
+        }
+        
+        // Check for GET_CURRENCY operations
+        integer getCurrencyIndex = llListFindList(pendingCharOps, [request_id]);
+        if (getCurrencyIndex != -1 && llList2String(pendingCharOps, getCurrencyIndex + 1) == "GET_CURRENCY") {
+            integer senderLink = llList2Integer(pendingCharOps, getCurrencyIndex + 2);
+            string characterID = llList2String(pendingCharOps, getCurrencyIndex + 3);
+            
+            pendingCharOps = llDeleteSubList(pendingCharOps, getCurrencyIndex, getCurrencyIndex + 3);
+            
+            if (status == 200) {
+                // Extract currency field from document
+                string fields = llJsonGetValue(body, ["fields"]);
+                if (fields != JSON_INVALID && fields != "") {
+                    string currencyData = llJsonGetValue(fields, ["currency"]);
+                    if (currencyData != JSON_INVALID && currencyData != "") {
+                        string fieldValue = extractFirestoreValue(currencyData);
+                        llMessageLinked(senderLink, 0, "currency", fieldValue);
+                        return;
+                    }
+                }
+            }
+            
+            // Error or empty result
+            llMessageLinked(senderLink, 0, "currency_ERROR", "Currency field not found");
             return;
         }
         
