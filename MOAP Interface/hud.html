@@ -39,6 +39,7 @@
             <button class="tab-btn" data-tab="career">Career</button>
             <button class="tab-btn" data-tab="inventory">Inventory</button>
             <button class="tab-btn" data-tab="options">Options</button>
+            <button class="tab-btn" data-tab="help">Help</button>
             <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
         </nav>
 
@@ -46,15 +47,67 @@
         <main class="content-area">
             <!-- Character Tab -->
             <section id="tab-character" class="tab-content active">
-                <!-- Message banner for new characters -->
-                <div id="new-character-banner" class="panel info-banner" style="display: none; background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6b 100%); border: 2px solid #3a5f8f; border-radius: 8px; padding: var(--space-lg); margin-bottom: var(--space-md);">
-                    <div style="display: flex; align-items: center; gap: var(--space-md);">
-                        <span style="font-size: 2em;">ℹ️</span>
-                        <div style="flex: 1;">
-                            <h3 style="margin: 0 0 var(--space-xs) 0; color: #fff; font-size: 1.2em;">You do not have a character yet.</h3>
-                            <p style="margin: 0; color: #e0e0e0; font-size: 1em;">Click <strong style="color: #10b981;">NEW CHARACTER</strong> to create one.</p>
+                <!-- Top Section: Character Selector & Status -->
+                <div class="character-header-section" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); padding: var(--space-md); background: rgba(30, 58, 95, 0.3); border-radius: 8px;">
+                    <!-- Character Selector -->
+                    <div class="character-selector-container" style="flex: 1;">
+                        <label for="character-selector" style="display: block; margin-bottom: var(--space-xs); color: #e0e0e0; font-size: 0.9em;">Character</label>
+                        <select id="character-selector" style="width: 100%; max-width: 300px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px; font-size: 1em;">
+                            <option value="">Loading characters...</option>
+                        </select>
+                        <div id="no-character-message" style="display: none; margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 4px; color: #fca5a5;">
+                            <strong>You do not have a character.</strong> Click "Create New Character" in the dropdown above to start the process.
                         </div>
                     </div>
+                    
+                    <!-- Status Indicator -->
+                    <div class="status-indicator-container" style="display: flex; align-items: center; gap: var(--space-sm);">
+                        <div id="character-status" class="status-badge" style="padding: 6px 12px; border-radius: 4px; font-size: 0.85em; font-weight: 500;">
+                            <span id="status-text">No Character</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Step Guide Panel -->
+                <div class="step-guide-panel" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: rgba(30, 58, 95, 0.5); border: 1px solid #3a5f8f; border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-md);">
+                        <!-- Step Indicators -->
+                        <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center;">
+                            <div class="step-item" data-step="name" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                                <span class="step-marker" style="font-size: 1.2em;">○</span>
+                                <span class="step-name">Name/Title</span>
+                            </div>
+                            <div style="color: #6b7280;">→</div>
+                            <div class="step-item" data-step="gender" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                                <span class="step-marker" style="font-size: 1.2em;">○</span>
+                                <span class="step-name">Gender</span>
+                            </div>
+                            <div style="color: #6b7280;">→</div>
+                            <div class="step-item" data-step="species" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                                <span class="step-marker" style="font-size: 1.2em;">○</span>
+                                <span class="step-name">Species</span>
+                            </div>
+                            <div style="color: #6b7280;">→</div>
+                            <div class="step-item" data-step="career" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                                <span class="step-marker" style="font-size: 1.2em;">○</span>
+                                <span class="step-name">Career</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Save Button -->
+                        <button id="btn-save-character" class="action-btn primary" style="padding: 10px 24px; font-size: 1em; font-weight: 600;" disabled>
+                            💾 Save Character
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Hero callout for no character -->
+                <div id="no-character-hero" class="hero-callout" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-xl); background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6b 100%); border: 2px solid #3a5f8f; border-radius: 8px; text-align: center;">
+                    <h2 style="margin: 0 0 var(--space-md) 0; color: #fff; font-size: 1.5em;">You do not have a character yet.</h2>
+                    <p style="margin: 0 0 var(--space-lg) 0; color: #e0e0e0; font-size: 1.1em;">Click "Create New Character" in the dropdown above to begin creating your character.</p>
+                    <button id="btn-create-new-hero" class="action-btn primary" style="padding: 12px 32px; font-size: 1.1em; font-weight: 600;">
+                        🆕 Create New Character
+                    </button>
                 </div>
                 
                 <div class="panel">
@@ -283,6 +336,66 @@
                 </div>
             </section>
 
+            <!-- Help Tab -->
+            <section id="tab-help" class="tab-content">
+                <div class="panel">
+                    <h1>Help & Instructions</h1>
+                    
+                    <h2>Character Creation</h2>
+                    <p>To create a new character:</p>
+                    <ol>
+                        <li>Click the "Character" dropdown at the top and select "Create New Character"</li>
+                        <li>Follow the step guide: Name/Title → Gender → Species → Career</li>
+                        <li>Complete each step by filling in the required information</li>
+                        <li>Click "Save Character" when you're done</li>
+                    </ol>
+                    
+                    <h2>Editing Your Character</h2>
+                    <p>To edit an existing character:</p>
+                    <ol>
+                        <li>Select your character from the Character dropdown</li>
+                        <li>Make your changes in the Character Summary panel</li>
+                        <li>Click "Save Character" to save your changes</li>
+                        <li>If you try to switch characters or leave with unsaved changes, you'll be warned</li>
+                    </ol>
+                    
+                    <h2>Step Guide</h2>
+                    <p>The step guide shows your progress through character creation:</p>
+                    <ul>
+                        <li><strong>○</strong> = Step not completed</li>
+                        <li><strong>●</strong> = Current step</li>
+                        <li><strong>✓</strong> = Step completed</li>
+                    </ul>
+                    <p>You can click on any step to jump to that section.</p>
+                    
+                    <h2>Saving Your Character</h2>
+                    <p>The "Save Character" button is always visible in the step guide panel. It will:</p>
+                    <ul>
+                        <li>Be disabled when there are no changes to save</li>
+                        <li>Be enabled when you make gameplay changes (name, stats, species, career, etc.)</li>
+                        <li>Save all your changes to the server when clicked</li>
+                    </ul>
+                    
+                    <h2>Character Selection</h2>
+                    <p>Use the Character dropdown at the top to:</p>
+                    <ul>
+                        <li>Switch between your characters (grouped by universe)</li>
+                        <li>Create a new character</li>
+                        <li>See which character is currently active</li>
+                    </ul>
+                    
+                    <h2>Tabs</h2>
+                    <ul>
+                        <li><strong>Character</strong>: Overview and management of your character</li>
+                        <li><strong>Stats</strong>: Detailed view and editing of your 20 attribute stats</li>
+                        <li><strong>Career</strong>: Browse and select your character's career/class</li>
+                        <li><strong>Inventory</strong>: Manage your character's items and currency</li>
+                        <li><strong>Options</strong>: Game mode settings and quick actions</li>
+                        <li><strong>Help</strong>: This page</li>
+                    </ul>
+                </div>
+            </section>
+
             <!-- Admin Tab -->
             <section id="tab-admin" class="tab-content">
                 <div class="panel admin-panel">
@@ -303,12 +416,7 @@
             </section>
         </main>
 
-        <!-- Footer Actions -->
-        <footer class="hud-footer">
-            <button id="btn-save" class="action-btn primary">💾 Save Character</button>
-            <button id="btn-roll" class="action-btn">⚔️ Challenge Test</button>
-            <button id="btn-refresh" class="action-btn">🔄 Refresh</button>
-        </footer>
+        <!-- Footer Actions - Removed per UX 2 Spec: Save moved to Step Guide, other buttons not needed -->
 
         <!-- Modal -->
         <div id="modal" class="modal hidden">

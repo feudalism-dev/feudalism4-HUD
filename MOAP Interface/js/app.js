@@ -162,7 +162,8 @@ try {
         selectedUniverseId: 'default',
         selectedCharacterId: null,
         pendingChanges: {},
-        isNewCharacter: false
+        isNewCharacter: false,
+        dirty: false  // UX 2: Track unsaved changes
     },
     
     // LSL integration state
@@ -743,25 +744,196 @@ try {
     },
     
     /**
-     * Load character selector dropdown
+     * Update step guide panel with progress markers (UX 2)
+     */
+    updateStepGuide() {
+        const char = this.state.character;
+        const steps = [
+            { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
+            { id: 'gender', name: 'Gender', complete: !!(char && char.gender_id) },
+            { id: 'species', name: 'Species', complete: !!(char && char.species_id) },
+            { id: 'career', name: 'Career', complete: !!(char && char.class_id) }
+        ];
+        
+        steps.forEach((step, index) => {
+            const stepItem = document.querySelector(`.step-item[data-step="${step.id}"]`);
+            if (stepItem) {
+                const marker = stepItem.querySelector('.step-marker');
+                if (marker) {
+                    const currentIndex = steps.findIndex(s => !s.complete);
+                    const isCurrent = (currentIndex === -1 && index === steps.length - 1) || currentIndex === index;
+                    
+                    if (step.complete) {
+                        marker.textContent = '✓';
+                        marker.style.color = '#10b981';
+                    } else if (isCurrent) {
+                        marker.textContent = '●';
+                        marker.style.color = '#3b82f6';
+                    } else {
+                        marker.textContent = '○';
+                        marker.style.color = '#6b7280';
+                    }
+                }
+                
+                // Make clickable
+                stepItem.style.cursor = 'pointer';
+                stepItem.onclick = () => this.navigateToStep(step.id);
+            }
+        });
+    },
+    
+    /**
+     * Navigate to a specific step (UX 2)
+     */
+    navigateToStep(stepId) {
+        const char = this.state.character;
+        if (!char && stepId !== 'name') {
+            return;
+        }
+        
+        switch(stepId) {
+            case 'name':
+                document.getElementById('char-name')?.focus();
+                break;
+            case 'gender':
+                document.querySelector('#tab-character .gender-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                break;
+            case 'species':
+                document.querySelector('#tab-character #species-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                break;
+            case 'career':
+                UI.switchTab('career');
+                break;
+        }
+    },
+    
+    /**
+     * Update status indicator (UX 2)
+     */
+    updateStatusIndicator() {
+        const statusBadge = document.getElementById('character-status');
+        const statusText = document.getElementById('status-text');
+        if (!statusBadge || !statusText) return;
+        
+        if (!this.state.character) {
+            statusText.textContent = 'No Character';
+            statusBadge.style.background = 'rgba(107, 114, 128, 0.3)';
+            statusBadge.style.color = '#9ca3af';
+        } else if (this.state.dirty) {
+            statusText.textContent = 'Unsaved Changes';
+            statusBadge.style.background = 'rgba(239, 68, 68, 0.3)';
+            statusBadge.style.color = '#fca5a5';
+            statusBadge.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+        } else {
+            statusText.textContent = 'Saved';
+            statusBadge.style.background = 'rgba(16, 185, 129, 0.3)';
+            statusBadge.style.color = '#6ee7b7';
+            statusBadge.style.border = 'none';
+        }
+    },
+    
+    /**
+     * Show unsaved changes warning modal (UX 2)
+     */
+    async showUnsavedChangesModal() {
+        return new Promise((resolve) => {
+            const modalContent = `
+                <h2>You have unsaved changes</h2>
+                <p>Save to apply changes to your character. Unsaved changes will be lost if you leave.</p>
+                <div style="display: flex; gap: var(--space-md); margin-top: var(--space-lg);">
+                    <button class="action-btn primary" id="unsaved-save-btn">Save Changes</button>
+                    <button class="action-btn secondary" id="unsaved-discard-btn">Discard Changes</button>
+                    <button class="action-btn" id="unsaved-cancel-btn">Cancel</button>
+                </div>
+            `;
+            
+            UI.showModal('Unsaved Changes', modalContent);
+            
+            document.getElementById('unsaved-save-btn')?.addEventListener('click', async () => {
+                await this.saveCharacter();
+                UI.hideModal();
+                resolve(true);
+            }, { once: true });
+            
+            document.getElementById('unsaved-discard-btn')?.addEventListener('click', () => {
+                this.discardChanges();
+                UI.hideModal();
+                resolve(true);
+            }, { once: true });
+            
+            document.getElementById('unsaved-cancel-btn')?.addEventListener('click', () => {
+                UI.hideModal();
+                resolve(false);
+            }, { once: true });
+        });
+    },
+    
+    /**
+     * Discard unsaved changes (UX 2)
+     */
+    discardChanges() {
+        this.state.dirty = false;
+        if (this.state.selectedCharacterId) {
+            this.loadData();
+        }
+        this.updateStatusIndicator();
+    },
+    
+    /**
+     * Load character selector dropdown (UX 2: Updated for new structure)
      */
     async loadCharacterSelector(characters) {
         const selector = document.getElementById('character-selector');
+        const noCharMessage = document.getElementById('no-character-message');
         if (!selector) return;
         
         selector.innerHTML = '';
+        
+        // Add "Create New Character" option at the top
+        const createOption = document.createElement('option');
+        createOption.value = '__create_new__';
+        createOption.textContent = '➕ Create New Character';
+        selector.appendChild(createOption);
+        
+        // Group characters by universe
+        const byUniverse = {};
         characters.forEach(char => {
-            const option = document.createElement('option');
-            option.value = char.id;
-            option.textContent = `${char.name || 'Unnamed'} (${char.universe_id || 'default'})`;
-            if (char.id === this.state.selectedCharacterId || (!this.state.selectedCharacterId && characters.indexOf(char) === 0)) {
-                option.selected = true;
-                this.state.selectedCharacterId = char.id;
+            const universe = char.universe_id || 'default';
+            if (!byUniverse[universe]) {
+                byUniverse[universe] = [];
             }
-            selector.appendChild(option);
+            byUniverse[universe].push(char);
         });
         
-        selector.style.display = characters.length > 1 ? 'block' : 'none';
+        // Add characters grouped by universe
+        Object.keys(byUniverse).sort().forEach(universe => {
+            if (Object.keys(byUniverse).length > 1) {
+                // Add universe group header
+                const groupOption = document.createElement('option');
+                groupOption.value = '';
+                groupOption.textContent = `── ${universe} ──`;
+                groupOption.disabled = true;
+                selector.appendChild(groupOption);
+            }
+            
+            byUniverse[universe].forEach(char => {
+                const option = document.createElement('option');
+                option.value = char.id;
+                option.textContent = char.name || 'Unnamed';
+                if (char.id === this.state.selectedCharacterId || (!this.state.selectedCharacterId && characters.indexOf(char) === 0)) {
+                    option.selected = true;
+                    this.state.selectedCharacterId = char.id;
+                }
+                selector.appendChild(option);
+            });
+        });
+        
+        // Show/hide "no character" message
+        if (noCharMessage) {
+            noCharMessage.style.display = characters.length === 0 ? 'block' : 'none';
+        }
+        
+        selector.style.display = 'block'; // Always show in new design
     },
     
     /**
@@ -1331,12 +1503,32 @@ try {
             this.showNewCharacterDialog();
         });
         
-        // Character selector dropdown
+        // Character selector dropdown (UX 2: Updated for new structure)
         document.getElementById('character-selector')?.addEventListener('change', async (e) => {
-            const characterId = e.target.value;
-            if (characterId) {
-                this.state.selectedCharacterId = characterId;
+            const value = e.target.value;
+            if (value === '__create_new__') {
+                // Handle "Create New Character" option
+                await this.showNewCharacterDialog();
+                // Reset selector to current character if exists
+                if (this.state.selectedCharacterId) {
+                    e.target.value = this.state.selectedCharacterId;
+                } else {
+                    e.target.value = '';
+                }
+            } else if (value) {
+                // Handle character selection - check for unsaved changes
+                if (this.state.dirty) {
+                    const shouldProceed = await this.showUnsavedChangesModal();
+                    if (!shouldProceed) {
+                        // Reset selector
+                        e.target.value = this.state.selectedCharacterId || '';
+                        return;
+                    }
+                }
+                this.state.selectedCharacterId = value;
+                this.state.dirty = false;
                 await this.loadData();
+                this.updateStepGuide();
             }
         });
         

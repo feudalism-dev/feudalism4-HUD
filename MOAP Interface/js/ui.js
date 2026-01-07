@@ -108,10 +108,10 @@ const UI = {
             // Admin tab
             adminContent: document.getElementById('admin-content'),
             
-            // Footer
-            btnSave: document.getElementById('btn-save'),
-            btnRoll: document.getElementById('btn-roll'),
-            btnRefresh: document.getElementById('btn-refresh'),
+            // Footer - Removed per UX 2 Spec (moved to step guide panel)
+            btnSave: document.getElementById('btn-save-character'), // New save button in step guide panel
+            btnRoll: null, // Removed - not needed
+            btnRefresh: null, // Removed - not needed
             
             // Modal
             modal: document.getElementById('modal'),

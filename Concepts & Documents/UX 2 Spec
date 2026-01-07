@@ -1,0 +1,364 @@
+# UX 2 Spec: Character Creation & Management Redesign
+
+## Overview
+A focused redesign of the Character tab/page to create a clear, step-by-step process for character creation and management. The goal is to eliminate confusion, provide clear guidance for new users, and make character selection, creation, editing, and saving obvious and intuitive.
+
+**⚠️ Important: MOAP pages can ONLY communicate with Firestore, NOT with LSL scripts.** All features must be implemented using Firestore-only operations.
+
+---
+
+## Current Problems
+- **Disjointed flow**: No clear process for character creation
+- **Split information**: Character summary split between top (Identity panel) and bottom (Character Summary section)
+- **Hidden functionality**: Character selector buried in Options tab where it doesn't belong
+- **Unclear state**: No obvious indication when user has no character
+- **No save enforcement**: Users can make changes without understanding they need to save
+- **Redundancy**: Career tab has overlapping information (Current Career vs Career Path)
+- **Bottom buttons**: Save Character, Challenge Test, Refresh buttons not prominent enough and feel disconnected
+
+---
+
+## Design Goals
+
+### Primary Goals
+1. **Character-centric landing page**: The Character tab should be the main overview and management hub
+2. **Clear onboarding**: New users immediately understand they need to create a character
+3. **Visual process guide**: Step-by-step visual indicator showing progress through character creation
+4. **Prominent Save**: Save button always visible and accessible during creation/editing
+5. **Unified summary**: Single consolidated character profile/summary panel
+
+### Secondary Goals
+6. **Prominent character selection**: Character selector at top of Character tab (moved from Options)
+7. **Edit vs Create clarity**: Select existing character to edit, or create new
+8. **Save warnings**: Warn users about unsaved changes before navigation/switching characters
+9. **Clean separation**: Options tab only contains game settings (not character management)
+
+---
+
+## Character Tab/Page Layout
+
+### Top Section (Sticky/Prominent)
+**Character Selector & Status**
+- **Character Selector dropdown** (grouped by universe)
+  - Shows current character name with small avatar/badge
+  - "Create New Character" option at top of dropdown
+  - If no character exists: Show message "You do not have a character. Click 'New Character' to start the process."
+- **Status indicator**: Shows "No Character" / "Editing" / "Saved" / "Unsaved Changes"
+
+### Step Guide Panel
+**Visual Step Indicator** (always visible during creation/editing)
+- Shows steps: **Name/Title** → **Gender** → **Species** → **Career**
+- Each step has:
+  - Checkbox or progress marker (✓ completed, ○ incomplete, ● current)
+  - Step name/icon
+  - **Clickable** to jump to that step/tab (navigates to appropriate tab or section)
+- **Save Character button** prominently placed within or immediately below step guide
+  - Always visible during creation/editing
+  - Enabled when changes exist
+  - Disabled with tooltip "No changes to save" when appropriate
+  - **Only saves on click** - no autosave/draft saving
+
+### Main Content Area
+
+#### When No Character Exists
+- **Hero callout**: Large, clear message
+  - "You do not have a character yet."
+  - "Click 'New Character' to begin creating your character."
+  - Large **New Character** button (primary CTA)
+- Step guide panel shows all steps as incomplete (○ ○ ○ ○)
+- Note: "Browse Examples" feature removed - not needed
+
+#### When Character Exists (Editing/Viewing)
+
+**Consolidated Character Summary Panel**
+- Single unified profile view showing:
+  - **Name** (editable inline)
+  - **Title** (editable inline)
+  - **Gender** (current selection, click to change - opens modal)
+  - **Species** (current selection with badge, click to change - opens modal)
+  - **Career** (current selection with badge, click to change)
+  - **Level** / **XP**
+  - **Quick stats snapshot**: Top 3 most relevant stats or key stat summary
+  - Link to full Stats tab for detailed view
+
+**Identity Section**
+- Inline editing for Name and Title
+- **Change Gender** button opens modal for gender selection
+  - Shows current selection highlighted
+  - Visual gallery/selection interface
+
+**Species Section**
+- Current species card with:
+  - Species name and image/badge
+  - Brief description/effects summary
+  - **Change Species** button opens modal
+    - Warning modal if changing species affects stats
+    - Confirmation required
+
+**Career Section** (links to Career tab)
+- Current career card with vocation bonus summary
+- **Change Career** button (opens Career tab - too much content for modal)
+- Remove redundancy with Career Path if it's duplicated
+
+### Bottom Section
+- **Remove the 3-button footer** (Save, Challenge Test, Refresh)
+  - Save is now in Step Guide panel (prominent)
+  - Challenge Test moved to appropriate gameplay tab (if needed)
+  - Refresh not needed (auto-updates or manual refresh elsewhere)
+
+---
+
+## Interaction Flows
+
+### New User Flow (No Character)
+1. User opens Character tab
+2. Sees "You do not have a character" message with "New Character" button
+3. Step guide shows all steps incomplete: ○ ○ ○ ○
+4. Clicks "New Character"
+5. Step guide highlights first step: ● ○ ○ ○
+6. User enters Name/Title (inline editing)
+7. Step 1 completes: ✓ ○ ○ ○
+8. User clicks Gender step or "Change Gender" → modal opens
+9. User selects gender
+10. Step 2 completes: ✓ ✓ ○ ○
+11. User clicks Species step or "Change Species" → modal opens (with warnings if needed)
+12. User selects species
+13. Step 3 completes: ✓ ✓ ✓ ○
+14. User navigates to Career selection (tab or modal)
+15. User selects career
+16. Step 4 completes: ✓ ✓ ✓ ✓
+17. **Save Character** button enabled and prominent
+18. User clicks Save → character created and saved to Firestore
+19. Status updates to "Saved"
+
+### Edit Existing Character Flow
+1. User has character selected (via dropdown)
+2. Character summary panel shows current character details
+3. Step guide shows all steps completed: ✓ ✓ ✓ ✓
+4. User makes change (e.g., edits Name)
+5. Step guide updates (if relevant step affected)
+6. Status changes to "Unsaved Changes"
+7. **Save Character** button enabled
+8. If user tries to switch characters or navigate away:
+   - Modal appears: "You have unsaved changes. Save changes, discard, or cancel?"
+   - Options: **Save Changes** / **Discard Changes** / **Cancel**
+9. User clicks Save → changes written to Firestore
+10. Success toast: "Character saved"
+11. Status updates to "Saved"
+
+### Character Selection Flow
+1. User clicks Character Selector dropdown
+2. Sees list of characters grouped by universe
+3. "Create New Character" option at top
+4. Selecting existing character loads it (with unsaved warning if current is dirty)
+5. Character summary panel updates
+6. Step guide shows completion status for selected character
+
+---
+
+## Component Specifications
+
+### Character Selector Dropdown
+- **Location**: Top of Character tab, prominent position
+- **Content**: 
+  - Current character name + small badge/avatar
+  - Dropdown arrow
+  - If no character: "No Character Selected" with "Create New" button
+- **Behavior**: 
+  - Click opens dropdown
+  - Lists characters grouped by universe
+  - "Create New Character" always at top
+  - Selecting character loads it (warns if unsaved changes)
+  - Shows current selection highlighted
+
+### Step Guide Panel
+- **Visual Style**: Horizontal progress indicator or vertical step list
+- **Components**:
+  - 4 steps: Name/Title | Gender | Species | Career
+  - Progress markers: ✓ (complete), ● (current), ○ (incomplete)
+  - Step names/icons
+  - Clickable to jump to step (if editing existing character)
+- **Save Button**: 
+  - Prominent, always visible
+  - Enabled when `dirty = true`
+  - Disabled with tooltip when no changes
+  - Positioned within panel or immediately below
+
+### Character Summary Panel
+- **Consolidated view** of all character info
+- **Layout**: Card-based, organized sections
+- **Fields**:
+  - Name (editable inline)
+  - Title (editable inline)
+  - Gender (display + Change button)
+  - Species (display + Change button)
+  - Career (display + Change button)
+  - Level/XP
+  - Quick stats (3-5 key stats or summary)
+- **Actions**: 
+  - Inline edit for cosmetic fields (Name, Title)
+  - Modal opens for gameplay-affecting fields (Gender, Species, Career)
+
+### Status Indicator
+- **States**: 
+  - "No Character" (no character exists)
+  - "Editing" (character loaded, making changes)
+  - "Unsaved Changes" (with warning icon/pill)
+  - "Saved" (all changes saved)
+- **Visual**: Small badge/pill near Character Selector
+
+---
+
+## Options Tab Cleanup
+
+### Remove from Options
+- Character Selector (move to Character tab)
+- Character Management section (move to Character tab)
+- New Character button (move to Character tab header/dropdown)
+
+### Keep in Options
+- **Game Mode**: Tournament, Roleplay, OOC, AFK, None
+- **Display Options**: Show Bars, Hide Bars (for meter)
+- **Quick Actions**: OOC Reset, IC Rest, Stop Resting
+
+---
+
+## Technical Requirements
+
+### Critical Architectural Constraint
+**⚠️ MOAP pages CANNOT communicate with LSL scripts directly**
+- MOAP interface ONLY communicates with Firestore
+- All data persistence must use Firestore reads/writes
+- No LSL message passing, no `secondlife://` protocol calls for data
+- UI state is managed entirely in JavaScript (client-side)
+- Character selection, creation, editing, and saving are Firestore-only operations
+
+### State Management
+- **Dirty flag**: Track when character has unsaved changes (client-side state)
+- **Current character**: Track selected/active character (loaded from Firestore)
+- **Step completion**: Track which creation steps are complete (derived from character data)
+- **Navigation guard**: Prevent leaving/switching when dirty without warning (client-side validation)
+
+### Save/Discard Logic
+- **Save**: Write full character object to Firestore via Firestore API **ONLY when Save Character button is clicked**
+  - No autosave or draft saving
+  - All changes remain in client-side state until Save is clicked
+- **Discard**: Revert to last saved state (client-side revert, no Firestore write)
+- **Warning modal**: Show before navigation/switching when dirty (client-side check)
+- **Success feedback**: Toast notification on save (no LSL communication)
+- **Error handling**: Show error if Firestore write fails, keep dirty state
+- **All operations**: Firestore-only; no LSL dependencies
+
+### Modal Flows
+- **Gender selection**: Keep inline panels (modals already exist, can be used if preferred)
+- **Species selection**: Keep inline panels (modals already exist, can be used if preferred)
+- **Career selection**: Opens Career tab (too much content for modal)
+- **Unsaved changes warning**: Modal before navigation/character switch
+
+---
+
+## Visual Design Notes
+
+### Hierarchy
+1. Character Selector (top, prominent)
+2. Step Guide Panel (always visible during creation/editing)
+3. Save Button (prominent in step guide area)
+4. Character Summary Panel (main content)
+5. Detail sections (Identity, Species, Career)
+
+### Spacing & Layout
+- Remove bottom action bar
+- Step guide panel should be sticky or always visible
+- Character summary should be scannable at a glance
+- Inline editing should feel natural and unobtrusive
+
+### Responsive Considerations
+- Step guide may stack vertically on mobile
+- Save button may need to float or be sticky on mobile
+- Modals should be full-screen or appropriately sized on mobile
+
+---
+
+## Migration Notes
+
+### What Moves
+- Character Selector: Options → Character tab (top)
+- Character Management: Options → Character tab
+- New Character button: Header/Options → Character Selector dropdown + Hero callout
+
+### What Stays
+- Stats tab (with link from Character summary)
+- Career tab (opens from Character tab or standalone)
+- Inventory tab
+- Options tab (cleaned up, only game settings)
+- **Help tab** (new - instructions and helpful information)
+
+### What Removes
+- Bottom 3-button footer (Save, Challenge Test, Refresh)
+- Redundant Career Path section if duplicated in Career tab
+- Split Character Summary (consolidate into one panel)
+
+---
+
+## Acceptance Criteria
+
+1. ✅ Character Selector visible and prominent at top of Character tab
+2. ✅ Clear "No Character" message with New Character CTA when no character exists
+3. ✅ Step Guide Panel visible showing Name/Title → Gender → Species → Career
+4. ✅ Progress markers show completion status (✓ ● ○)
+5. ✅ Save Character button prominent and always visible during creation/editing
+6. ✅ Character Summary Panel consolidated into single unified view
+7. ✅ Save warnings appear when attempting to navigate/switch with unsaved changes
+8. ✅ Options tab cleaned up (only game settings remain)
+9. ✅ Bottom 3-button footer removed
+10. ✅ Inline editing works for Name/Title
+11. ✅ Modals open for Gender/Species changes
+12. ✅ Character creation flow is clear and guided
+
+---
+
+## Implementation Phases
+
+### Phase 1: Structure & Navigation
+- Move Character Selector to Character tab
+- Add Step Guide Panel skeleton
+- Add Status Indicator
+- Remove bottom footer buttons
+
+### Phase 2: Character Summary Consolidation
+- Merge Identity and Character Summary into unified panel
+- Implement inline editing for Name/Title
+- Add Change buttons for Gender/Species/Career
+
+### Phase 3: Step Guide & Progress
+- Implement step indicator with progress markers
+- Add Save button to step guide area
+- Connect steps to character creation flow
+
+### Phase 4: Modals & Warnings
+- Gender selection modal
+- Species selection modal (with warnings)
+- Unsaved changes warning modal
+- Navigation guard implementation
+
+### Phase 5: Cleanup & Polish
+- Clean up Options tab (remove character management)
+- Visual polish and responsive adjustments
+- Testing and refinement
+
+---
+
+## Help Page / Documentation
+
+### Help Page Requirements
+- **New Help tab or page** with instructions and helpful information
+- Content should include:
+  - Character creation process walkthrough
+  - How to edit characters
+  - Understanding the step guide
+  - Save/discard workflow explanation
+  - Character selection and management
+  - How to navigate between tabs
+  - FAQ/common questions
+- Accessible from navigation tabs or help icon in header
+- Should be comprehensive enough for new users to understand the system
