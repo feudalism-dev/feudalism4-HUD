@@ -94,16 +94,22 @@ showCoinMainMenu() {
 // Request coin counts from currency field (not inventory items)
 requestCoinCounts() {
     string characterId = llLinksetDataRead("characterId");
+    debugLog("requestCoinCounts() called, characterId: " + characterId);
     if (characterId != "" && characterId != "JSON_INVALID") {
         // Request currency field from Firestore (currency is stored as map: {gold, silver, copper})
         // Set flag to indicate we're requesting for coin counts
         llLinksetDataWrite("_coin_counts_request", "TRUE");
         
-        // Request currency field - Bridge Characters expects: CHAR|getCurrency|characterId
-        // But getCurrency uses old format: just "getCurrency" with characterId in payload
-        // Let's use the old format to match what HUD Stats uses
+        // Request currency field - send to Bridge Main which routes to Bridge Characters
+        // Bridge Main expects: command="getCurrency", id=characterId
+        // It will route as: CHAR|getCurrency|characterId|senderLink
+        // Bridge Characters responds with: llMessageLinked(senderLink, 0, "currency", fieldValue)
+        // Since we're using LINK_SET, we'll receive it on channel 0
+        integer myLinkNumber = llGetLinkNumber();
+        debugLog("Sending getCurrency request for characterId: " + characterId + ", my link number: " + (string)myLinkNumber);
         llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getCurrency", (key)characterId);
     } else {
+        debugLog("ERROR: No character selected, cannot request coin counts");
         notify("No character selected. Cannot show coins.");
         coinMenuMode = COIN_MENU_MODE_NONE;
     }
@@ -529,8 +535,11 @@ default {
         
         // Handle currency response from Firestore Bridge (for coin counts)
         // Currency is stored as map: {gold: X, silver: Y, copper: Z}
-        if (num == 0 && msg == "currency") {
+        // Response can come on channel 0 (direct from Bridge Characters) or FS_BRIDGE_CHANNEL
+        if ((num == 0 || num == FS_BRIDGE_CHANNEL) && msg == "currency") {
+            debugLog("Currency response received on channel " + (string)num + ": " + (string)id);
             string coinCountsRequest = llLinksetDataRead("_coin_counts_request");
+            debugLog("coinCountsRequest flag: " + coinCountsRequest);
             if (coinCountsRequest == "TRUE") {
                 llLinksetDataDelete("_coin_counts_request");
                 
@@ -591,10 +600,14 @@ default {
                     }
                 }
                 
+                debugLog("Coin counts extracted - gold: " + (string)coinGoldCount + ", silver: " + (string)coinSilverCount + ", copper: " + (string)coinCopperCount);
+                
                 // Check if we need to show coin menu with counts
                 string coinMenuAfterCounts = llLinksetDataRead("_coin_menu_after_counts");
+                debugLog("coinMenuAfterCounts flag: " + coinMenuAfterCounts);
                 if (coinMenuAfterCounts == "TRUE") {
                     llLinksetDataDelete("_coin_menu_after_counts");
+                    debugLog("Calling showCoinMenuWithCounts()");
                     showCoinMenuWithCounts();
                 }
                 // Check if we need to continue to coin type selection (for give coins flow)
