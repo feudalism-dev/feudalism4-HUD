@@ -529,8 +529,11 @@ try {
                             // Load inventory (Inventory v2 - pagination)
                             const pageSize = 50;
                             const page = 1;
+                            console.log('[loadData] Loading inventory for character:', this.state.character.id);
                             const result = await API.getInventoryPage(this.state.character.id, page, pageSize);
+                            console.log('[loadData] Inventory result:', result);
                             const items = result.items || [];
+                            console.log('[loadData] Inventory items:', items, 'count:', items.length);
                             this.state.inventory = items;
                             
                             // Initialize pagination state
@@ -540,11 +543,7 @@ try {
                                 items: items
                             };
                             
-                            // Render inventory if inventory tab is active
-                            const inventoryTab = document.getElementById('tab-inventory');
-                            if (inventoryTab && inventoryTab.classList.contains('active')) {
-                                UI.renderInventory(items);
-                            }
+                            console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
                             
                             // Broadcast character data to Players HUD via Setup HUD
                             // This happens automatically when character loads
@@ -1261,6 +1260,7 @@ try {
         UI.renderActionSlots(char);
         
         // Render inventory (Inventory v2 - subcollection)
+        console.log('[renderAll] Rendering inventory. this.state.inventory:', this.state.inventory);
         UI.renderInventory(this.state.inventory);
         
         // Load and render inventory if inventory tab is active
