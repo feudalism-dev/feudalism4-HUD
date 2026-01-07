@@ -124,24 +124,16 @@ default {
                  ", channel=" + (string)num +
                  ", msg='" + msg + "'");
 
-        // Handle responses from Bridge Characters (forward back to original requester)
-        // Bridge Characters sends responses on channel 0 with format: fieldName or fieldName_ERROR
-        // These need to be forwarded back to the original requester
-        if (num == 0 && sender_num != llGetLinkNumber()) {
-            debugLog("Response from module: sender=" + (string)sender_num + ", msg='" + msg + "'");
-            // This might be a response from a module - check if it's a known field response
-            // For now, forward currency responses (and errors) back to all listeners via LINK_SET
-            // This allows all scripts to receive currency updates
-            if (msg == "currency" || msg == "currency_ERROR") {
-                debugLog("Forwarding currency response to LINK_SET");
-                llMessageLinked(LINK_SET, 0, msg, id);
-                return;
-            }
-            // For other field responses, could track original requester here if needed
-            // For now, let them go through (scripts listening for them will receive them)
+        // Check for response messages FIRST (before sender checks)
+        // Responses from Bridge Characters on channel 0 should be forwarded to all listeners
+        if (num == 0 && (msg == "currency" || msg == "currency_ERROR" || 
+                        llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0)) {
+            debugLog("Response detected: '" + msg + "' - forwarding to LINK_SET");
+            llMessageLinked(LINK_SET, 0, msg, id);
+            return;
         }
 
-        // Only accept HUD messages
+        // Only accept HUD messages for routing
         if (num != 0 && num != FS_BRIDGE_CHANNEL) {
             return;
         }
