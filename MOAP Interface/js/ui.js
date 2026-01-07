@@ -1635,23 +1635,6 @@ const UI = {
         return div.innerHTML;
     },
     
-    /**
-     * Render inventory list (Inventory v2 - subcollection)
-     * @param {Array} items - Array of { id, qty } objects
-     */
-    renderInventory(items) {
-        const panel = document.getElementById('inventory-list');
-        if (!panel) return;
-
-        if (!items || items.length === 0) {
-            panel.innerHTML = "<div class='empty'>No items</div>";
-            return;
-        }
-
-        panel.innerHTML = items
-            .map(item => `<div class='inv-item'><span>${item.id}</span><span>${item.qty}</span></div>`)
-            .join('');
-    },
     
     /**
      * Render active buffs
