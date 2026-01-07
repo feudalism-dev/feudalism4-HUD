@@ -763,57 +763,22 @@ default {
                 integer copperDelta = (integer)copperDeltaStr;
                 
                 if (status == 200) {
-                    debugLog("GET_CURRENCY_FOR_UPDATE: HTTP 200, characterID=" + characterID + ", deltas: gold=" + (string)goldDelta + ", silver=" + (string)silverDelta + ", copper=" + (string)copperDelta);
-                    
-                    // Debug: log body length and first 500 chars to see structure
-                    integer bodyLen = llStringLength(body);
-                    string bodyPreview = body;
-                    if (bodyLen > 500) {
-                        bodyPreview = llGetSubString(body, 0, 499) + "...";
-                    }
-                    debugLog("GET_CURRENCY_FOR_UPDATE: Response body length=" + (string)bodyLen + ", preview: " + bodyPreview);
-                    
                     // Extract current currency
                     string fields = llJsonGetValue(body, ["fields"]);
                     integer currentGold = 0;
                     integer currentSilver = 0;
                     integer currentCopper = 0;
                     
-                    string fieldsStatus = "NO";
-                    if (fields != JSON_INVALID && fields != "") {
-                        fieldsStatus = "YES";
-                        debugLog("GET_CURRENCY_FOR_UPDATE: fields value: " + fields);
-                    } else {
-                        string jsonInvalidStatus = "FALSE";
-                        if (fields == JSON_INVALID) {
-                            jsonInvalidStatus = "TRUE";
-                        }
-                        string emptyStatus = "FALSE";
-                        if (fields == "") {
-                            emptyStatus = "TRUE";
-                        }
-                        debugLog("GET_CURRENCY_FOR_UPDATE: fields is JSON_INVALID or empty. JSON_INVALID check: " + jsonInvalidStatus + ", empty check: " + emptyStatus);
-                    }
-                    debugLog("GET_CURRENCY_FOR_UPDATE: fields extracted: " + fieldsStatus);
-                    
                     if (fields != JSON_INVALID && fields != "") {
                         // Extract currency mapFields using same pattern as Bridge Stipends
                         // Bridge Stipends does: llJsonGetValue(fields, ["stipend","mapValue","fields"])
                         string currencyFields = llJsonGetValue(fields, ["currency","mapValue","fields"]);
-                        
-                        string currencyFieldsStatus = "EMPTY/INVALID";
-                        if (currencyFields != JSON_INVALID && currencyFields != "") {
-                            currencyFieldsStatus = currencyFields;
-                        }
-                        debugLog("GET_CURRENCY_FOR_UPDATE: currencyFields extracted: " + currencyFieldsStatus);
                         
                         if (currencyFields != JSON_INVALID && currencyFields != "") {
                             // Directly extract integerValue strings (same pattern as Bridge Stipends)
                             string goldStr = llJsonGetValue(currencyFields, ["gold","integerValue"]);
                             string silverStr = llJsonGetValue(currencyFields, ["silver","integerValue"]);
                             string copperStr = llJsonGetValue(currencyFields, ["copper","integerValue"]);
-                            
-                            debugLog("GET_CURRENCY_FOR_UPDATE: Extracted values - goldStr='" + goldStr + "', silverStr='" + silverStr + "', copperStr='" + copperStr + "'");
                             
                             if (goldStr != JSON_INVALID && goldStr != "") {
                                 currentGold = (integer)goldStr;
@@ -824,21 +789,13 @@ default {
                             if (copperStr != JSON_INVALID && copperStr != "") {
                                 currentCopper = (integer)copperStr;
                             }
-                        } else {
-                            debugLog("GET_CURRENCY_FOR_UPDATE: WARNING - currencyFields is empty/invalid, using defaults (0,0,0)");
                         }
-                    } else {
-                        debugLog("GET_CURRENCY_FOR_UPDATE: WARNING - fields is empty/invalid");
                     }
-                    
-                    debugLog("GET_CURRENCY_FOR_UPDATE: Current currency - gold=" + (string)currentGold + ", silver=" + (string)currentSilver + ", copper=" + (string)currentCopper);
                     
                     // Add deltas
                     integer newGold = currentGold + goldDelta;
                     integer newSilver = currentSilver + silverDelta;
                     integer newCopper = currentCopper + copperDelta;
-                    
-                    debugLog("GET_CURRENCY_FOR_UPDATE: New totals - gold=" + (string)newGold + ", silver=" + (string)newSilver + ", copper=" + (string)newCopper);
                     
                     // Now update with new totals
                     string patchUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?updateMask.fieldPaths=currency.gold&updateMask.fieldPaths=currency.silver&updateMask.fieldPaths=currency.copper";
