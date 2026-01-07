@@ -473,10 +473,8 @@ try {
                     console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
                     const characters = charsResult.data.characters;
                     
-                    // If user has multiple characters, show selector
-                    if (characters.length > 1) {
-                        await this.loadCharacterSelector(characters);
-                    }
+                    // UX 2: Always load character selector (shows even with 1 character)
+                    await this.loadCharacterSelector(characters);
                     
                     // Load first character by default (or selected character)
                     const characterId = this.state.selectedCharacterId || characters[0].id;
@@ -494,6 +492,11 @@ try {
                         } else {
                             this.state.character = character;
                             this.state.isNewCharacter = false;
+                            this.state.selectedCharacterId = character.id; // Ensure selected ID is set
+                            
+                            // UX 2: Update UI indicators after character loads
+                            this.updateStatusIndicator();
+                            this.updateStepGuide();
                             
                             // Ensure resource pools are properly structured
                             if (!this.state.character.health || typeof this.state.character.health !== 'object') {
@@ -543,6 +546,12 @@ try {
                     // No character found - ready for creation
                     console.log('[loadData] No characters found in result. charsResult.data:', charsResult.data);
                     this.state.character = null;
+                    this.state.selectedCharacterId = null;
+                    
+                    // UX 2: Update UI indicators when no character
+                    await this.loadCharacterSelector([]); // Empty array to show "Create New" option
+                    this.updateStatusIndicator();
+                    this.updateStepGuide();
                     this.state.isNewCharacter = true;
                     console.log('No existing character, ready for creation');
                 }
@@ -928,12 +937,25 @@ try {
             });
         });
         
-        // Show/hide "no character" message
+        // Show/hide "no character" message and hero callout
+        const noCharHero = document.getElementById('no-character-hero');
         if (noCharMessage) {
             noCharMessage.style.display = characters.length === 0 ? 'block' : 'none';
         }
+        if (noCharHero) {
+            noCharHero.style.display = characters.length === 0 ? 'block' : 'none';
+        }
         
         selector.style.display = 'block'; // Always show in new design
+        
+        // Update status indicator after selector is populated
+        if (characters.length > 0) {
+            // Status will be updated when character actually loads
+            // But if we have characters, status shouldn't say "No Character"
+            if (!this.state.character && this.state.selectedCharacterId) {
+                // We have a selected ID but character not loaded yet - that's OK
+            }
+        }
     },
     
     /**
@@ -1452,6 +1474,11 @@ try {
         
         // New Character button in navigation bar
         document.getElementById('btn-new-character-nav')?.addEventListener('click', () => {
+            this.showNewCharacterDialog();
+        });
+        
+        // Hero callout "Create New Character" button
+        document.getElementById('btn-create-new-hero')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
         });
         
