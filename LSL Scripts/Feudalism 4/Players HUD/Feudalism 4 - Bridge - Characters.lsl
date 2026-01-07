@@ -14,15 +14,6 @@ key ownerKey;
 string ownerUUID;
 string firestoreRestBase;
 
-// Debug
-integer DEBUG_MODE = TRUE;  // Enable for currency debugging
-
-debugLog(string msg) {
-    if (DEBUG_MODE) {
-        llOwnerSay("[Bridge_Characters] " + msg);
-    }
-}
-
 // Request tracking for character field requests
 list pendingRequests;
 integer MAX_PENDING_REQUESTS = 20;
@@ -886,10 +877,8 @@ default {
                 pendingCharOps = llDeleteSubList(pendingCharOps, opIndex, opIndex + 2);
                 
                 if (status == 200) {
-                    debugLog("UPDATE_CURRENCY: HTTP 200 - Currency updated successfully");
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CURRENCY_UPDATED|OK", "");
                 } else {
-                    debugLog("UPDATE_CURRENCY: ERROR - HTTP " + (string)status + ", body: " + body);
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CURRENCY_UPDATED_ERROR", "Status " + (string)status);
                 }
                 return;
