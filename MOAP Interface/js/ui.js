@@ -170,12 +170,19 @@ const UI = {
         
         // Load inventory when inventory tab is shown
         if (tabId === 'inventory' && typeof App !== 'undefined') {
-            // If inventory is already loaded, just render it
-            if (App.state && App.state.inventory && App.state.inventory.length > 0) {
+            // Always try to load inventory when tab is shown (in case it wasn't loaded before)
+            if (App.loadInventory) {
+                // Load fresh to ensure we have latest data
+                App.loadInventory().catch(err => {
+                    console.error('[switchTab] Error loading inventory:', err);
+                    // If load fails but we have cached inventory, render that
+                    if (App.state && App.state.inventory && App.state.inventory.length > 0) {
+                        UI.renderInventory(App.state.inventory);
+                    }
+                });
+            } else if (App.state && App.state.inventory) {
+                // Fallback: render cached inventory if loadInventory doesn't exist
                 UI.renderInventory(App.state.inventory);
-            } else if (App.loadInventory) {
-                // Otherwise load it fresh
-                App.loadInventory();
             }
         }
     },

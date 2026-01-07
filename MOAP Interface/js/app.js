@@ -1261,16 +1261,16 @@ try {
         
         // Render inventory (Inventory v2 - subcollection)
         console.log('[renderAll] Rendering inventory. this.state.inventory:', this.state.inventory);
-        UI.renderInventory(this.state.inventory);
+        // Only render inventory if we have data - otherwise loadInventory will handle it when tab is shown
+        if (this.state.inventory && Array.isArray(this.state.inventory) && this.state.inventory.length > 0) {
+            UI.renderInventory(this.state.inventory);
+        }
         
-        // Load and render inventory if inventory tab is active
+        // If inventory tab is active but no inventory loaded, load it
         const inventoryTab = document.getElementById('tab-inventory');
         if (inventoryTab && inventoryTab.classList.contains('active')) {
-            // If we already have inventory loaded, just render it
-            if (this.state.inventory && this.state.inventory.length > 0) {
-                UI.renderInventory(this.state.inventory);
-            } else {
-                // Otherwise load it fresh
+            if (!this.state.inventory || !Array.isArray(this.state.inventory) || this.state.inventory.length === 0) {
+                // Load inventory if not already loaded
                 await this.loadInventory();
             }
         }
