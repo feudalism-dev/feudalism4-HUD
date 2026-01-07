@@ -81,41 +81,28 @@ flushInventoryDeltas() {
 
 // =========================== COIN MENU FUNCTIONS ============================
 
-// Show coin main menu
+// Show coin main menu (automatically requests coin counts first)
 showCoinMainMenu() {
     coinMenuMode = COIN_MENU_MODE_MAIN;
     
-    // Remove any existing listener
-    if (coinMenuListener != 0) {
-        llListenRemove(coinMenuListener);
-    }
-    
-    // Create new listener
-    coinMenuListener = llListen(MENU_CHANNEL, "", ownerKey, "");
-    
-    list buttons = ["Show Coins", "Give Coins"];
-    if (vaultNearby) {
-        buttons += ["Vault: Deposit", "Vault: Withdraw"];
-    }
-    llDialog(ownerKey, "\nCoin Menu:\n\nSelect an option:", buttons, MENU_CHANNEL);
-    
-    // Set timer
-    llSetTimerEvent(60.0);
+    // Automatically request coin counts to display in menu
+    requestCoinCounts();
+    // Store flag to show menu after counts are loaded
+    llLinksetDataWrite("_coin_menu_after_counts", "TRUE");
 }
 
-// Request coin counts from inventory (requests full inventory page to find coins)
+// Request coin counts from currency field (not inventory items)
 requestCoinCounts() {
     string characterId = llLinksetDataRead("characterId");
     if (characterId != "" && characterId != "JSON_INVALID") {
-        // Request large page to find all coins
-        string payload = llJsonSetValue("{}", ["characterId"], characterId);
-        payload = llJsonSetValue(payload, ["cursor"], "");
-        payload = llJsonSetValue(payload, ["pageSize"], (string)100);
-        
+        // Request currency field from Firestore (currency is stored as map: {gold, silver, copper})
         // Set flag to indicate we're requesting for coin counts
         llLinksetDataWrite("_coin_counts_request", "TRUE");
         
-        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getInventoryPage", payload);
+        // Request currency field - Bridge Characters expects: CHAR|getCurrency|characterId
+        // But getCurrency uses old format: just "getCurrency" with characterId in payload
+        // Let's use the old format to match what HUD Stats uses
+        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getCurrency", (key)characterId);
     } else {
         notify("No character selected. Cannot show coins.");
         coinMenuMode = COIN_MENU_MODE_NONE;
@@ -144,18 +131,33 @@ extractCoinCounts(list itemNames, list itemQuantities) {
     }
 }
 
-// Show coin counts to user
-showCoinCountsDisplay() {
-    string msg = "You have " + (string)coinGoldCount + " gold, " 
-                 + (string)coinSilverCount + " silver, and " 
-                 + (string)coinCopperCount + " copper.";
-    notify(msg);
-    coinMenuMode = COIN_MENU_MODE_NONE;
+// Show coin menu dialog with counts displayed
+showCoinMenuWithCounts() {
+    coinMenuMode = COIN_MENU_MODE_MAIN;
+    
+    // Remove any existing listener
     if (coinMenuListener != 0) {
         llListenRemove(coinMenuListener);
-        coinMenuListener = 0;
     }
-    llSetTimerEvent(0.0);
+    
+    // Create new listener
+    coinMenuListener = llListen(MENU_CHANNEL, "", ownerKey, "");
+    
+    // Build message showing coin counts
+    string message = "\nYou have: " + (string)coinGoldCount + " gold coins, " 
+                     + (string)coinSilverCount + " silver coins, and " 
+                     + (string)coinCopperCount + " copper coins.\n\nWhat would you like to do?";
+    
+    // Build buttons list
+    list buttons = ["Give Coins", "Close"];
+    if (vaultNearby) {
+        buttons = ["Give Coins", "Vault: Deposit", "Vault: Withdraw", "Close"];
+    }
+    
+    llDialog(ownerKey, message, buttons, MENU_CHANNEL);
+    
+    // Set timer
+    llSetTimerEvent(60.0);
 }
 
 // Start give coins flow - sensor scan
@@ -525,69 +527,89 @@ default {
             return;
         }
         
-        // Handle inventoryPage response from Firestore Bridge (for coin counts)
-        if (num == FS_BRIDGE_CHANNEL && msg == "inventoryPage") {
+        // Handle currency response from Firestore Bridge (for coin counts)
+        // Currency is stored as map: {gold: X, silver: Y, copper: Z}
+        if (num == 0 && msg == "currency") {
             string coinCountsRequest = llLinksetDataRead("_coin_counts_request");
             if (coinCountsRequest == "TRUE") {
                 llLinksetDataDelete("_coin_counts_request");
                 
-                // Parse JSON: {items: [{name, qty}], cursor, hasMore}
-                string responseJson = (string)id;
-                list itemNames = [];
-                list itemQuantities = [];
+                // Parse currency map value from response
+                // Response format: mapValue fields with gold, silver, copper as integerValue
+                string currencyJson = (string)id;
                 
-                if (responseJson != "" && responseJson != JSON_INVALID) {
-                    // Extract items array
-                    string itemsJson = llJsonGetValue(responseJson, ["items"]);
-                    if (itemsJson != JSON_INVALID && itemsJson != "") {
-                        // Parse items array
-                        integer i = 0;
-                        while (TRUE) {
-                            string itemJson = llJsonGetValue(itemsJson, [i]);
-                            if (itemJson == JSON_INVALID || itemJson == "") jump done_parse_coin_items;
-                            
-                            // Extract name and qty from item object
-                            string itemName = llJsonGetValue(itemJson, ["name"]);
-                            string qtyStr = llJsonGetValue(itemJson, ["qty"]);
-                            
-                            // Remove quotes if present
-                            if (itemName != JSON_INVALID && itemName != "" && llStringLength(itemName) >= 2 && llGetSubString(itemName, 0, 0) == "\"" && llGetSubString(itemName, -1, -1) == "\"") {
-                                itemName = llGetSubString(itemName, 1, -2);
+                // Reset counts
+                coinGoldCount = 0;
+                coinSilverCount = 0;
+                coinCopperCount = 0;
+                
+                if (currencyJson != "" && currencyJson != JSON_INVALID) {
+                    // Currency field comes as mapValue JSON string
+                    // Extract the fields object
+                    string currencyFields = llJsonGetValue(currencyJson, ["fields"]);
+                    if (currencyFields == JSON_INVALID || currencyFields == "") {
+                        // Try direct extraction if it's already the fields object
+                        currencyFields = currencyJson;
+                    }
+                    
+                    if (currencyFields != JSON_INVALID && currencyFields != "") {
+                        // Extract gold, silver, copper values
+                        string goldField = llJsonGetValue(currencyFields, ["gold"]);
+                        string silverField = llJsonGetValue(currencyFields, ["silver"]);
+                        string copperField = llJsonGetValue(currencyFields, ["copper"]);
+                        
+                        if (goldField != JSON_INVALID && goldField != "") {
+                            string goldStr = llJsonGetValue(goldField, ["integerValue"]);
+                            if (goldStr == JSON_INVALID || goldStr == "") {
+                                // Try direct integer value
+                                goldStr = goldField;
                             }
-                            if (qtyStr != JSON_INVALID && qtyStr != "" && llStringLength(qtyStr) >= 2 && llGetSubString(qtyStr, 0, 0) == "\"" && llGetSubString(qtyStr, -1, -1) == "\"") {
-                                qtyStr = llGetSubString(qtyStr, 1, -2);
+                            if (goldStr != "") {
+                                coinGoldCount = (integer)goldStr;
                             }
-                            
-                            integer qty = (integer)qtyStr;
-                            
-                            if (itemName != "" && qty > 0) {
-                                itemNames += [itemName];
-                                itemQuantities += [qty];
-                            }
-                            
-                            i++;
                         }
-                        @done_parse_coin_items;
+                        
+                        if (silverField != JSON_INVALID && silverField != "") {
+                            string silverStr = llJsonGetValue(silverField, ["integerValue"]);
+                            if (silverStr == JSON_INVALID || silverStr == "") {
+                                silverStr = silverField;
+                            }
+                            if (silverStr != "") {
+                                coinSilverCount = (integer)silverStr;
+                            }
+                        }
+                        
+                        if (copperField != JSON_INVALID && copperField != "") {
+                            string copperStr = llJsonGetValue(copperField, ["integerValue"]);
+                            if (copperStr == JSON_INVALID || copperStr == "") {
+                                copperStr = copperField;
+                            }
+                            if (copperStr != "") {
+                                coinCopperCount = (integer)copperStr;
+                            }
+                        }
                     }
                 }
                 
-                // Extract coin counts from this page
-                extractCoinCounts(itemNames, itemQuantities);
-                
+                // Check if we need to show coin menu with counts
+                string coinMenuAfterCounts = llLinksetDataRead("_coin_menu_after_counts");
+                if (coinMenuAfterCounts == "TRUE") {
+                    llLinksetDataDelete("_coin_menu_after_counts");
+                    showCoinMenuWithCounts();
+                }
                 // Check if we need to continue to coin type selection (for give coins flow)
-                string giveAfterCounts = llLinksetDataRead("_coin_give_after_counts");
-                if (giveAfterCounts == "TRUE") {
-                    llLinksetDataDelete("_coin_give_after_counts");
-                    showCoinTypeSelectionDialog();
-                } else {
-                    // Check if we need to continue to vault deposit coin type selection
-                    string vaultDepositAfterCounts = llLinksetDataRead("_vault_deposit_after_counts");
-                    if (vaultDepositAfterCounts == "TRUE") {
-                        llLinksetDataDelete("_vault_deposit_after_counts");
-                        showVaultDepositCoinTypeDialog();
+                else {
+                    string giveAfterCounts = llLinksetDataRead("_coin_give_after_counts");
+                    if (giveAfterCounts == "TRUE") {
+                        llLinksetDataDelete("_coin_give_after_counts");
+                        showCoinTypeSelectionDialog();
                     } else {
-                        // Just show counts
-                        showCoinCountsDisplay();
+                        // Check if we need to continue to vault deposit coin type selection
+                        string vaultDepositAfterCounts = llLinksetDataRead("_vault_deposit_after_counts");
+                        if (vaultDepositAfterCounts == "TRUE") {
+                            llLinksetDataDelete("_vault_deposit_after_counts");
+                            showVaultDepositCoinTypeDialog();
+                        }
                     }
                 }
             }
@@ -745,10 +767,7 @@ default {
             
             // Coin main menu
             if (coinMenuMode == COIN_MENU_MODE_MAIN) {
-                if (message == "show coins") {
-                    requestCoinCounts();
-                }
-                else if (message == "give coins") {
+                if (message == "give coins") {
                     startGiveCoinsFlow();
                 }
                 else if (message == "vault: deposit") {
@@ -757,7 +776,16 @@ default {
                 else if (message == "vault: withdraw") {
                     startVaultWithdrawFlow();
                 }
+                else if (message == "close") {
+                    coinMenuMode = COIN_MENU_MODE_NONE;
+                    if (coinMenuListener != 0) {
+                        llListenRemove(coinMenuListener);
+                        coinMenuListener = 0;
+                    }
+                    llSetTimerEvent(0.0);
+                }
                 else {
+                    // Unknown option - close menu
                     coinMenuMode = COIN_MENU_MODE_NONE;
                     if (coinMenuListener != 0) {
                         llListenRemove(coinMenuListener);
