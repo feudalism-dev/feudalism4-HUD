@@ -409,8 +409,32 @@ default {
         if (domain != DOMAIN_CHAR) return; // Not for us
         
         string command = llList2String(parts, 1);
-        string payload = llList2String(parts, 2);
-        integer originalSenderLink = (integer)llList2String(parts, 3);
+        
+        // Extract payload and senderLink
+        // Format: DOMAIN|COMMAND|PAYLOAD[|SENDERLINK]
+        // When Bridge Main sends: CHAR|UPDATE_CURRENCY|characterId|gold|silver|copper|senderLink
+        // parts[0]="CHAR", parts[1]="UPDATE_CURRENCY", parts[2..n-1]=payload parts, parts[n]=senderLink (if present)
+        integer originalSenderLink = sender_num;  // Default to sender_num
+        string payload;
+        
+        if (llGetListLength(parts) >= 4) {
+            // Check if last part could be senderLink
+            string lastPart = llList2String(parts, llGetListLength(parts) - 1);
+            integer testSenderLink = (integer)lastPart;
+            // Heuristic: if last part is numeric and looks like a link number, assume senderLink
+            // Link numbers are typically 1-30, but could be any positive integer
+            if (testSenderLink > 0 && lastPart == (string)testSenderLink) {
+                // Last part is likely senderLink - extract payload excluding it
+                originalSenderLink = testSenderLink;
+                payload = llDumpList2String(llList2List(parts, 2, llGetListLength(parts) - 2), "|");
+            } else {
+                // Last part is part of payload (e.g., "copper" value)
+                payload = llDumpList2String(llList2List(parts, 2, -1), "|");
+            }
+        } else {
+            // 3-part format: DOMAIN|COMMAND|PAYLOAD (no senderLink)
+            payload = llDumpList2String(llList2List(parts, 2, -1), "|");
+        }
         
         // Parse payload: targetUUID|additionalParams
         list payloadParts = llParseString2List(payload, ["|"], []);
