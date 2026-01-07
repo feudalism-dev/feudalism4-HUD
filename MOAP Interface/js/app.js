@@ -1180,6 +1180,24 @@ try {
         DebugLog.log(`State: ${this.state.species.length} species, ${this.state.classes.length} classes, ${this.state.genders.length} genders`, 'debug');
         const char = this.state.character;
         
+        // UX 2: Update status indicator and step guide
+        this.updateStatusIndicator();
+        this.updateStepGuide();
+        
+        // UX 2: Show/hide no character message and step guide panel
+        const noCharMessage = document.getElementById('no-character-message');
+        const stepGuidePanel = document.querySelector('.step-guide-panel');
+        
+        if (char) {
+            // Has character (new or existing) - show step guide, hide "no character" message
+            if (noCharMessage) noCharMessage.style.display = 'none';
+            if (stepGuidePanel) stepGuidePanel.style.display = 'block';
+        } else {
+            // No character - show "no character" message, hide step guide
+            if (noCharMessage) noCharMessage.style.display = 'block';
+            if (stepGuidePanel) stepGuidePanel.style.display = 'none';
+        }
+        
         // Show/hide new character banner
         const newCharBanner = document.getElementById('new-character-banner');
         if (newCharBanner) {
