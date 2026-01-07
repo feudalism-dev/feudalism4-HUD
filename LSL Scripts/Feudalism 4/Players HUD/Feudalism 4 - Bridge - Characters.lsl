@@ -779,14 +779,22 @@ default {
                     integer currentSilver = 0;
                     integer currentCopper = 0;
                     
-                    debugLog("GET_CURRENCY_FOR_UPDATE: fields extracted: " + (fields != JSON_INVALID && fields != "" ? "YES" : "NO"));
+                    string fieldsStatus = "NO";
+                    if (fields != JSON_INVALID && fields != "") {
+                        fieldsStatus = "YES";
+                    }
+                    debugLog("GET_CURRENCY_FOR_UPDATE: fields extracted: " + fieldsStatus);
                     
                     if (fields != JSON_INVALID && fields != "") {
                         // Extract currency mapFields using same pattern as Bridge Stipends
                         // Bridge Stipends does: llJsonGetValue(fields, ["stipend","mapValue","fields"])
                         string currencyFields = llJsonGetValue(fields, ["currency","mapValue","fields"]);
                         
-                        debugLog("GET_CURRENCY_FOR_UPDATE: currencyFields extracted: " + (currencyFields != JSON_INVALID && currencyFields != "" ? currencyFields : "EMPTY/INVALID"));
+                        string currencyFieldsStatus = "EMPTY/INVALID";
+                        if (currencyFields != JSON_INVALID && currencyFields != "") {
+                            currencyFieldsStatus = currencyFields;
+                        }
+                        debugLog("GET_CURRENCY_FOR_UPDATE: currencyFields extracted: " + currencyFieldsStatus);
                         
                         if (currencyFields != JSON_INVALID && currencyFields != "") {
                             // Directly extract integerValue strings (same pattern as Bridge Stipends)
