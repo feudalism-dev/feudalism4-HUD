@@ -24,7 +24,7 @@ integer MODULE_CHANNEL      = -777002;   // Channel used by Bridge Characters an
 
 // ====================== DEBUG ======================
 
-integer DEBUG_MODE = TRUE;
+integer DEBUG_MODE = FALSE;
 
 debugLog(string msg) {
     if (DEBUG_MODE) {

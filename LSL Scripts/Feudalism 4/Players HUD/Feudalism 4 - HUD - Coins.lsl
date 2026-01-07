@@ -6,7 +6,7 @@
 
 // =========================== CONFIGURATION ==================================
 // Debug settings
-integer DEBUG_MODE = TRUE;  // Enable debug logging (set to TRUE only when debugging)
+integer DEBUG_MODE = FALSE;  // Enable debug logging (set to TRUE only when debugging)
 
 // Debug function - centralized logging
 debugLog(string message) {
