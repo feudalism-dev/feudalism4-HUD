@@ -710,9 +710,61 @@ input::placeholder {
 
 /* === Inventory Grid === */
 .inventory-grid {
+    width: 100%;
+}
+
+/* Inventory container - table-like layout */
+.inventory-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.inventory-header {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    grid-template-columns: 2fr 1fr 1.5fr;
     gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-darker);
+    border-bottom: 2px solid var(--border-color);
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.inventory-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1.5fr;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--border-color);
+    align-items: center;
+    transition: background-color 0.2s;
+}
+
+.inventory-row:hover {
+    background: var(--bg-dark);
+}
+
+.inventory-row-alt {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.inventory-item-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.inventory-quantity {
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.inventory-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-xs);
 }
 
 .inventory-slot {
