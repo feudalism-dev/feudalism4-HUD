@@ -126,13 +126,12 @@ default {
 
         // Check for response messages FIRST (on channel 0 only)
         // Responses from Bridge modules on channel 0 should be forwarded to all listeners
-        // BUT: Don't forward our own forwarded messages (prevent infinite loop)
+        // Use LINK_OTHERS to prevent forwarding back to ourselves (no infinite loop)
         if (num == 0) {
-            if (sender_num != llGetLinkNumber() && 
-                (msg == "currency" || msg == "currency_ERROR" || 
-                 llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0)) {
-                debugLog("Response detected: '" + msg + "' from link " + (string)sender_num + " - forwarding to LINK_SET");
-                llMessageLinked(LINK_SET, 0, msg, id);
+            if (msg == "currency" || msg == "currency_ERROR" || 
+                llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0) {
+                debugLog("Response detected: '" + msg + "' from link " + (string)sender_num + " - forwarding to LINK_OTHERS");
+                llMessageLinked(LINK_OTHERS, 0, msg, id);
             }
             // All other channel 0 messages are internal HUD commands - ignore them for routing
             return;
