@@ -632,7 +632,12 @@ default {
                             string fieldData = llJsonGetValue(fields, [fieldName]);
                             if (fieldData != JSON_INVALID && fieldData != "") {
                                 string fieldValue = extractFirestoreValue(fieldData);
-                                llMessageLinked(senderLink, 0, fieldName, fieldValue);
+                                // Send to both the specific senderLink AND to LINK_SET for currency (so all scripts can receive it)
+                                if (fieldName == "currency") {
+                                    llMessageLinked(LINK_SET, 0, fieldName, fieldValue);
+                                } else {
+                                    llMessageLinked(senderLink, 0, fieldName, fieldValue);
+                                }
                                 return;
                             }
                         }
@@ -641,7 +646,12 @@ default {
             }
             
             // Error or empty result
-            llMessageLinked(senderLink, 0, fieldName + "_ERROR", "Field not found or error");
+            // Send to both the specific senderLink AND to LINK_SET for currency errors (so all scripts can receive it)
+            if (fieldName == "currency") {
+                llMessageLinked(LINK_SET, 0, fieldName + "_ERROR", "Field not found or error");
+            } else {
+                llMessageLinked(senderLink, 0, fieldName + "_ERROR", "Field not found or error");
+            }
             return;
         }
         
