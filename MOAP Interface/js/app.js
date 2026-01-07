@@ -176,6 +176,21 @@ try {
     },
     
     /**
+     * Format currency for display (gold, silver, copper)
+     * @param {number} gold - Gold amount
+     * @param {number} silver - Silver amount
+     * @param {number} copper - Copper amount
+     * @returns {string} Formatted currency string
+     */
+    formatCurrency(gold, silver, copper) {
+        const parts = [];
+        if (gold > 0) parts.push(gold + ' gold');
+        if (silver > 0) parts.push(silver + ' silver');
+        if (copper > 0) parts.push(copper + ' copper');
+        return parts.length > 0 ? parts.join(', ') : '0';
+    },
+    
+    /**
      * Initialize the application
      */
     async init() {
