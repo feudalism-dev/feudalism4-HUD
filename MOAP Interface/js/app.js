@@ -925,7 +925,17 @@ try {
         
         selector.innerHTML = '';
         
-        // Add "Create New Character" option at the top
+        // If no characters, add a disabled placeholder as the default selection
+        if (characters.length === 0) {
+            const placeholderOption = document.createElement('option');
+            placeholderOption.value = '';
+            placeholderOption.textContent = '(No characters)';
+            placeholderOption.disabled = true;
+            placeholderOption.selected = true;
+            selector.appendChild(placeholderOption);
+        }
+        
+        // Add "Create New Character" option
         const createOption = document.createElement('option');
         createOption.value = '__create_new__';
         createOption.textContent = '➕ Create New Character';
@@ -1184,17 +1194,20 @@ try {
         this.updateStatusIndicator();
         this.updateStepGuide();
         
-        // UX 2: Show/hide no character message and step guide panel
+        // UX 2: Show/hide no character message, hero panel, and step guide panel
         const noCharMessage = document.getElementById('no-character-message');
+        const noCharHero = document.getElementById('no-character-hero');
         const stepGuidePanel = document.querySelector('.step-guide-panel');
         
         if (char) {
-            // Has character (new or existing) - show step guide, hide "no character" message
+            // Has character (new or existing) - show step guide, hide "no character" message and hero
             if (noCharMessage) noCharMessage.style.display = 'none';
+            if (noCharHero) noCharHero.style.display = 'none';
             if (stepGuidePanel) stepGuidePanel.style.display = 'block';
         } else {
-            // No character - show "no character" message, hide step guide
+            // No character - show "no character" message and hero, hide step guide
             if (noCharMessage) noCharMessage.style.display = 'block';
+            if (noCharHero) noCharHero.style.display = 'block';
             if (stepGuidePanel) stepGuidePanel.style.display = 'none';
         }
         
@@ -1604,11 +1617,12 @@ try {
             if (value === '__create_new__') {
                 // Handle "Create New Character" option
                 await this.showNewCharacterDialog();
-                // Reset selector to current character if exists
+                // Reset selector to current character if exists, or back to placeholder if no character
                 if (this.state.selectedCharacterId) {
                     e.target.value = this.state.selectedCharacterId;
                 } else {
-                    e.target.value = '';
+                    // Reset to placeholder (empty string)
+                    e.target.selectedIndex = 0;
                 }
             } else if (value) {
                 // Handle character selection - check for unsaved changes
