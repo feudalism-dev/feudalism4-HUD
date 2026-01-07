@@ -169,8 +169,14 @@ const UI = {
         });
         
         // Load inventory when inventory tab is shown
-        if (tabId === 'inventory' && typeof App !== 'undefined' && App.loadInventory) {
-            App.loadInventory();
+        if (tabId === 'inventory' && typeof App !== 'undefined') {
+            // If inventory is already loaded, just render it
+            if (App.state && App.state.inventory && App.state.inventory.length > 0) {
+                UI.renderInventory(App.state.inventory);
+            } else if (App.loadInventory) {
+                // Otherwise load it fresh
+                App.loadInventory();
+            }
         }
     },
     

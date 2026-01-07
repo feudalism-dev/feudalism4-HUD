@@ -533,6 +533,19 @@ try {
                             const items = result.items || [];
                             this.state.inventory = items;
                             
+                            // Initialize pagination state
+                            this.state.inventoryPagination = {
+                                page: result.page || page,
+                                totalPages: result.totalPages || 0,
+                                items: items
+                            };
+                            
+                            // Render inventory if inventory tab is active
+                            const inventoryTab = document.getElementById('tab-inventory');
+                            if (inventoryTab && inventoryTab.classList.contains('active')) {
+                                UI.renderInventory(items);
+                            }
+                            
                             // Broadcast character data to Players HUD via Setup HUD
                             // This happens automatically when character loads
                             this.broadcastCharacterToPlayersHUD(this.state.character);
@@ -1253,7 +1266,13 @@ try {
         // Load and render inventory if inventory tab is active
         const inventoryTab = document.getElementById('tab-inventory');
         if (inventoryTab && inventoryTab.classList.contains('active')) {
-            await this.loadInventory();
+            // If we already have inventory loaded, just render it
+            if (this.state.inventory && this.state.inventory.length > 0) {
+                UI.renderInventory(this.state.inventory);
+            } else {
+                // Otherwise load it fresh
+                await this.loadInventory();
+            }
         }
         
         // Update active mode button in Options tab
