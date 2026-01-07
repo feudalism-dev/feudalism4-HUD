@@ -769,29 +769,23 @@ default {
                     integer currentCopper = 0;
                     
                     if (fields != JSON_INVALID && fields != "") {
-                        string currencyField = llJsonGetValue(fields, ["currency"]);
-                        if (currencyField != JSON_INVALID && currencyField != "") {
-                            string mapValue = llJsonGetValue(currencyField, ["mapValue"]);
-                            if (mapValue != JSON_INVALID && mapValue != "") {
-                                string mapFields = llJsonGetValue(mapValue, ["fields"]);
-                                if (mapFields != JSON_INVALID && mapFields != "") {
-                                    string goldField = llJsonGetValue(mapFields, ["gold"]);
-                                    string silverField = llJsonGetValue(mapFields, ["silver"]);
-                                    string copperField = llJsonGetValue(mapFields, ["copper"]);
-                                    
-                                    if (goldField != JSON_INVALID && goldField != "") {
-                                        string goldStr = extractFirestoreValue(goldField);
-                                        currentGold = (integer)goldStr;
-                                    }
-                                    if (silverField != JSON_INVALID && silverField != "") {
-                                        string silverStr = extractFirestoreValue(silverField);
-                                        currentSilver = (integer)silverStr;
-                                    }
-                                    if (copperField != JSON_INVALID && copperField != "") {
-                                        string copperStr = extractFirestoreValue(copperField);
-                                        currentCopper = (integer)copperStr;
-                                    }
-                                }
+                        // Extract currency mapFields directly using same pattern as Bridge Stipends
+                        string currencyFields = llJsonGetValue(fields, ["currency","mapValue","fields"]);
+                        
+                        if (currencyFields != JSON_INVALID && currencyFields != "") {
+                            // Directly extract integerValue strings (same pattern as Bridge Stipends)
+                            string goldStr = llJsonGetValue(currencyFields, ["gold","integerValue"]);
+                            string silverStr = llJsonGetValue(currencyFields, ["silver","integerValue"]);
+                            string copperStr = llJsonGetValue(currencyFields, ["copper","integerValue"]);
+                            
+                            if (goldStr != JSON_INVALID && goldStr != "") {
+                                currentGold = (integer)goldStr;
+                            }
+                            if (silverStr != JSON_INVALID && silverStr != "") {
+                                currentSilver = (integer)silverStr;
+                            }
+                            if (copperStr != JSON_INVALID && copperStr != "") {
+                                currentCopper = (integer)copperStr;
                             }
                         }
                     }
