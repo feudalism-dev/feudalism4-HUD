@@ -124,6 +124,21 @@ default {
                  ", channel=" + (string)num +
                  ", msg='" + msg + "'");
 
+        // Handle responses from Bridge Characters (forward back to original requester)
+        // Bridge Characters sends responses on channel 0 with format: fieldName or fieldName_ERROR
+        // These need to be forwarded back to the original requester
+        if (num == 0 && sender_num != llGetLinkNumber()) {
+            // This might be a response from a module - check if it's a known field response
+            // For now, forward currency responses (and errors) back to all listeners via LINK_SET
+            // This allows all scripts to receive currency updates
+            if (msg == "currency" || msg == "currency_ERROR") {
+                llMessageLinked(LINK_SET, 0, msg, id);
+                return;
+            }
+            // For other field responses, could track original requester here if needed
+            // For now, let them go through (scripts listening for them will receive them)
+        }
+
         // Only accept HUD messages
         if (num != 0 && num != FS_BRIDGE_CHANNEL) {
             return;
