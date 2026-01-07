@@ -126,9 +126,11 @@ default {
 
         // Check for response messages FIRST (before sender checks)
         // Responses from Bridge Characters on channel 0 should be forwarded to all listeners
-        if (num == 0 && (msg == "currency" || msg == "currency_ERROR" || 
-                        llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0)) {
-            debugLog("Response detected: '" + msg + "' - forwarding to LINK_SET");
+        // BUT: Don't forward our own forwarded messages (prevent infinite loop)
+        if (num == 0 && sender_num != llGetLinkNumber() && 
+            (msg == "currency" || msg == "currency_ERROR" || 
+             llSubStringIndex(msg, "_ERROR") > 0 || llSubStringIndex(msg, " loaded") > 0)) {
+            debugLog("Response detected: '" + msg + "' from link " + (string)sender_num + " - forwarding to LINK_SET");
             llMessageLinked(LINK_SET, 0, msg, id);
             return;
         }
