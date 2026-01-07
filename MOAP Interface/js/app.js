@@ -784,10 +784,13 @@ try {
      */
     updateStepGuide() {
         const char = this.state.character;
+        // Stats step is complete if user has 0 available points (all points allocated)
+        const availablePoints = char ? window.calculateAvailablePoints(char) : 20;
         const steps = [
             { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
             { id: 'gender', name: 'Gender', complete: !!(char && char.gender_id) },
             { id: 'species', name: 'Species', complete: !!(char && char.species_id) },
+            { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0) },
             { id: 'career', name: 'Career', complete: !!(char && char.class_id) }
         ];
         
@@ -829,13 +832,25 @@ try {
         
         switch(stepId) {
             case 'name':
-                document.getElementById('char-name')?.focus();
-                break;
             case 'gender':
-                document.querySelector('#tab-character .gender-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                break;
             case 'species':
-                document.querySelector('#tab-character #species-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Navigate to Character tab
+                UI.switchTab('character');
+                // Then scroll to the specific section
+                if (stepId === 'name') {
+                    document.getElementById('char-name')?.focus();
+                } else if (stepId === 'gender') {
+                    setTimeout(() => {
+                        document.querySelector('#tab-character .gender-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                } else if (stepId === 'species') {
+                    setTimeout(() => {
+                        document.querySelector('#tab-character #species-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                }
+                break;
+            case 'stats':
+                UI.switchTab('stats');
                 break;
             case 'career':
                 UI.switchTab('career');
@@ -844,27 +859,47 @@ try {
     },
     
     /**
-     * Update status indicator (UX 2)
+     * Update status indicator and save button state (UX 2)
      */
     updateStatusIndicator() {
         const statusBadge = document.getElementById('character-status');
         const statusText = document.getElementById('status-text');
+        const saveBtn = document.getElementById('btn-save-character');
+        
         if (!statusBadge || !statusText) return;
         
         if (!this.state.character) {
             statusText.textContent = 'No Character';
             statusBadge.style.background = 'rgba(107, 114, 128, 0.3)';
             statusBadge.style.color = '#9ca3af';
+            // Disable save button when no character
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+            }
         } else if (this.state.dirty) {
             statusText.textContent = 'Unsaved Changes';
             statusBadge.style.background = 'rgba(239, 68, 68, 0.3)';
             statusBadge.style.color = '#fca5a5';
             statusBadge.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+            // Enable save button when there are unsaved changes
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                saveBtn.style.cursor = 'pointer';
+            }
         } else {
             statusText.textContent = 'Saved';
             statusBadge.style.background = 'rgba(16, 185, 129, 0.3)';
             statusBadge.style.color = '#6ee7b7';
             statusBadge.style.border = 'none';
+            // Disable save button when everything is saved
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+            }
         }
     },
     
@@ -2079,7 +2114,9 @@ try {
                 this.state.character = result.data.character;
                 this.state.isNewCharacter = false;
                 this.state.selectedCharacterId = result.data.character.id; // Set selected character ID
+                this.state.dirty = false; // Clear dirty flag after successful save
                 UI.showToast('Character created!', 'success');
+                this.updateStatusIndicator(); // Update status badge and save button
             } else {
                 // Update existing character
                 // Ensure class_id is included - use currentClass.id as fallback
@@ -2142,7 +2179,9 @@ try {
                 if (this.state.character.class_id) {
                     this.state.currentClass = this.state.classes.find(c => c.id === this.state.character.class_id);
                 }
+                this.state.dirty = false; // Clear dirty flag after successful save
                 UI.showToast('Character saved!', 'success');
+                this.updateStatusIndicator(); // Update status badge and save button
                 
                 // Force update CHARACTER_DATA in URL after save to ensure LSL gets the class
                 // Wait a moment for state to update, then trigger heartbeat
