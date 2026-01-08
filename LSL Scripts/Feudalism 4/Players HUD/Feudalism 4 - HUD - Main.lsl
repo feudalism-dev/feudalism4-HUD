@@ -192,6 +192,9 @@ default {
         
         // Don't request loads here - Combined HUD Controller handles initialization
         // This prevents cascade of load requests from multiple scripts
+        
+        // Notify user that HUD is ready
+        llOwnerSay("✅ Feudalism 4 Players HUD is ready for use.");
     }
     
     // Handle touch events
@@ -676,6 +679,9 @@ default {
             
             // HUD attached - Combined HUD Controller will handle data loading
             // Don't request loads here to prevent cascade
+            
+            // Notify user that HUD is ready
+            llOwnerSay("✅ Feudalism 4 Players HUD is ready for use.");
         }
     }
     
