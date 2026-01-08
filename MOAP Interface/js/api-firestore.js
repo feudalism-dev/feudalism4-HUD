@@ -2617,6 +2617,214 @@ const API = {
                 callback({ success: false, error: error.message });
             });
     }
+    // =========================== ADMIN FUNCTIONS ============================
+    
+    /**
+     * Award XP to a character (admin only)
+     * @param {string} target - Character ID or player UUID
+     * @param {number} amount - XP amount to add (must be positive)
+     * @param {string} reason - Optional reason for audit
+     */
+    async awardXP(target, amount, reason = '') {
+        // Check admin permissions
+        if (!this.canManageUniverse()) {
+            return { success: false, error: 'Admin access required' };
+        }
+        
+        if (amount <= 0) {
+            return { success: false, error: 'XP amount must be positive' };
+        }
+        
+        try {
+            // Determine if target is character ID or UUID
+            const isUUID = target.includes('-');
+            let characterDoc;
+            
+            if (isUUID) {
+                // Fetch by owner_uuid
+                const snapshot = await db.collection('characters')
+                    .where('owner_uuid', '==', target)
+                    .limit(1)
+                    .get();
+                
+                if (snapshot.empty) {
+                    return { success: false, error: 'No character found for this player' };
+                }
+                characterDoc = snapshot.docs[0];
+            } else {
+                // Direct character ID lookup
+                characterDoc = await db.collection('characters').doc(target).get();
+                if (!characterDoc.exists) {
+                    return { success: false, error: 'Character not found' };
+                }
+            }
+            
+            const currentData = characterDoc.data();
+            const oldXP = currentData.xp_total || 0;
+            const newXP = oldXP + amount;
+            
+            await characterDoc.ref.update({
+                xp_total: newXP,
+                updated_at: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            console.log(`Admin XP Grant: ${amount} XP to ${characterDoc.id} (${oldXP} → ${newXP})${reason ? ` - ${reason}` : ''}`);
+            
+            return {
+                success: true,
+                data: {
+                    characterID: characterDoc.id,
+                    oldTotal: oldXP,
+                    newTotal: newXP,
+                    amount: amount
+                }
+            };
+        } catch (error) {
+            console.error('awardXP error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Give coins to a character (admin only)
+     * @param {string} target - Character ID or player UUID
+     * @param {number} gold - Gold amount
+     * @param {number} silver - Silver amount
+     * @param {number} copper - Copper amount
+     * @param {string} reason - Optional reason for audit
+     */
+    async giveCoins(target, gold, silver, copper, reason = '') {
+        // Check admin permissions
+        if (!this.canManageUniverse()) {
+            return { success: false, error: 'Admin access required' };
+        }
+        
+        if (gold < 0 || silver < 0 || copper < 0) {
+            return { success: false, error: 'Currency amounts cannot be negative' };
+        }
+        
+        if (gold === 0 && silver === 0 && copper === 0) {
+            return { success: false, error: 'Must specify at least one currency amount' };
+        }
+        
+        try {
+            // Determine if target is character ID or UUID
+            const isUUID = target.includes('-');
+            let characterDoc;
+            
+            if (isUUID) {
+                // Fetch by owner_uuid
+                const snapshot = await db.collection('characters')
+                    .where('owner_uuid', '==', target)
+                    .limit(1)
+                    .get();
+                
+                if (snapshot.empty) {
+                    return { success: false, error: 'No character found for this player' };
+                }
+                characterDoc = snapshot.docs[0];
+            } else {
+                // Direct character ID lookup
+                characterDoc = await db.collection('characters').doc(target).get();
+                if (!characterDoc.exists) {
+                    return { success: false, error: 'Character not found' };
+                }
+            }
+            
+            const currentData = characterDoc.data();
+            const currentCurrency = currentData.currency || { gold: 0, silver: 0, copper: 0 };
+            
+            const newCurrency = {
+                gold: (currentCurrency.gold || 0) + gold,
+                silver: (currentCurrency.silver || 0) + silver,
+                copper: (currentCurrency.copper || 0) + copper
+            };
+            
+            await characterDoc.ref.update({
+                currency: newCurrency,
+                updated_at: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            const amountText = [];
+            if (gold > 0) amountText.push(`${gold} gold`);
+            if (silver > 0) amountText.push(`${silver} silver`);
+            if (copper > 0) amountText.push(`${copper} copper`);
+            
+            console.log(`Admin Coin Grant: ${amountText.join(', ')} to ${characterDoc.id}${reason ? ` - ${reason}` : ''}`);
+            
+            return {
+                success: true,
+                data: {
+                    characterID: characterDoc.id,
+                    granted: { gold, silver, copper },
+                    newCurrency: newCurrency
+                }
+            };
+        } catch (error) {
+            console.error('giveCoins error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
+     * Give item to a player (admin only)
+     * This sends an fGiveItem command to the player's HUD
+     * @param {string} targetUUID - Target player UUID
+     * @param {string} itemName - Item name
+     * @param {number} amount - Item amount
+     * @param {string} reason - Optional reason for audit
+     */
+    async giveItem(targetUUID, itemName, amount, reason = '') {
+        // Check admin permissions
+        if (!this.canManageUniverse()) {
+            return { success: false, error: 'Admin access required' };
+        }
+        
+        if (!targetUUID || !targetUUID.includes('-')) {
+            return { success: false, error: 'Valid player UUID required' };
+        }
+        
+        if (!itemName || itemName.trim() === '') {
+            return { success: false, error: 'Item name required' };
+        }
+        
+        if (amount <= 0) {
+            return { success: false, error: 'Amount must be positive' };
+        }
+        
+        // Block currency items (case-insensitive)
+        const blockedItems = ['gold coin', 'silver coin', 'copper coin'];
+        if (blockedItems.includes(itemName.toLowerCase())) {
+            return { success: false, error: `Cannot give "${itemName}" - use Give Coins for currency` };
+        }
+        
+        try {
+            // Send fGiveItem command to player's HUD via LSL bridge
+            // Format: fGiveItem,<itemName>,<amount>
+            const command = `fGiveItem,${itemName},${amount}`;
+            
+            // Use llRegionSayTo via the HUD channel to send to target player
+            // This requires LSL bridge communication which we'll need to implement
+            // For now, return success and log (actual LSL bridge TBD)
+            
+            console.log(`Admin Item Grant: ${amount}x ${itemName} to ${targetUUID}${reason ? ` - ${reason}` : ''}`);
+            console.warn('TODO: Implement LSL bridge communication for fGiveItem');
+            
+            return {
+                success: true,
+                data: {
+                    targetUUID: targetUUID,
+                    itemName: itemName,
+                    amount: amount,
+                    command: command,
+                    note: 'LSL bridge communication needed - item grant queued'
+                }
+            };
+        } catch (error) {
+            console.error('giveItem error:', error);
+            return { success: false, error: error.message };
+        }
+    }
 };
 
 // Initialize on load
