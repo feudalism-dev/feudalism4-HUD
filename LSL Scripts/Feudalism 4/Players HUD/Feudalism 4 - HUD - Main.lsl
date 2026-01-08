@@ -540,6 +540,9 @@ default {
         else if (msg == "afk mode") {
             mode = "afk";
         }
+        else if (msg == "none mode" || msg == "* mode") {
+            mode = "*";
+        }
         // Reset character (OOC reset)
         else if (msg == "reset character") {
             // Reset to full health/stamina/mana

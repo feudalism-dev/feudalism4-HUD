@@ -1937,7 +1937,7 @@ try {
     /**
      * Handle mode change from Options tab
      */
-    handleModeChange(mode) {
+    async handleModeChange(mode) {
         // Update local state
         if (this.state.character) {
             this.state.character.mode = mode;
@@ -1961,6 +1961,20 @@ try {
         };
         
         UI.showToast(`Mode set to ${modeNames[mode] || mode}`, 'success');
+        
+        // Save mode to Firestore immediately
+        if (this.state.character && this.state.character.id) {
+            try {
+                const result = await API.updateCharacter({ mode: mode });
+                if (result.success) {
+                    console.log('[Mode] Saved mode to Firestore:', mode);
+                } else {
+                    console.error('[Mode] Failed to save mode:', result.error);
+                }
+            } catch (error) {
+                console.error('[Mode] Failed to save mode to Firestore:', error);
+            }
+        }
     },
     
     /**
