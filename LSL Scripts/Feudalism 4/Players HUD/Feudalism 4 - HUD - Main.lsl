@@ -29,6 +29,7 @@ integer METER_MODE_CHANNEL = -7777777;
 integer HUD_CHANNEL = -77770;
 integer WEAPON_CHANNEL = -77771;
 integer WEAPON_CHANNEL2 = -77773;
+integer FS_BRIDGE_CHANNEL = -777001;  // Channel for Firestore Bridge communication
 
 // Character data
 string myName;
@@ -48,6 +49,9 @@ integer healthFactor = 25;
 integer staminaFactor = 25;
 integer manaFactor = 25;
 integer hasMana = TRUE;  // Default to TRUE, will be set from character data
+
+// rp_update tracking
+integer rpUpdateInProgress = FALSE;
 
 // Stat indices (F3 stat system)
 integer AGILITY = 0;
@@ -234,25 +238,35 @@ default {
             string characterId = llLinksetDataRead("characterId");
             if (characterId == "" || characterId == "JSON_INVALID") {
                 // No characterId in LSD - need to query Firestore first
-                llMessageLinked(LINK_SET, 0, "get_character_info", NULL_KEY);
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "get_character_info", NULL_KEY);
                 notify("Querying character information...");
             } else {
                 // Use atomic field gets instead of fetching full document (prevents truncation)
                 // Send all field requests in parallel (fastest approach)
-                llMessageLinked(LINK_SET, 0, "getStats", "");
-                llMessageLinked(LINK_SET, 0, "getHealth", "");
-                llMessageLinked(LINK_SET, 0, "getStamina", "");
-                llMessageLinked(LINK_SET, 0, "getMana", "");
-                llMessageLinked(LINK_SET, 0, "getXP", "");
-                llMessageLinked(LINK_SET, 0, "getClass", "");
-                llMessageLinked(LINK_SET, 0, "getSpecies", "");
-                llMessageLinked(LINK_SET, 0, "getHasMana", "");
-                llMessageLinked(LINK_SET, 0, "getSpeciesFactors", "");
-                llMessageLinked(LINK_SET, 0, "getGender", "");
-                llMessageLinked(LINK_SET, 0, "getCurrency", "");
-                llMessageLinked(LINK_SET, 0, "getMode", "");
-                llMessageLinked(LINK_SET, 0, "getUniverseId", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getStats", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getHealth", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getStamina", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getMana", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getXP", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getClass", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getSpecies", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getHasMana", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getSpeciesFactors", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getGender", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getCurrency", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getMode", "");
+                llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "getUniverseId", "");
                 notify("Synchronizing character data with server...");
+                // Set flag to track rp_update in progress
+                rpUpdateInProgress = TRUE;
+                // Set a timer to notify completion (requests typically take 1-3 seconds)
+                // If already resting, timer is already running - timer event will handle both
+                if (!isResting) {
+                    llSetTimerEvent(3.0);  // Set timer for rp_update completion
+                } else {
+                    // If resting, timer is already running - it will check rpUpdateInProgress flag
+                    // and notify completion, then continue with resting logic
+                }
             }
         }
     }
@@ -292,11 +306,9 @@ default {
                 debugLog("Has mana: " + (string)hasMana);
             }
             
-            // Request all data from Data Manager
-            llMessageLinked(LINK_SET, 0, "load stats", "");
-            llMessageLinked(LINK_SET, 0, "load health", "");
-            llMessageLinked(LINK_SET, 0, "load stamina", "");
-            llMessageLinked(LINK_SET, 0, "load mana", "");
+            // Don't reload here - Data Manager already loads on state_entry, and HUD Stats handles display updates
+            // This prevents duplicate loads that cause flashing
+            // Only update factors (already done above) - values will be loaded by Data Manager on startup
             
             // Check if Setup HUD was auto-shown and should be hidden after character creation
             string autoHide = llLinksetDataRead("auto_hide_setup");
@@ -414,8 +426,17 @@ default {
                 calculateMana();
                 // Note: baseMana can legitimately be 0 if hasMana is FALSE
             }
+            // FIX: If current mana is 0 but max is > 0, set current to max (like health/stamina on first load)
+            if (currentMana == 0 && baseMana > 0) {
+                currentMana = baseMana;
+                // Save the updated current mana back to LinksetData
+                string manaData = (string)currentMana + "|" + (string)baseMana + "|" + (string)baseMana;
+                llLinksetDataWrite("mana", manaData);
+            }
             debugLog("Mana loaded: " + (string)currentMana + "/" + (string)baseMana + " (has_mana: " + (string)hasMana + ")");
-            updateResourceDisplays();
+            
+            // Don't update display here - HUD Stats handles all display updates
+            // HUD Stats will receive the same "mana loaded" message and update the display
         }
         // XP loaded from Data Manager
         else if (msg == "xp loaded") {
@@ -602,6 +623,14 @@ default {
     }
     
     timer() {
+        // Check if this is rp_update completion (flag is set but we're not resting)
+        if (rpUpdateInProgress && !isResting) {
+            notify("Character data synchronized. Display updated.");
+            rpUpdateInProgress = FALSE;
+            llSetTimerEvent(0.0);  // Stop the timer
+            return;
+        }
+        
         if (isResting) {
             // Resting: restore resources over time
             integer healthRestore = 5;
@@ -636,6 +665,11 @@ default {
     
     attach(key id) {
         if (id != NULL_KEY) {
+            // HUD attached - Clear all Linkset Data to ensure clean slate for new wearer
+            // This prevents previous wearer's characterId from persisting
+            llLinksetDataReset();
+            llOwnerSay("[HUD Main DEBUG] Linkset Data cleared on attach for owner: " + (string)llGetOwner());
+            
             // HUD attached - Combined HUD Controller will handle data loading
             // Don't request loads here to prevent cascade
         }
@@ -647,6 +681,8 @@ default {
     
     changed(integer change) {
         if (change & CHANGED_OWNER) {
+            // Clear Linkset Data before resetting
+            llLinksetDataReset();
             llResetScript();
         }
     }

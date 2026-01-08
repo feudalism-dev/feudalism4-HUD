@@ -144,7 +144,7 @@ handlePaychestCommand(string message) {
     // PAYCHEST_GET_ACTIVE_CHARACTER
     if (cmd == "PAYCHEST_GET_ACTIVE_CHARACTER") {
         pendingPaychestTransactions += [tx, chestId, "GET_ACTIVE_CHARACTER", characterId];
-        llMessageLinked(LINK_SET, 0, "CHAR|GET_ACTIVE_CHARACTER|" + ownerUUID, (key)((string)llGetLinkNumber()));
+        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "CHAR|GET_ACTIVE_CHARACTER|" + ownerUUID, (key)((string)llGetLinkNumber()));
         return;
     }
     
@@ -176,14 +176,14 @@ handlePaychestCommand(string message) {
         string bridgeMsg = "STIP|GET_STIPEND_DATA|" + tx + "|" + characterId;
         debugLog("HUD → Bridge_Main: STIP|GET_STIPEND_DATA|" + tx + "|" + characterId + "|" + (string)llGetLinkNumber());
         debugLog("Sending to Bridge: " + bridgeMsg);
-        llMessageLinked(LINK_SET, 0, bridgeMsg, (key)((string)llGetLinkNumber()));
+        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, bridgeMsg, (key)((string)llGetLinkNumber()));
         return;
     }
     
     // PAYCHEST_GET_LAST_PAID
     if (cmd == "PAYCHEST_GET_LAST_PAID") {
         pendingPaychestTransactions += [tx, chestId, "GET_LAST_PAID", characterId];
-        llMessageLinked(LINK_SET, 0, "STIP|GET_STIPEND_DATA|" + tx + "|" + characterId, (key)((string)llGetLinkNumber()));
+        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "STIP|GET_STIPEND_DATA|" + tx + "|" + characterId, (key)((string)llGetLinkNumber()));
         return;
     }
     
@@ -192,7 +192,7 @@ handlePaychestCommand(string message) {
         if (llGetListLength(parts) >= 4) {
             integer ignoreCooldown = (integer)llList2String(parts, 3);
             pendingPaychestTransactions += [tx, chestId, "PAYOUT", characterId + "|" + (string)ignoreCooldown];
-            llMessageLinked(LINK_SET, 0, "STIP|GET_STIPEND_DATA|" + tx + "|" + characterId, (key)((string)llGetLinkNumber()));
+            llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "STIP|GET_STIPEND_DATA|" + tx + "|" + characterId, (key)((string)llGetLinkNumber()));
         }
         return;
     }
@@ -200,7 +200,7 @@ handlePaychestCommand(string message) {
     // PAYCHEST_CLASS_LIST
     if (cmd == "PAYCHEST_CLASS_LIST") {
         pendingPaychestTransactions += [tx, chestId, "CLASS_LIST", ""];
-        llMessageLinked(LINK_SET, 0, "CLASS|GET_CLASS_LIST", (key)((string)llGetLinkNumber()));
+        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "CLASS|GET_CLASS_LIST", (key)((string)llGetLinkNumber()));
         return;
     }
     
@@ -209,7 +209,7 @@ handlePaychestCommand(string message) {
         if (llGetListLength(parts) >= 4) {
             string classId = llList2String(parts, 3);
             pendingPaychestTransactions += [tx, chestId, "CLASS_STIPEND", classId];
-            llMessageLinked(LINK_SET, 0, "CLASS|GET_CLASS_STIPEND|" + classId, (key)((string)llGetLinkNumber()));
+            llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "CLASS|GET_CLASS_STIPEND|" + classId, (key)((string)llGetLinkNumber()));
         }
         return;
     }
@@ -219,7 +219,7 @@ handlePaychestCommand(string message) {
         if (llGetListLength(parts) >= 4) {
             string userId = llList2String(parts, 3);
             pendingPaychestTransactions += [tx, chestId, "GET_USER_ACTIVE_CHARACTER", userId];
-            llMessageLinked(LINK_SET, 0, "CHAR|GET_ACTIVE_CHARACTER|" + userId, (key)((string)llGetLinkNumber()));
+            llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "CHAR|GET_ACTIVE_CHARACTER|" + userId, (key)((string)llGetLinkNumber()));
         }
         return;
     }
@@ -229,7 +229,7 @@ handlePaychestCommand(string message) {
         if (llGetListLength(parts) >= 4) {
             string targetCharacterId = llList2String(parts, 3);
             pendingPaychestTransactions += [tx, chestId, "GIVE_PAY", targetCharacterId];
-            llMessageLinked(LINK_SET, 0, "STIP|GET_STIPEND_DATA|" + tx + "|" + targetCharacterId, (key)((string)llGetLinkNumber()));
+            llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "STIP|GET_STIPEND_DATA|" + tx + "|" + targetCharacterId, (key)((string)llGetLinkNumber()));
         }
         return;
     }
@@ -239,7 +239,7 @@ handlePaychestCommand(string message) {
         if (llGetListLength(parts) >= 4) {
             string charId = llList2String(parts, 3);
             pendingPaychestTransactions += [tx, chestId, "FORCE_STIPEND_PAYOUT", charId];
-            llMessageLinked(LINK_SET, 0, "CHAR|FORCE_STIPEND_PAYOUT|" + charId, (key)((string)llGetLinkNumber()));
+            llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "CHAR|FORCE_STIPEND_PAYOUT|" + charId, (key)((string)llGetLinkNumber()));
         }
         return;
     }
@@ -497,12 +497,12 @@ handlePaychestBridgeResponse(string msg, key id) {
                     currencyCopper = currencyCopper + copper;
                     
                     // Update currency in Firestore via Bridge
-                    llMessageLinked(LINK_SET, 0, "CHAR|UPDATE_CURRENCY|" + characterId + "|" + (string)gold + "|" + (string)silver + "|" + (string)copper, (key)((string)llGetLinkNumber()));
+                    llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "CHAR|UPDATE_CURRENCY|" + characterId + "|" + (string)gold + "|" + (string)silver + "|" + (string)copper, (key)((string)llGetLinkNumber()));
                     
                     // Update lastPaidTimestamp to now (current payout time)
                     // Only update if not ignoring cooldown (admin bypass doesn't update timestamp)
                     if (ignoreCooldown == 0) {
-                        llMessageLinked(LINK_SET, 0, "STIP|UPDATE_LAST_PAID|" + characterId + "|" + (string)now, (key)((string)llGetLinkNumber()));
+                        llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "STIP|UPDATE_LAST_PAID|" + characterId + "|" + (string)now, (key)((string)llGetLinkNumber()));
                         // Track this update
                         pendingPaychestTransactions += [tx, chestId, "UPDATE_LAST_PAID_PENDING", characterId];
                     }
@@ -612,16 +612,6 @@ default {
             debugLog("HUD_Paychest received Bridge response - msg: " + msg + ", id: " + (string)id + ", sender: " + (string)sender);
             handlePaychestBridgeResponse(msg, id);
             return;
-        }
-    }
-    
-    on_rez(integer start_param) {
-        llResetScript();
-    }
-    
-    changed(integer change) {
-        if (change & CHANGED_OWNER) {
-            llResetScript();
         }
     }
 }

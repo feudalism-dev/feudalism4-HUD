@@ -45,7 +45,7 @@ default {
             return;
         }
         
-        // Other HUD_CHANNEL commands (damage, heal, fGivePay) → HUD_Stats
+        // Other HUD_CHANNEL commands (damage, heal) → HUD_Stats
         if (channel == HUD_CHANNEL) {
             llMessageLinked(LINK_SET, 1004, msg, id);
             return;

@@ -22,6 +22,9 @@ integer meterModeChannel = -7777777;
 integer menuListener;
 integer menuActive = FALSE;
 
+// Track last known valid mana values to prevent flashing during initialization
+float lastValidBaseMana = 0.0;
+
 // Buff slot prim names (max 3 buffs)
 list BUFF_SLOTS = ["rp_slot2", "rp_slot3", "rp_slot4"];
 string GENERIC_BUFF_TEXTURE = "buff_generic";  // Generic buff icon texture
@@ -184,6 +187,8 @@ updateBuffSlots(string jsonArray) {
 
 default {
     state_entry() {
+        // Reset tracking variables on script reset
+        lastValidBaseMana = 0.0;
     }
     
     link_message(integer sender_num, integer num, string msg, key id) {
@@ -262,18 +267,44 @@ default {
             integer percent;
             string percentage;
             integer currentMana = num;
-            float baseMana = (float)((string)id);
+            
+            // Validate baseMana - if id is NULL_KEY or empty, baseMana will be 0.0
+            // Don't set texture if baseMana is invalid (data not loaded yet)
+            string baseManaStr = (string)id;
+            float baseMana = 0.0;
+            if (baseManaStr != "" && id != NULL_KEY) {
+                baseMana = (float)baseManaStr;
+            }
             
             if (currentMana < 0) currentMana = 0;
             
             linkNum = getLinkNumberByName(linkName);
+            
+            // CRITICAL: Only update display if baseMana is valid (data loaded)
+            // Once we've seen valid data, don't accept invalid data that would overwrite it
+            // This prevents flashing between valid values and blank/"..." during initialization
+            if (baseMana > 0.0) {
+                lastValidBaseMana = baseMana;  // Remember we have valid data
+            } else if (lastValidBaseMana > 0.0) {
+                // We've already displayed valid data, and now we're getting invalid data
+                // This is likely a stale message during reset - ignore it to prevent flashing
+                return;  // Exit early - don't overwrite valid display with invalid data
+            } else {
+                // No valid data yet, and this message is invalid - don't update yet
+                return;  // Exit early - wait for valid data
+            }
+            
+            // Data is valid - update display
             setPrimText("rp_manaStatPrim", (string)currentMana);
             llRegionSayTo(llGetOwner(), meterChannel, "mana," + (string)currentMana);
             
+            // Calculate percentage
             if (currentMana == 0) {
                 percentage = "0";
+            } else if (currentMana >= baseMana) {
+                percentage = "100";
             } else {
-                percent = (integer)(((float)currentMana / (float)baseMana) * 100);
+                percent = (integer)(((float)currentMana / baseMana) * 100);
                 percentage = getPercentage(percent);
             }
             

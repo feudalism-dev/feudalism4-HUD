@@ -35,6 +35,7 @@ string actionSlotsJson = "";  // Action slots (LSD-only, no Firestore)
 integer characterLoaded = FALSE;
 integer resourcesInitialized = FALSE;  // Prevent duplicate resource initialization
 integer loadRequestsSent = FALSE;  // Prevent duplicate load requests
+float lastManaUpdateTime = 0.0;  // Prevent rapid flashing during initialization
 
 // Species factors (stored from character data)
 integer healthFactor = 25;
@@ -195,7 +196,7 @@ default {
             return;
         }
         
-        // HUD_CHANNEL commands from HUD_Core (damage, heal, fGivePay)
+        // HUD_CHANNEL commands from HUD_Core (damage, heal)
         if (num == 1004) {
             list parts = llParseString2List(msg, [","], []);
             string cmd = llList2String(parts, 0);
@@ -215,30 +216,6 @@ default {
                 updateResourceDisplays();
                 llMessageLinked(LINK_SET, currentHealth, "save health", (string)baseHealth + "|" + (string)baseHealth);
             }
-            // Handle fGivePay command from world objects
-            else if (cmd == "fGivePay") {
-                if (llGetListLength(parts) >= 4) {
-                    integer gold = (integer)llList2String(parts, 1);
-                    integer silver = (integer)llList2String(parts, 2);
-                    integer copper = (integer)llList2String(parts, 3);
-                    
-                    // Add to currency cache
-                    currencyGold = currencyGold + gold;
-                    currencySilver = currencySilver + silver;
-                    currencyCopper = currencyCopper + copper;
-                    
-                    // Get character ID from LSD
-                    string characterId = llLinksetDataRead("characterId");
-                    if (characterId != "" && characterId != "JSON_INVALID") {
-                        // Send Bridge command to update currency
-                        llMessageLinked(LINK_SET, 0, "UPDATE_CURRENCY|" + characterId + "|" + (string)gold + "|" + (string)silver + "|" + (string)copper, "");
-                    }
-                    
-                    // Show message to player
-                    string msg = "You received " + (string)gold + " gold, " + (string)silver + " silver and " + (string)copper + " copper.";
-                    llRegionSayTo(llGetOwner(), 0, msg);
-                }
-            }
             return;
         }
         
@@ -251,11 +228,7 @@ default {
         
         // Bridge responses NOT related to paychest
         if (num == FS_BRIDGE_CHANNEL) {
-            // Handle CURRENCY_UPDATED response (not a paychest transaction)
-            if (llSubStringIndex(msg, "CURRENCY_UPDATED") == 0) {
-                debugLog("Currency updated successfully");
-                return;
-            }
+            // Reserved for future Bridge responses to Stats
             return;
         }
         
@@ -286,12 +259,20 @@ default {
                 debugLog("Has mana: " + (string)hasMana);
             }
             
-            llMessageLinked(LINK_SET, 0, "load stats", "");
-            llMessageLinked(LINK_SET, 0, "load health", "");
-            llMessageLinked(LINK_SET, 0, "load stamina", "");
-            llMessageLinked(LINK_SET, 0, "load mana", "");
-            llMessageLinked(LINK_SET, 0, "load xp", "");
-            llMessageLinked(LINK_SET, 0, "load class", "");
+            // Only reload if resources aren't already initialized (prevents duplicate loads on script reset)
+            // Data Manager already loads from LSD on state_entry, so we don't need to reload here
+            // unless this is the first time or resources weren't loaded
+            if (!resourcesInitialized && !loadRequestsSent) {
+                loadRequestsSent = TRUE;
+                llMessageLinked(LINK_SET, 0, "load stats", "");
+                llMessageLinked(LINK_SET, 0, "load health", "");
+                llMessageLinked(LINK_SET, 0, "load stamina", "");
+                llMessageLinked(LINK_SET, 0, "load mana", "");
+                llMessageLinked(LINK_SET, 0, "load xp", "");
+                llMessageLinked(LINK_SET, 0, "load class", "");
+            } else {
+                debugLog("Skipping reload - resources already initialized or load already sent");
+            }
             llMessageLinked(LINK_SET, 0, "load action_slots", "");
         }
         // Stats loaded
@@ -355,8 +336,12 @@ default {
         }
         // Mana loaded
         else if (msg == "mana loaded") {
-            // Only update current if loaded value is > 0 (preserve existing value if already set)
-            if (num > 0) currentMana = num;
+            // Update currentMana if we have valid data (num >= 0 is valid, but we'll handle 0 specially)
+            // Don't update if num is negative (invalid data)
+            if (num >= 0) {
+                currentMana = num;
+            }
+            
             list parts = llParseString2List((string)id, ["|"], []);
             if (llGetListLength(parts) >= 2) {
                 integer loadedBase = (integer)llList2String(parts, 0);
@@ -367,6 +352,7 @@ default {
                     baseMana = loadedBase;
                 }
             }
+            
             // Only initialize if not already initialized, we have stats, AND we don't have a valid loaded value
             // This prevents recalculating when we already have data from LSD
             if (!resourcesInitialized && baseMana == 0 && llGetListLength(myStats) == 20) {
@@ -374,7 +360,7 @@ default {
                 if (hasMana) {
                     calculateMana();
                     // If current is 0 and we just calculated base, set current to base (full mana)
-                    if (currentMana == 0) {
+                    if (currentMana == 0 && baseMana > 0) {
                         currentMana = baseMana;
                         // Save immediately so it doesn't get overwritten
                         llMessageLinked(LINK_SET, currentMana, "save mana", (string)baseMana + "|" + (string)baseMana);
@@ -385,11 +371,27 @@ default {
                     currentMana = 0;
                 }
             }
+            
+            // CRITICAL FIX: If current mana is 0 but max is > 0, set current to max (like health/stamina on first load)
+            // This MUST happen AFTER baseMana is set, and BEFORE display update
+            if (currentMana == 0 && baseMana > 0) {
+                currentMana = baseMana;
+                // Save the updated current mana back to LinksetData
+                string manaData = (string)currentMana + "|" + (string)baseMana + "|" + (string)baseMana;
+                llLinksetDataWrite("mana", manaData);
+            }
+            
             // Mark as initialized once all three resources have been processed
             if (baseHealth > 0 && baseStamina > 0 && (baseMana > 0 || !hasMana)) {
                 resourcesInitialized = TRUE;
             }
-            updateResourceDisplays();
+            
+            // Prevent rapid flashing by throttling updates (max once per 0.5 seconds)
+            float currentTime = llGetTime();
+            if (currentTime - lastManaUpdateTime > 0.5 || lastManaUpdateTime == 0.0) {
+                updateResourceDisplays();
+                lastManaUpdateTime = currentTime;
+            }
         }
         // XP loaded
         else if (msg == "xp loaded") {

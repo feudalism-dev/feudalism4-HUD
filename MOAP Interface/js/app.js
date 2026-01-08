@@ -509,6 +509,14 @@ try {
                             this.state.isNewCharacter = false;
                             this.state.selectedCharacterId = character.id; // Ensure selected ID is set
                             
+                            // Load universe data for the character
+                            if (character.universe_id) {
+                                const universeResult = await API.getUniverse(character.universe_id);
+                                if (universeResult.success) {
+                                    this.state.currentUniverse = universeResult.data.universe;
+                                }
+                            }
+                            
                             // UX 2: Update UI indicators after character loads
                             this.updateStatusIndicator();
                             this.updateStepGuide();
@@ -731,6 +739,15 @@ try {
                 this.state.isNewCharacter = true;
                 this.state.character = this.createDefaultCharacter();
                 this.state.character.universe_id = universeId;
+                
+                // Load universe data for mana checks
+                const universeResult = await API.getUniverse(universeId);
+                if (universeResult.success) {
+                    this.state.currentUniverse = universeResult.data.universe;
+                }
+                
+                // Update character selector with temp option
+                this.updateCharacterSelectorWithTemp();
                 
                 // Switch to Character tab and show universe selection
                 UI.switchTab('character');
@@ -1089,6 +1106,38 @@ try {
     },
     
     /**
+     * Update character selector with temporary "New Character (unsaved)" option
+     */
+    updateCharacterSelectorWithTemp() {
+        const selector = document.getElementById('character-selector');
+        if (!selector) return;
+        
+        // Remove any existing temp option first
+        const existingTemp = selector.querySelector('option[value="__temp__"]');
+        if (existingTemp) {
+            existingTemp.remove();
+        }
+        
+        // Add temp option at the top (after "Create New" option)
+        const tempOption = document.createElement('option');
+        tempOption.value = '__temp__';
+        tempOption.textContent = '✏️ New Character (unsaved)';
+        tempOption.selected = true;
+        
+        // Insert after "Create New" option (which should be first)
+        if (selector.children.length > 0) {
+            // Insert after first option
+            if (selector.children.length > 1) {
+                selector.insertBefore(tempOption, selector.children[1]);
+            } else {
+                selector.appendChild(tempOption);
+            }
+        } else {
+            selector.appendChild(tempOption);
+        }
+    },
+    
+    /**
      * Create a default character template for new characters
      */
     createDefaultCharacter() {
@@ -1109,11 +1158,11 @@ try {
         const baseMana = this.calculateMana(defaultStats, species, hasMana);
         
         return {
-            name: '',
-            title: '',
-            gender: 'unspecified',
+            name: 'New Character',
+            title: 'My Title',
+            gender: 'other',
             species_id: 'human',
-            class_id: 'commoner',
+            class_id: 'adventurer',
             xp_total: 100,
             xp_available: 100,
             currency: 50,
@@ -1546,6 +1595,8 @@ try {
         UI.elements.charName?.addEventListener('input', async (e) => {
             this.state.character.name = e.target.value;
             this.state.pendingChanges.name = e.target.value;
+            this.state.dirty = true;
+            this.updateStatusIndicator();
             await this.renderAll();
         });
         
@@ -1553,6 +1604,8 @@ try {
         UI.elements.charTitle?.addEventListener('input', async (e) => {
             this.state.character.title = e.target.value;
             this.state.pendingChanges.title = e.target.value;
+            this.state.dirty = true;
+            this.updateStatusIndicator();
             await this.renderAll();
         });
         
@@ -1652,20 +1705,35 @@ try {
             if (value === '__create_new__') {
                 // Handle "Create New Character" option
                 await this.showNewCharacterDialog();
-                // Reset selector to current character if exists, or back to placeholder if no character
-                if (this.state.selectedCharacterId) {
+                // Reset selector to temp character if it was created, or back to current/placeholder
+                const tempOption = e.target.querySelector('option[value="__temp__"]');
+                if (tempOption) {
+                    e.target.value = '__temp__';
+                } else if (this.state.selectedCharacterId) {
                     e.target.value = this.state.selectedCharacterId;
                 } else {
                     // Reset to placeholder (empty string)
                     e.target.selectedIndex = 0;
                 }
+            } else if (value === '__temp__') {
+                // User selected the temp character again - do nothing
+                return;
             } else if (value) {
+                // If switching away from unsaved temp character, discard it without warning
+                if (this.state.isNewCharacter && !this.state.character?.id) {
+                    this.state.isNewCharacter = false;
+                    this.state.character = null;
+                    this.state.dirty = false;
+                    // Remove temp option from selector
+                    const tempOption = e.target.querySelector('option[value="__temp__"]');
+                    if (tempOption) tempOption.remove();
+                }
                 // Handle character selection - check for unsaved changes
-                if (this.state.dirty) {
+                else if (this.state.dirty) {
                     const shouldProceed = await this.showUnsavedChangesModal();
                     if (!shouldProceed) {
                         // Reset selector
-                        e.target.value = this.state.selectedCharacterId || '';
+                        e.target.value = this.state.selectedCharacterId || '__temp__';
                         return;
                     }
                 }
@@ -2117,6 +2185,9 @@ try {
                 this.state.dirty = false; // Clear dirty flag after successful save
                 UI.showToast('Character created!', 'success');
                 this.updateStatusIndicator(); // Update status badge and save button
+                
+                // Reload character list and update selector
+                await this.loadData();
             } else {
                 // Update existing character
                 // Ensure class_id is included - use currentClass.id as fallback
@@ -5150,189 +5221,194 @@ window.onSpeciesSelected = async function(speciesId) {
     const species = App.state.species.find(s => s.id === speciesId);
     if (!species) return;
     
-    // For new characters, check mana and show confirmation dialog
+    // For new characters, check if mana is available and let user choose
     if (App.state.isNewCharacter) {
         // Get universe to check if mana is enabled
         const universe = App.state.currentUniverse;
         const universeManaEnabled = universe?.manaEnabled || false;
         
-        // Roll for mana if universe allows it
-        let hasMana = false;
-        if (universeManaEnabled && species) {
-            hasMana = App.rollManaChance(species);
-        }
+        // Check if this species can use magic (universe allows mana AND species has mana pool > 0)
+        const speciesManaPool = species.mana || 0;
+        const speciesCanUseMagic = universeManaEnabled && speciesManaPool > 0;
         
-        // Calculate mana amount if they have mana
-        let manaAmount = 0;
-        if (hasMana) {
-            const stats = App.state.character.stats || App.getDefaultStats();
-            const manaFactor = species.mana_factor || 25;
-            const wisdom = stats.wisdom || 2;
-            const intelligence = stats.intelligence || 2;
-            manaAmount = (wisdom + intelligence) * manaFactor;
-        }
-        
-        // Show confirmation dialog with clear messaging
-        const manaMessage = hasMana 
-            ? `✨ <strong>Your character has access to arcane energy known as mana!</strong><br><br>Your character will have <strong>${manaAmount} mana points</strong> based on your Wisdom and Intelligence stats.<br><br><strong>You will be able to select arcane-related classes.</strong>`
-            : `❌ <strong>Your character does not have access to arcane energy known as mana.</strong><br><br>Your character will not have mana abilities.<br><br><strong>You will not be able to select arcane-related classes.</strong>`;
-        
-        const manaChance = species.mana_chance || 0;
-        const chanceText = universeManaEnabled && manaChance > 0 && manaChance < 100
-            ? `<br><br><small style="color: var(--text-muted); font-style: italic;">This species has a ${manaChance}% chance to develop mana.</small>`
-            : '';
-        
-        UI.showModal(`
-            <div class="modal-content">
-                <h2 class="modal-title">Species Selected: ${species.name}</h2>
-                <div class="modal-text" style="text-align: center; padding: var(--space-md);">
-                    ${manaMessage}${chanceText}
-                </div>
-                <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: center; margin-top: var(--space-lg);">
-                    <button class="btn-secondary" id="btn-try-again-species">Try Again</button>
-                    <button class="btn-primary" id="btn-accept-species">Accept</button>
-                </div>
-            </div>
-        `);
-        
-        // Store the mana result temporarily
-        App.state.pendingManaResult = { hasMana, manaAmount, speciesId };
-        
-        // Bind accept button
-        document.getElementById('btn-accept-species')?.addEventListener('click', () => {
-            // Accept the species and mana result
-            App.state.character.species_id = speciesId;
-            App.state.character.has_mana = hasMana;
-            if (hasMana) {
-                App.state.character.mana = { current: manaAmount, base: manaAmount, max: manaAmount };
-            } else {
-                App.state.character.mana = { current: 0, base: 0, max: 0 };
-            }
+        if (speciesCanUseMagic) {
+            // Use species base mana pool
+            const manaAmount = species.mana || 0;
             
-            // Store species factors for LSL
-            App.state.character.species_factors = {
-                health_factor: species.health_factor || 25,
-                stamina_factor: species.stamina_factor || 25,
-                mana_factor: species.mana_factor || 25
+            // Show choice dialog - ask user if they want to be magically gifted
+            UI.showModal(`
+                <div class="modal-content">
+                    <h2 class="modal-title">Species Selected: ${species.name}</h2>
+                    <div class="modal-text" style="text-align: center; padding: var(--space-md);">
+                        <p style="font-size: 1.1em; margin-bottom: var(--space-md);">
+                            ✨ <strong>Your choice of species is allowed to use magic.</strong>
+                        </p>
+                        <p style="font-size: 1em; margin-bottom: var(--space-md);">
+                            Do you want your character to be <strong>magically gifted</strong>?
+                        </p>
+                        <div style="text-align: left; background: var(--bg-secondary); padding: var(--space-md); border-radius: var(--border-radius); margin: var(--space-md) 0;">
+                            <p style="margin: 0 0 var(--space-sm) 0;"><strong>If Yes:</strong></p>
+                            <ul style="margin: 0 0 var(--space-md) var(--space-md); padding: 0;">
+                                <li>Your character will have <strong>${manaAmount} mana points</strong></li>
+                                <li>You can select <strong>arcane-related classes</strong></li>
+                                <li>You can learn and cast <strong>spells</strong></li>
+                            </ul>
+                            <p style="margin: 0 0 var(--space-sm) 0;"><strong>If No:</strong></p>
+                            <ul style="margin: 0; padding: 0 0 0 var(--space-md);">
+                                <li>Your character will focus on <strong>non-magical abilities</strong></li>
+                                <li>Arcane classes will <strong>not be available</strong></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: center; margin-top: var(--space-lg);">
+                        <button class="btn-secondary" id="btn-no-mana">No</button>
+                        <button class="btn-primary" id="btn-yes-mana">Yes</button>
+                    </div>
+                </div>
+            `);
+            
+            // Store the species and mana amount temporarily
+            App.state.pendingManaResult = { manaAmount, speciesId };
+            
+            // Function to finalize species selection with mana choice
+            const finalizeSpeciesSelection = (hasMana) => {
+                App.state.character.species_id = speciesId;
+                App.state.character.has_mana = hasMana;
+                
+                if (hasMana) {
+                    App.state.character.mana = { current: manaAmount, base: manaAmount, max: manaAmount };
+                } else {
+                    App.state.character.mana = { current: 0, base: 0, max: 0 };
+                }
+                
+                // Store species factors for LSL
+                App.state.character.species_factors = {
+                    health_factor: species.health_factor || 25,
+                    stamina_factor: species.stamina_factor || 25,
+                    mana_factor: species.mana_factor || 25
+                };
+                
+                App.state.pendingChanges.species_id = speciesId;
+                App.state.pendingChanges.has_mana = hasMana;
+                App.state.pendingChanges.mana = App.state.character.mana;
+                App.state.pendingChanges.species_factors = App.state.character.species_factors;
+                
+                // Mark as dirty and update save button
+                App.state.dirty = true;
+                App.updateStatusIndicator();
+                
+                // Clear pending mana result
+                App.state.pendingManaResult = null;
+                
+                UI.hideModal();
+                UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
+                
+                // Apply species base stats if available
+                if (species?.base_stats && speciesId !== previousSpeciesId) {
+                    const defaultStats = App.getDefaultStats();
+                    const speciesStats = species.base_stats || {};
+                    const mergedStats = { ...defaultStats };
+                    Object.keys(speciesStats).forEach(stat => {
+                        mergedStats[stat] = speciesStats[stat];
+                    });
+                    App.state.character.stats = mergedStats;
+                    App.state.pendingChanges.stats = mergedStats;
+                    UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+                }
+                
+                // Re-render to update UI
+                App.renderAll();
             };
             
-            App.state.pendingChanges.species_id = speciesId;
-            App.state.pendingChanges.has_mana = hasMana;
-            App.state.pendingChanges.mana = App.state.character.mana;
-            App.state.pendingChanges.species_factors = App.state.character.species_factors;
+            // Bind Yes button - user wants magic
+            document.getElementById('btn-yes-mana')?.addEventListener('click', () => {
+                finalizeSpeciesSelection(true);
+            });
             
-            // Clear pending mana result
-            App.state.pendingManaResult = null;
+            // Bind No button - user doesn't want magic
+            document.getElementById('btn-no-mana')?.addEventListener('click', () => {
+                finalizeSpeciesSelection(false);
+            });
+        } else {
+            // Species cannot use magic (either universe doesn't allow it or species has 0% chance)
+            // Show simple confirmation and proceed without mana
+            UI.showModal(`
+                <div class="modal-content">
+                    <h2 class="modal-title">Species Selected: ${species.name}</h2>
+                    <div class="modal-text" style="text-align: center; padding: var(--space-md);">
+                        ${!universeManaEnabled 
+                            ? '<p>ℹ️ This universe does not support magic.</p>' 
+                            : '<p>ℹ️ This species cannot use magic.</p>'}
+                        <p>Your character will focus on non-magical abilities.</p>
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: center; margin-top: var(--space-lg);">
+                        <button class="btn-primary" id="btn-accept-species-no-magic">Accept</button>
+                    </div>
+                </div>
+            `);
             
-            UI.hideModal();
-            UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
-            
-            // Apply species base stats if available
-            if (species?.base_stats && speciesId !== previousSpeciesId) {
-                const defaultStats = App.getDefaultStats();
-                const speciesStats = species.base_stats || {};
-                const mergedStats = { ...defaultStats };
-                Object.keys(speciesStats).forEach(stat => {
-                    mergedStats[stat] = speciesStats[stat];
-                });
-                App.state.character.stats = mergedStats;
-                App.state.pendingChanges.stats = mergedStats;
-                UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
-            }
-            
-            // Re-render to update UI
-            App.renderAll();
-        });
-        
-        // Bind try again button
-        document.getElementById('btn-try-again-species')?.addEventListener('click', () => {
-            // Clear pending mana result
-            App.state.pendingManaResult = null;
-            UI.hideModal();
-            // User can select a different species
-        });
+            // Bind accept button
+            document.getElementById('btn-accept-species-no-magic')?.addEventListener('click', () => {
+                App.state.character.species_id = speciesId;
+                App.state.character.has_mana = false;
+                App.state.character.mana = { current: 0, base: 0, max: 0 };
+                
+                // Store species factors for LSL
+                App.state.character.species_factors = {
+                    health_factor: species.health_factor || 25,
+                    stamina_factor: species.stamina_factor || 25,
+                    mana_factor: species.mana_factor || 25
+                };
+                
+                App.state.pendingChanges.species_id = speciesId;
+                App.state.pendingChanges.has_mana = false;
+                App.state.pendingChanges.mana = App.state.character.mana;
+                App.state.pendingChanges.species_factors = App.state.character.species_factors;
+                
+                // Mark as dirty and update save button
+                App.state.dirty = true;
+                App.updateStatusIndicator();
+                
+                UI.hideModal();
+                UI.showToast(`Selected: ${species.name}`, 'success', 3000);
+                
+                // Apply species base stats if available
+                if (species?.base_stats && speciesId !== previousSpeciesId) {
+                    const defaultStats = App.getDefaultStats();
+                    const speciesStats = species.base_stats || {};
+                    const mergedStats = { ...defaultStats };
+                    Object.keys(speciesStats).forEach(stat => {
+                        mergedStats[stat] = speciesStats[stat];
+                    });
+                    App.state.character.stats = mergedStats;
+                    App.state.pendingChanges.stats = mergedStats;
+                    UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+                }
+                
+                // Re-render to update UI
+                App.renderAll();
+            });
+        }
         
         return; // Don't proceed with normal selection flow
     }
     
-    // For existing characters, proceed normally
+    // For existing characters, proceed normally (just update the species)
     App.state.character.species_id = speciesId;
     App.state.pendingChanges.species_id = speciesId;
     
-    // Only reset stats to species base when species CHANGES on a new character
-    if (App.state.isNewCharacter && species?.base_stats && speciesId !== previousSpeciesId) {
-        // Apply species base_stats (this includes bonuses and penalties)
-        // Start with default stats, then apply species overrides
-        const defaultStats = App.getDefaultStats();
-        const speciesStats = species.base_stats || {};
-        
-        // Merge: use species base_stats where provided, otherwise use defaults
-        const mergedStats = { ...defaultStats };
-        Object.keys(speciesStats).forEach(stat => {
-            mergedStats[stat] = speciesStats[stat];
-        });
-        
-        App.state.character.stats = mergedStats;
-        App.state.pendingChanges.stats = mergedStats;
-        UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
-    }
+    // Mark as dirty and update save button
+    App.state.dirty = true;
+    App.updateStatusIndicator();
     
-    // Update species factors for new characters (mana is handled in confirmation dialog above)
-    if (App.state.isNewCharacter && species && !App.state.pendingManaResult) {
-        // Store species factors for LSL
+    // Update species factors for existing characters
+    if (species) {
         App.state.character.species_factors = {
             health_factor: species.health_factor || 25,
             stamina_factor: species.stamina_factor || 25,
             mana_factor: species.mana_factor || 25
         };
-        
-        const hasMana = universeManaEnabled && App.rollManaChance(species);
-        App.state.character.has_mana = hasMana;
-        
-        if (hasMana && universeManaEnabled) {
-            // Show prominent notification for mana
-            UI.showModal(`
-                <div class="modal-content">
-                    <h2 class="modal-title" style="color: #10b981;">✨ Magical Ability Unlocked!</h2>
-                    <p class="modal-text" style="font-size: 1.1em; margin: var(--space-md) 0;">
-                        As a <strong>${species.name}</strong>, you have been blessed with magical ability!
-                    </p>
-                    <p class="modal-text">
-                        Your character has <strong style="color: #10b981;">mana</strong> and will be able to select an <strong>arcane career</strong>.
-                    </p>
-                    <p class="modal-text" style="color: var(--text-muted); font-size: 0.9em;">
-                        You can now learn and use spells. Classes that require mana will be available to you.
-                    </p>
-                    <div class="modal-actions">
-                        <button class="btn btn-primary modal-ok-btn">Excellent!</button>
-                    </div>
-                </div>
-            `);
-            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.closeModal());
-        } else if (!hasMana && universeManaEnabled) {
-            // Show notification that they did NOT get mana
-            UI.showModal(`
-                <div class="modal-content">
-                    <h2 class="modal-title" style="color: #ef4444;">❌ No Magical Ability</h2>
-                    <p class="modal-text" style="font-size: 1.1em; margin: var(--space-md) 0;">
-                        As a <strong>${species.name}</strong>, you did <strong style="color: #ef4444;">not</strong> gain magical ability.
-                    </p>
-                    <p class="modal-text">
-                        Your character does <strong>not have mana</strong> and <strong>cannot select an arcane career</strong>.
-                    </p>
-                    <p class="modal-text" style="color: var(--text-muted); font-size: 0.9em; margin-top: var(--space-md);">
-                        If you want to pursue an arcane career, try creating a <strong>NEW CHARACTER</strong> again until you get one with mana.
-                    </p>
-                    <div class="modal-actions">
-                        <button class="btn btn-primary modal-ok-btn">Understood</button>
-                    </div>
-                </div>
-            `);
-            document.querySelector('.modal-ok-btn')?.addEventListener('click', () => UI.closeModal());
-        } else {
-            // Universe doesn't allow mana
-            UI.showToast(`${species.name} - This universe does not allow magical abilities.`, 'info', 2000);
-        }
+        App.state.pendingChanges.species_factors = App.state.character.species_factors;
     }
     
     // Recalculate resource pools with new species modifiers
@@ -5364,6 +5440,10 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         App.state.pendingChanges.class_id = classId;
         App.state.pendingChanges.stats_at_class_start = { ...App.state.character.stats };
         App.state.pendingChanges.class_started_at = App.state.character.class_started_at;
+        
+        // Mark as dirty and update save button
+        App.state.dirty = true;
+        App.updateStatusIndicator();
         
         await App.renderAll();
         UI.showToast(`Class selected: ${classTemplate.name}`, 'success', 1500);
@@ -5403,6 +5483,10 @@ window.onGenderSelected = async function(gender) {
     App.state.character.gender = gender;
     App.state.pendingChanges.gender = gender;
     
+    // Mark as dirty and update save button
+    App.state.dirty = true;
+    App.updateStatusIndicator();
+    
     // Update visual selection
     document.querySelectorAll('.gender-btn').forEach(btn => {
         btn.classList.toggle('selected', btn.dataset.gender === gender);
@@ -5423,6 +5507,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
+/**
+ * Get the minimum allowed value for a stat based on species bonuses
+ * Formula: 1 + species bonus for that stat
+ * Example: Elf with +2 Agility can lower Agility to 3 (1 base + 2 bonus)
+ */
+window.getStatMinimum = function(character, statName) {
+    if (!character) return 1;
+    
+    const speciesId = character.species_id;
+    const species = App.state.species?.find(s => s.id === speciesId);
+    const speciesBaseStats = species?.base_stats || {};
+    const speciesBase = speciesBaseStats[statName] || 2; // Default is 2
+    
+    // Minimum is: 1 + (species_base - 2)
+    // Example: species_base=4 means bonus of +2, so minimum is 1+2=3
+    return Math.max(1, 1 + (speciesBase - 2));
+};
 
 /**
  * Calculate point cost to increase from current level
@@ -5450,24 +5552,55 @@ window.getStatTotalCost = function(level) {
  * Calculate available points from XP
  * Base: 20 points (20000 XP equivalent)
  * Conversion: 1000 XP = 1 point
+ * 
+ * Species bonuses:
+ * - Humans: +8 available points (no base stat bonuses)
+ * - Other species: base_stats are applied for free
  */
 window.calculateAvailablePoints = function(character) {
     const BASE_POINTS = 20; // Everyone starts with 20 points
+    const HUMAN_BONUS = 8;  // Humans get 8 extra points for flexibility
     const XP_PER_POINT = 1000;
+    
+    // Get species data
+    const speciesId = character.species_id;
+    const species = App.state.species?.find(s => s.id === speciesId);
+    const speciesBaseStats = species?.base_stats || {};
+    
+    // Calculate species bonus
+    let speciesBonus = 0;
+    if (speciesId === 'human') {
+        // Humans get 8 bonus points
+        speciesBonus = HUMAN_BONUS;
+    } else {
+        // Other species: calculate "free points" from base_stats
+        for (const stat in speciesBaseStats) {
+            const bonusLevel = speciesBaseStats[stat] || 2;
+            speciesBonus += window.getStatTotalCost(bonusLevel);
+        }
+    }
     
     // Calculate points from earned XP
     const earnedXP = character.xp_total || 0;
     const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
     
-    // Calculate points spent on stats
+    // Calculate points spent on stats (above species base)
     let pointsSpent = 0;
     const stats = character.stats || {};
     for (const stat in stats) {
-        const level = stats[stat] || 2;
-        pointsSpent += window.getStatTotalCost(level);
+        const currentLevel = stats[stat] || 2;
+        const speciesBase = speciesBaseStats[stat] || 2;
+        
+        // Only count points spent ABOVE the species base
+        if (currentLevel > speciesBase) {
+            // Cost from species base to current level
+            for (let lvl = speciesBase; lvl < currentLevel; lvl++) {
+                pointsSpent += window.getStatPointCost(lvl);
+            }
+        }
     }
     
-    return BASE_POINTS + earnedPoints - pointsSpent;
+    return BASE_POINTS + speciesBonus + earnedPoints - pointsSpent;
 };
 
 /**
@@ -5500,9 +5633,10 @@ window.onStatChange = async function(stat, action) {
         UI.showToast(`+1 ${stat} (cost: ${cost} pts)`, 'info', 1500);
         
     } else if (action === 'decrease') {
-        // Can lower ANY stat to 1 (not species base in F4)
-        if (currentValue <= 1) {
-            UI.showToast('Cannot go below 1', 'warning');
+        // Cannot lower below species minimum (1 + species bonus)
+        const minimum = window.getStatMinimum(App.state.character, stat);
+        if (currentValue <= minimum) {
+            UI.showToast(`Cannot go below ${minimum} (species minimum)`, 'warning');
             return;
         }
         
@@ -5511,6 +5645,10 @@ window.onStatChange = async function(stat, action) {
         App.state.pendingChanges.stats = App.state.character.stats;
         UI.showToast(`-1 ${stat} (refund: ${refund} pts)`, 'info', 1500);
     }
+    
+    // Mark as dirty and update save button
+    App.state.dirty = true;
+    App.updateStatusIndicator();
     
     await App.renderAll();
 };

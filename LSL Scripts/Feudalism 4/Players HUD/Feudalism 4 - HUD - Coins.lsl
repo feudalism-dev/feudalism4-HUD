@@ -510,6 +510,9 @@ default {
         // Initialize owner information
         ownerKey = llGetOwner();
         
+        // DEBUG: ALWAYS log owner info to help troubleshoot (temporary)
+        llOwnerSay("[Coins DEBUG] Initialized. ownerKey: " + (string)ownerKey);
+        
         // Listen for coin menu responses
         coinMenuListener = llListen(MENU_CHANNEL, "", ownerKey, "");
         

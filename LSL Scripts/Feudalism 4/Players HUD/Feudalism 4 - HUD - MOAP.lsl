@@ -322,7 +322,7 @@ default {
                 string characterID = llList2String(parts, 2);
                 if (userID != "" && characterID != "") {
                     // Forward to Bridge via link_message
-                    llMessageLinked(LINK_SET, 0, "SET_ACTIVE_CHARACTER|" + userID + "|" + characterID, "");
+                    llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "SET_ACTIVE_CHARACTER|" + userID + "|" + characterID, "");
                     debugLog("Forwarding SET_ACTIVE_CHARACTER to Bridge: " + userID + " -> " + characterID);
                 }
             }
@@ -331,7 +331,7 @@ default {
                 string userID = llList2String(parts, 1);
                 if (userID != "") {
                     // Forward to Bridge via link_message
-                    llMessageLinked(LINK_SET, 0, "GET_ACTIVE_CHARACTER|" + userID, "");
+                    llMessageLinked(LINK_SET, FS_BRIDGE_CHANNEL, "GET_ACTIVE_CHARACTER|" + userID, "");
                     debugLog("Forwarding GET_ACTIVE_CHARACTER to Bridge: " + userID);
                 }
             }
