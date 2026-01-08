@@ -1749,13 +1749,17 @@ try {
             UI.switchTab('character');
         });
         
-        // Mode buttons
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const mode = e.target.dataset.mode;
-                this.handleModeChange(mode);
+        // Mode buttons - use event delegation to prevent duplicate listeners
+        const modeSelector = document.querySelector('.mode-selector');
+        if (modeSelector && !modeSelector.dataset.initialized) {
+            modeSelector.addEventListener('click', (e) => {
+                const btn = e.target.closest('.mode-btn');
+                if (btn && btn.dataset.mode) {
+                    this.handleModeChange(btn.dataset.mode);
+                }
             });
-        });
+            modeSelector.dataset.initialized = 'true';
+        }
         
         // Display options
         document.getElementById('btn-show-bars')?.addEventListener('click', () => {
