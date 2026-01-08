@@ -199,9 +199,51 @@ const API = {
      * @param {number} amount - XP amount (can be negative)
      * @param {string} reason - Reason for award
      */
-    async awardXP(targetUUID, amount, reason = '') {
+    async awardXP(target, amount, reason = '') {
+        // Support both character ID and UUID
+        const isUUID = target.includes('-');
+        
         return this.request('admin.xp.award', {
+            target: target,
+            target_type: isUUID ? 'uuid' : 'character_id',
+            amount: amount,
+            reason: reason
+        });
+    },
+    
+    /**
+     * Give coins to a character (admin function)
+     * @param {string} target - Target character ID or player UUID
+     * @param {number} gold - Gold amount
+     * @param {number} silver - Silver amount
+     * @param {number} copper - Copper amount
+     * @param {string} reason - Reason for grant (optional)
+     */
+    async giveCoins(target, gold, silver, copper, reason = '') {
+        // Determine if target is character ID or UUID
+        const isUUID = target.includes('-');
+        
+        return this.request('admin.coins.give', {
+            target: target,
+            target_type: isUUID ? 'uuid' : 'character_id',
+            gold: gold,
+            silver: silver,
+            copper: copper,
+            reason: reason
+        });
+    },
+    
+    /**
+     * Give item to a player (admin function)
+     * @param {string} targetUUID - Target player UUID
+     * @param {string} itemName - Item name
+     * @param {number} amount - Item amount
+     * @param {string} reason - Reason for grant (optional)
+     */
+    async giveItem(targetUUID, itemName, amount, reason = '') {
+        return this.request('admin.item.give', {
             target_uuid: targetUUID,
+            item_name: itemName,
             amount: amount,
             reason: reason
         });

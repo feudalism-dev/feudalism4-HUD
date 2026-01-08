@@ -612,9 +612,13 @@ default {
                 // Save to Data Manager
                 llMessageLinked(LINK_SET, currentMana, "save mana", (string)baseMana + "|" + (string)baseMana);
             }
-            else if (cmd == "add xp") {
+            else if (cmd == "gainXP") {  // F3 standard command
                 integer xpGain = (integer)llList2String(parts, 1);
                 myXP += xpGain;
+                
+                // Notify player (F3 behavior)
+                llOwnerSay("✨ You gained " + (string)xpGain + " XP!");
+                
                 updateResourceDisplays();
                 // Save to Data Manager
                 llMessageLinked(LINK_SET, myXP, "save xp", "");

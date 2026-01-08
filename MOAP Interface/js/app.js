@@ -2451,6 +2451,12 @@ try {
             case 'xp':
                 this.showXPAward();
                 break;
+            case 'givecoins':
+                this.showGiveCoins();
+                break;
+            case 'giveitem':
+                this.showGiveItem();
+                break;
             default:
                 adminContent.innerHTML = '<p class="placeholder-text">Select an admin function...</p>';
         }
@@ -2858,36 +2864,282 @@ try {
         const adminContent = UI.elements.adminContent;
         
         adminContent.innerHTML = `
-            <h3>Award XP</h3>
+            <h3>⭐ Award XP</h3>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Grant experience points to a character. Enter either a character ID or player UUID.</p>
             <div class="form-group">
-                <label for="xp-target">Target Player UUID</label>
-                <input type="text" id="xp-target" placeholder="Enter player UUID...">
+                <label for="xp-target">Target Character ID or Player UUID</label>
+                <input type="text" id="xp-target" placeholder="Enter character ID or player UUID...">
+                <small style="color: var(--text-muted);">Character ID (preferred) or Second Life UUID</small>
             </div>
             <div class="form-group">
-                <label for="xp-amount">XP Amount (negative to deduct)</label>
-                <input type="number" id="xp-amount" value="100">
+                <label for="xp-amount">XP Amount</label>
+                <input type="number" id="xp-amount" value="100" min="1">
+                <small style="color: var(--text-muted);">Must be positive</small>
             </div>
             <div class="form-group">
-                <label for="xp-reason">Reason</label>
-                <input type="text" id="xp-reason" placeholder="Reason for award...">
+                <label for="xp-reason">Reason (Optional)</label>
+                <input type="text" id="xp-reason" placeholder="Quest completion, roleplay excellence, etc...">
             </div>
-            <button class="action-btn primary" id="btn-award-xp">⭐ Award XP</button>
+            <div style="display: flex; gap: var(--space-sm);">
+                <button class="action-btn primary" id="btn-award-xp">⭐ Award XP</button>
+                <button class="action-btn secondary" id="btn-clear-xp">Clear</button>
+            </div>
+            <div id="xp-result" style="margin-top: var(--space-md);"></div>
         `;
         
+        const clearForm = () => {
+            document.getElementById('xp-target').value = '';
+            document.getElementById('xp-amount').value = '100';
+            document.getElementById('xp-reason').value = '';
+            document.getElementById('xp-result').innerHTML = '';
+        };
+        
+        document.getElementById('btn-clear-xp')?.addEventListener('click', clearForm);
+        
         document.getElementById('btn-award-xp')?.addEventListener('click', async () => {
-            const target = document.getElementById('xp-target').value;
+            const target = document.getElementById('xp-target').value.trim();
             const amount = parseInt(document.getElementById('xp-amount').value);
-            const reason = document.getElementById('xp-reason').value;
+            const reason = document.getElementById('xp-reason').value.trim();
             
-            if (!target || !amount) {
-                UI.showToast('Please fill in all fields', 'warning');
+            if (!target || !amount || amount <= 0) {
+                UI.showToast('Please enter valid target and positive XP amount', 'warning');
                 return;
             }
             
+            const resultDiv = document.getElementById('xp-result');
+            resultDiv.innerHTML = '<p style="color: var(--text-muted);">Granting XP...</p>';
+            
             try {
-                await API.awardXP(target, amount, reason);
-                UI.showToast(`Awarded ${amount} XP!`, 'success');
+                const result = await API.awardXP(target, amount, reason);
+                if (result.success) {
+                    resultDiv.innerHTML = `
+                        <div style="padding: var(--space-md); background: var(--success-bg); border: 1px solid var(--success); border-radius: 4px;">
+                            <p style="color: var(--success); font-weight: bold;">✅ Successfully granted ${amount} XP!</p>
+                            ${result.data?.newTotal ? `<p style="color: var(--text-secondary);">New Total: ${result.data.newTotal} XP</p>` : ''}
+                        </div>
+                    `;
+                    UI.showToast(`Awarded ${amount} XP!`, 'success');
+                    // Clear target for next grant
+                    document.getElementById('xp-target').value = '';
+                    document.getElementById('xp-reason').value = '';
+                } else {
+                    throw new Error(result.error || 'Unknown error');
+                }
             } catch (error) {
+                resultDiv.innerHTML = `
+                    <div style="padding: var(--space-md); background: var(--error-bg); border: 1px solid var(--error); border-radius: 4px;">
+                        <p style="color: var(--error); font-weight: bold;">❌ Failed to award XP</p>
+                        <p style="color: var(--text-secondary);">${error.message}</p>
+                    </div>
+                `;
+                UI.showToast('Failed: ' + error.message, 'error');
+            }
+        });
+    },
+    
+    /**
+     * Show Give Coins admin panel
+     */
+    showGiveCoins() {
+        const adminContent = UI.elements.adminContent;
+        
+        adminContent.innerHTML = `
+            <h3>💰 Give Coins</h3>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Grant currency to a character. Enter gold, silver, and/or copper amounts.</p>
+            <div class="form-group">
+                <label for="coins-target">Target Character ID or Player UUID</label>
+                <input type="text" id="coins-target" placeholder="Enter character ID or player UUID...">
+                <small style="color: var(--text-muted);">Character ID (preferred) or Second Life UUID</small>
+            </div>
+            <div class="form-group">
+                <label for="coins-gold">Gold</label>
+                <input type="number" id="coins-gold" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label for="coins-silver">Silver</label>
+                <input type="number" id="coins-silver" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label for="coins-copper">Copper</label>
+                <input type="number" id="coins-copper" value="0" min="0">
+            </div>
+            <div class="form-group">
+                <label for="coins-reason">Reason (Optional)</label>
+                <input type="text" id="coins-reason" placeholder="Compensation, event prize, etc...">
+            </div>
+            <div style="display: flex; gap: var(--space-sm);">
+                <button class="action-btn primary" id="btn-give-coins">💰 Give Coins</button>
+                <button class="action-btn secondary" id="btn-clear-coins">Clear</button>
+            </div>
+            <div id="coins-result" style="margin-top: var(--space-md);"></div>
+        `;
+        
+        const clearForm = () => {
+            document.getElementById('coins-target').value = '';
+            document.getElementById('coins-gold').value = '0';
+            document.getElementById('coins-silver').value = '0';
+            document.getElementById('coins-copper').value = '0';
+            document.getElementById('coins-reason').value = '';
+            document.getElementById('coins-result').innerHTML = '';
+        };
+        
+        document.getElementById('btn-clear-coins')?.addEventListener('click', clearForm);
+        
+        document.getElementById('btn-give-coins')?.addEventListener('click', async () => {
+            const target = document.getElementById('coins-target').value.trim();
+            const gold = parseInt(document.getElementById('coins-gold').value) || 0;
+            const silver = parseInt(document.getElementById('coins-silver').value) || 0;
+            const copper = parseInt(document.getElementById('coins-copper').value) || 0;
+            const reason = document.getElementById('coins-reason').value.trim();
+            
+            if (!target) {
+                UI.showToast('Please enter a target character ID or UUID', 'warning');
+                return;
+            }
+            
+            if (gold <= 0 && silver <= 0 && copper <= 0) {
+                UI.showToast('Please enter at least one positive currency amount', 'warning');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('coins-result');
+            resultDiv.innerHTML = '<p style="color: var(--text-muted);">Giving coins...</p>';
+            
+            try {
+                const result = await API.giveCoins(target, gold, silver, copper, reason);
+                if (result.success) {
+                    const amountText = [];
+                    if (gold > 0) amountText.push(`${gold} gold`);
+                    if (silver > 0) amountText.push(`${silver} silver`);
+                    if (copper > 0) amountText.push(`${copper} copper`);
+                    
+                    resultDiv.innerHTML = `
+                        <div style="padding: var(--space-md); background: var(--success-bg); border: 1px solid var(--success); border-radius: 4px;">
+                            <p style="color: var(--success); font-weight: bold;">✅ Successfully gave ${amountText.join(', ')}!</p>
+                        </div>
+                    `;
+                    UI.showToast(`Gave ${amountText.join(', ')}!`, 'success');
+                    // Clear target for next grant
+                    document.getElementById('coins-target').value = '';
+                    document.getElementById('coins-gold').value = '0';
+                    document.getElementById('coins-silver').value = '0';
+                    document.getElementById('coins-copper').value = '0';
+                    document.getElementById('coins-reason').value = '';
+                } else {
+                    throw new Error(result.error || 'Unknown error');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div style="padding: var(--space-md); background: var(--error-bg); border: 1px solid var(--error); border-radius: 4px;">
+                        <p style="color: var(--error); font-weight: bold;">❌ Failed to give coins</p>
+                        <p style="color: var(--text-secondary);">${error.message}</p>
+                    </div>
+                `;
+                UI.showToast('Failed: ' + error.message, 'error');
+            }
+        });
+    },
+    
+    /**
+     * Show Give Item admin panel
+     */
+    showGiveItem() {
+        const adminContent = UI.elements.adminContent;
+        
+        adminContent.innerHTML = `
+            <h3>📦 Give Item</h3>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Give any item to a player without removing it from inventory. Currency items (gold coin, silver coin, copper coin) are blocked - use Give Coins instead.</p>
+            <div class="form-group">
+                <label for="item-target">Target Player UUID</label>
+                <input type="text" id="item-target" placeholder="Enter player UUID...">
+                <small style="color: var(--text-muted);">Second Life UUID of the player</small>
+            </div>
+            <div class="form-group">
+                <label for="item-name">Item Name</label>
+                <input type="text" id="item-name" placeholder="Enter exact item name...">
+                <small style="color: var(--text-muted);">Case-sensitive. Examples: "gold ore", "iron sword", "health potion"</small>
+            </div>
+            <div class="form-group">
+                <label for="item-amount">Amount</label>
+                <input type="number" id="item-amount" value="1" min="1">
+            </div>
+            <div class="form-group">
+                <label for="item-reason">Reason (Optional)</label>
+                <input type="text" id="item-reason" placeholder="Bug compensation, event prize, etc...">
+            </div>
+            <div style="display: flex; gap: var(--space-sm);">
+                <button class="action-btn primary" id="btn-give-item">📦 Give Item</button>
+                <button class="action-btn secondary" id="btn-clear-item">Clear</button>
+            </div>
+            <div id="item-result" style="margin-top: var(--space-md);"></div>
+            <div style="margin-top: var(--space-lg); padding: var(--space-md); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px;">
+                <p style="color: var(--text-muted); font-size: 0.9rem;"><strong>Blocked Currency Items:</strong></p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">• gold coin • silver coin • copper coin</p>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: var(--space-xs);">✅ Allowed: gold ore, silver ore, copper ore, gold bar, etc.</p>
+            </div>
+        `;
+        
+        const clearForm = () => {
+            document.getElementById('item-target').value = '';
+            document.getElementById('item-name').value = '';
+            document.getElementById('item-amount').value = '1';
+            document.getElementById('item-reason').value = '';
+            document.getElementById('item-result').innerHTML = '';
+        };
+        
+        document.getElementById('btn-clear-item')?.addEventListener('click', clearForm);
+        
+        document.getElementById('btn-give-item')?.addEventListener('click', async () => {
+            const target = document.getElementById('item-target').value.trim();
+            const itemName = document.getElementById('item-name').value.trim();
+            const amount = parseInt(document.getElementById('item-amount').value) || 1;
+            const reason = document.getElementById('item-reason').value.trim();
+            
+            if (!target || !itemName) {
+                UI.showToast('Please enter target UUID and item name', 'warning');
+                return;
+            }
+            
+            if (amount <= 0) {
+                UI.showToast('Amount must be positive', 'warning');
+                return;
+            }
+            
+            // Check for blocked currency items (case-insensitive)
+            const blockedItems = ['gold coin', 'silver coin', 'copper coin'];
+            const itemLower = itemName.toLowerCase();
+            if (blockedItems.includes(itemLower)) {
+                UI.showToast(`Cannot give "${itemName}" - use Give Coins for currency`, 'error');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('item-result');
+            resultDiv.innerHTML = '<p style="color: var(--text-muted);">Giving item...</p>';
+            
+            try {
+                const result = await API.giveItem(target, itemName, amount, reason);
+                if (result.success) {
+                    resultDiv.innerHTML = `
+                        <div style="padding: var(--space-md); background: var(--success-bg); border: 1px solid var(--success); border-radius: 4px;">
+                            <p style="color: var(--success); font-weight: bold;">✅ Successfully gave ${amount}x ${itemName}!</p>
+                        </div>
+                    `;
+                    UI.showToast(`Gave ${amount}x ${itemName}!`, 'success');
+                    // Clear for next use
+                    document.getElementById('item-target').value = '';
+                    document.getElementById('item-name').value = '';
+                    document.getElementById('item-amount').value = '1';
+                    document.getElementById('item-reason').value = '';
+                } else {
+                    throw new Error(result.error || 'Unknown error');
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div style="padding: var(--space-md); background: var(--error-bg); border: 1px solid var(--error); border-radius: 4px;">
+                        <p style="color: var(--error); font-weight: bold;">❌ Failed to give item</p>
+                        <p style="color: var(--text-secondary);">${error.message}</p>
+                    </div>
+                `;
                 UI.showToast('Failed: ' + error.message, 'error');
             }
         });

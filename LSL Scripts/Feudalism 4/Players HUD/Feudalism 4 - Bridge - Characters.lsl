@@ -388,6 +388,42 @@ updateCurrency(string characterID, integer goldDelta, integer silverDelta, integ
     cleanupTrackingLists();
 }
 
+// Add XP to a character (admin function)
+addXP(string characterID, integer xpAmount, integer senderLink) {
+    if (FIREBASE_PROJECT_ID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "XP_ADDED_ERROR", "Project ID not configured");
+        return;
+    }
+    
+    if (characterID == "") {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "XP_ADDED_ERROR", "Invalid character ID");
+        return;
+    }
+    
+    if (xpAmount <= 0) {
+        llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "XP_ADDED_ERROR", "XP amount must be positive");
+        return;
+    }
+    
+    cleanupTrackingLists();
+    
+    // First, get current XP to add delta
+    string url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?mask.fieldPaths=xp_total";
+    
+    key getRequestId = llHTTPRequest(
+        url,
+        [
+            HTTP_METHOD, "GET",
+            HTTP_MIMETYPE, "application/json"
+        ],
+        ""
+    );
+    
+    // Track: [requestId, "GET_XP_FOR_UPDATE", senderLink, characterID, xpAmount]
+    pendingCharOps += [getRequestId, "GET_XP_FOR_UPDATE", senderLink, characterID, (string)xpAmount];
+    cleanupTrackingLists();
+}
+
 // =========================== MAIN STATE =====================================
 
 default {
@@ -578,6 +614,24 @@ default {
             integer silver = (integer)silverStr;
             integer copper = (integer)copperStr;
             updateCurrency(characterID, gold, silver, copper, originalSenderLink);
+        }
+        else if (llSubStringIndex(command, "ADD_XP") == 0) {
+            // Parse: ADD_XP|<characterId>|<xpAmount>
+            list cmdParts = llParseString2List(command, ["|"], []);
+            string characterID;
+            string xpAmountStr;
+            if (llGetListLength(cmdParts) == 3) {
+                characterID = llList2String(cmdParts, 1);
+                xpAmountStr = llList2String(cmdParts, 2);
+            } else if (payload != "") {
+                list payloadParts2 = llParseString2List(payload, ["|"], []);
+                if (llGetListLength(payloadParts2) >= 2) {
+                    characterID = llList2String(payloadParts2, 0);
+                    xpAmountStr = llList2String(payloadParts2, 1);
+                }
+            }
+            integer xpAmount = (integer)xpAmountStr;
+            addXP(characterID, xpAmount, originalSenderLink);
         }
         else if (llSubStringIndex(command, "VAULT_DEPOSIT") == 0) {
             // Parse: VAULT_DEPOSIT|<characterId>|<itemName>|<amount>
@@ -888,6 +942,72 @@ default {
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CURRENCY_UPDATED|OK", "");
                 } else {
                     llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "CURRENCY_UPDATED_ERROR", "Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle GET_XP_FOR_UPDATE (first step of ADD_XP)
+            if (operation == "GET_XP_FOR_UPDATE") {
+                integer senderLink = llList2Integer(pendingCharOps, opIndex + 2);
+                string characterID = llList2String(pendingCharOps, opIndex + 3);
+                string xpAmountStr = llList2String(pendingCharOps, opIndex + 4);
+                
+                pendingCharOps = llDeleteSubList(pendingCharOps, opIndex, opIndex + 4);
+                
+                integer xpAmount = (integer)xpAmountStr;
+                
+                if (status == 200) {
+                    // Extract current XP
+                    string fields = llJsonGetValue(body, ["fields"]);
+                    integer currentXP = 0;
+                    
+                    if (fields != JSON_INVALID && fields != "") {
+                        string xpTotalField = llJsonGetValue(fields, ["xp_total"]);
+                        if (xpTotalField != JSON_INVALID && xpTotalField != "") {
+                            string xpStr = llJsonGetValue(xpTotalField, ["integerValue"]);
+                            if (xpStr != JSON_INVALID && xpStr != "") {
+                                currentXP = (integer)xpStr;
+                            }
+                        }
+                    }
+                    
+                    // Add XP
+                    integer newXP = currentXP + xpAmount;
+                    
+                    // Update with new total
+                    string patchUrl = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/characters/" + characterID + "?updateMask.fieldPaths=xp_total";
+                    
+                    string patchBody = "{\"fields\":{\"xp_total\":{\"integerValue\":\"" + (string)newXP + "\"}}}";
+                    
+                    key patchRequestId = llHTTPRequest(
+                        patchUrl,
+                        [
+                            HTTP_METHOD, "PATCH",
+                            HTTP_MIMETYPE, "application/json"
+                        ],
+                        patchBody
+                    );
+                    
+                    pendingCharOps += [patchRequestId, "ADD_XP", senderLink, characterID, (string)currentXP, (string)newXP];
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "XP_ADDED_ERROR", "Failed to read current XP: Status " + (string)status);
+                }
+                return;
+            }
+            
+            // Handle ADD_XP (PATCH response)
+            if (operation == "ADD_XP") {
+                integer senderLink = llList2Integer(pendingCharOps, opIndex + 2);
+                string characterID = llList2String(pendingCharOps, opIndex + 3);
+                string oldXP = llList2String(pendingCharOps, opIndex + 4);
+                string newXP = llList2String(pendingCharOps, opIndex + 5);
+                
+                pendingCharOps = llDeleteSubList(pendingCharOps, opIndex, opIndex + 5);
+                
+                if (status == 200) {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "XP_ADDED|" + characterID + "|" + oldXP + "|" + newXP, "");
+                } else {
+                    llMessageLinked(senderLink, FS_BRIDGE_CHANNEL, "XP_ADDED_ERROR", "Status " + (string)status);
                 }
                 return;
             }
