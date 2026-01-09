@@ -50,9 +50,14 @@
                 <!-- Character Selector -->
                 <div class="character-selector-container" style="flex: 1;">
                     <label for="character-selector" style="display: block; margin-bottom: var(--space-xs); color: #e0e0e0; font-size: 0.9em;">Character</label>
-                    <select id="character-selector" style="width: 100%; max-width: 300px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px; font-size: 1em;">
-                        <option value="">Loading characters...</option>
-                    </select>
+                    <div style="display: flex; gap: var(--space-sm); align-items: flex-start;">
+                        <select id="character-selector" style="flex: 1; max-width: 300px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px; font-size: 1em;">
+                            <option value="">Loading characters...</option>
+                        </select>
+                        <button id="btn-delete-character" class="action-btn" style="padding: 8px 16px; background: #dc2626; border-color: #dc2626; display: none;" title="Delete selected character">
+                            🗑️ Delete
+                        </button>
+                    </div>
                     <div id="no-character-message" style="display: none; margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 4px; color: #fca5a5;">
                         <strong>You do not have a character.</strong> Click "Create New Character" in the dropdown above to start the process.
                     </div>
@@ -507,23 +512,23 @@
     <script>
         window.simpleDebug('About to load firebase-config.js', 'info');
     </script>
-    <script src="js/firebase-config.js?v=8" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
+    <script src="js/firebase-config.js?v=9" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load seed-data.js', 'info');
     </script>
-    <script src="js/seed-data.js?v=5" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
+    <script src="js/seed-data.js?v=9" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load api-firestore.js', 'info');
     </script>
-    <script src="js/api-firestore.js?v=21" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
+    <script src="js/api-firestore.js?v=10" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load ui.js', 'info');
     </script>
-    <script src="js/ui.js?v=24" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
+    <script src="js/ui.js?v=10" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load app.js', 'info');
     </script>
-    <script src="js/app.js?v=40" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
+    <script src="js/app.js?v=10" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
     <script>
         window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
         // Try to call init after a short delay

@@ -968,6 +968,50 @@ try {
     },
     
     /**
+     * Handle delete character button click
+     */
+    async handleDeleteCharacter() {
+        const selectedId = this.state.selectedCharacterId;
+        
+        // Can't delete if no valid character selected
+        if (!selectedId || selectedId === '__create_new__') {
+            UI.showToast('No character selected to delete', 'warning');
+            return;
+        }
+        
+        // Get character name for confirmation
+        const charName = this.state.character?.name || 'this character';
+        
+        // Confirm deletion
+        if (!confirm(`Are you sure you want to delete "${charName}"?\n\nThis action cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            UI.showToast('Deleting character...', 'info', 1000);
+            
+            const result = await API.deleteCharacter(selectedId);
+            
+            if (result.success) {
+                UI.showToast('Character deleted successfully', 'success');
+                
+                // Clear state
+                this.state.character = null;
+                this.state.selectedCharacterId = null;
+                this.state.isNewCharacter = true;
+                
+                // Reload data to refresh character list
+                await this.loadData();
+            } else {
+                UI.showToast('Failed to delete character: ' + (result.error || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting character:', error);
+            UI.showToast('Error deleting character: ' + error.message, 'error');
+        }
+    },
+    
+    /**
      * Load character selector dropdown (UX 2: Updated for new structure)
      */
     async loadCharacterSelector(characters) {
@@ -1037,12 +1081,32 @@ try {
         
         selector.style.display = 'block'; // Always show in new design
         
+        // Show/hide delete button based on selection
+        this.updateDeleteButtonVisibility();
+        
         // Update status indicator after selector is populated
         if (characters.length > 0) {
             // Status will be updated when character actually loads
             // But if we have characters, status shouldn't say "No Character"
             if (!this.state.character && this.state.selectedCharacterId) {
                 // We have a selected ID but character not loaded yet - that's OK
+            }
+        }
+    },
+    
+    /**
+     * Update delete button visibility based on selected character
+     */
+    updateDeleteButtonVisibility() {
+        const deleteBtn = document.getElementById('btn-delete-character');
+        const selectedId = this.state.selectedCharacterId;
+        
+        if (deleteBtn) {
+            // Show button only if a real character is selected (not __create_new__ or empty)
+            if (selectedId && selectedId !== '__create_new__') {
+                deleteBtn.style.display = 'block';
+            } else {
+                deleteBtn.style.display = 'none';
             }
         }
     },
@@ -1700,6 +1764,11 @@ try {
         });
         
         // Character selector dropdown (UX 2: Updated for new structure)
+        // Delete character button
+        document.getElementById('btn-delete-character')?.addEventListener('click', async () => {
+            await this.handleDeleteCharacter();
+        });
+        
         document.getElementById('character-selector')?.addEventListener('change', async (e) => {
             const value = e.target.value;
             if (value === '__create_new__') {
@@ -1741,6 +1810,7 @@ try {
                 this.state.dirty = false;
                 await this.loadData();
                 this.updateStepGuide();
+                this.updateDeleteButtonVisibility();
             }
         });
         

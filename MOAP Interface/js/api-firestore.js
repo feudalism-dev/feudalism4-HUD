@@ -511,30 +511,38 @@ const API = {
     /**
      * Delete current character
      */
-    async deleteCharacter() {
+    async deleteCharacter(characterId) {
         if (!this.uuid) {
             return { success: false, error: 'No UUID - access denied' };
         }
         
+        if (!characterId) {
+            return { success: false, error: 'No character ID provided' };
+        }
+        
         try {
-            // Find character by owner_uuid
-            const snapshot = await db.collection('characters')
-                .where('owner_uuid', '==', this.uuid)
-                .limit(1)
-                .get();
+            // Get character by ID
+            const docRef = db.collection('characters').doc(characterId);
+            const doc = await docRef.get();
             
-            if (snapshot.empty) {
-                return { success: false, error: 'No character found' };
+            if (!doc.exists) {
+                return { success: false, error: 'Character not found' };
+            }
+            
+            // Verify ownership - SECURITY CHECK
+            const character = doc.data();
+            if (character.owner_uuid !== this.uuid) {
+                return { success: false, error: 'Access denied - not your character' };
             }
             
             // Delete the character document
-            const doc = snapshot.docs[0];
-            await doc.ref.delete();
+            await docRef.delete();
             
             return {
                 success: true,
                 data: {
-                    message: 'Character deleted successfully'
+                    message: 'Character deleted successfully',
+                    characterId: characterId
                 }
             };
         } catch (error) {
