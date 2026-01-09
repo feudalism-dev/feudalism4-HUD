@@ -31,6 +31,9 @@ integer WEAPON_CHANNEL = -77771;
 integer WEAPON_CHANNEL2 = -77773;
 integer FS_BRIDGE_CHANNEL = -777001;  // Channel for Firestore Bridge communication
 
+// Meter broadcast tracking
+float lastMeterBroadcast = 0.0;  // Prevent spam
+
 // Character data
 string myName;
 list myStats;
@@ -96,6 +99,35 @@ float lastToggleTime = 0.0;  // Time of last toggle for debouncing
 // The Players HUD itself is traditional (textures/prims) and does NOT use MOAP
 
 // =========================== UTILITY FUNCTIONS ==============================
+
+// Broadcast character data to Meter (floating text display)
+broadcastToMeter() {
+    // Throttle broadcasts to prevent spam (max 1/second)
+    float now = llGetTime();
+    if (now - lastMeterBroadcast < 1.0) {
+        return;
+    }
+    lastMeterBroadcast = now;
+    
+    key owner = llGetOwner();
+    
+    // Send identity info (read from LSD)
+    string charName = llLinksetDataRead("name");
+    string charTitle = llLinksetDataRead("title");
+    string charSpecies = llLinksetDataRead("species_id");
+    string charGender = llLinksetDataRead("gender");
+    string charClass = llLinksetDataRead("class_id");
+    
+    llRegionSayTo(owner, METER_CHANNEL, "name," + charName);
+    llRegionSayTo(owner, METER_CHANNEL, "title," + charTitle);
+    llRegionSayTo(owner, METER_CHANNEL, "species," + charSpecies);
+    llRegionSayTo(owner, METER_CHANNEL, "gender," + charGender);
+    llRegionSayTo(owner, METER_CHANNEL, "class," + charClass);
+    
+    // Resource values are broadcast by Stats script in updateResourceDisplays()
+    
+    debugLog("Broadcasted character identity to Meter");
+}
 
 integer getLinkNumberByName(string linkName) {
     integer i = 0;
@@ -361,6 +393,9 @@ default {
                 
                 // Update displays
                 updateResourceDisplays();
+                
+                // Broadcast to Meter after stats load
+                broadcastToMeter();
             } else {
                 debugLog("ERROR: Stats list length is " + (string)llGetListLength(myStats) + ", expected 20");
             }
@@ -514,6 +549,11 @@ default {
             llSetTimerEvent(0.0);
             llOwnerSay("Stopped resting.");
         }
+        // Meter requests data
+        else if (msg == "meter" && (string)id == "request_data") {
+            // Meter is requesting character data on startup/region change
+            broadcastToMeter();
+        }
         // Mode changes
         else if (msg == "tournament mode") {
             mode = "tournament";
@@ -566,6 +606,16 @@ default {
             // Commands from external sources (weapons, combat, etc.)
             list parts = llParseString2List(message, [","], []);
             string cmd = llList2String(parts, 0);
+            
+            // Meter requesting initial data
+            if (cmd == "meter") {
+                string action = llList2String(parts, 1);
+                if (action == "request_data") {
+                    debugLog("Meter requested character data");
+                    broadcastToMeter();
+                }
+                return;
+            }
             
             if (cmd == "damage") {
                 integer damage = (integer)llList2String(parts, 1);

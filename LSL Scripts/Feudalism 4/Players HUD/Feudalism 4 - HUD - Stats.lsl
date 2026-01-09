@@ -18,6 +18,7 @@ debugLog(string message) {
 // =========================== COMMUNICATION CHANNELS ========================
 integer HUD_CHANNEL = -77770;
 integer FS_BRIDGE_CHANNEL = -777001;  // Channel for Firestore Bridge responses
+integer METER_CHANNEL = -77777;  // Broadcast to Meter
 
 // =========================== STATE VARIABLES ================================
 // Character data (Players HUD)
@@ -142,6 +143,15 @@ updateResourceDisplays() {
     llMessageLinked(LINK_SET, currentStamina, "set stamina display", (string)baseStamina);
     llMessageLinked(LINK_SET, currentMana, "set mana display", (string)baseMana);
     llMessageLinked(LINK_SET, myXP, "set xp display", "");
+    
+    // Broadcast to Meter (floating text display)
+    key owner = llGetOwner();
+    llRegionSayTo(owner, METER_CHANNEL, "health," + (string)currentHealth);
+    llRegionSayTo(owner, METER_CHANNEL, "stamina," + (string)currentStamina);
+    llRegionSayTo(owner, METER_CHANNEL, "mana," + (string)currentMana);
+    llRegionSayTo(owner, METER_CHANNEL, "maxHealth," + (string)baseHealth);
+    llRegionSayTo(owner, METER_CHANNEL, "maxStamina," + (string)baseStamina);
+    llRegionSayTo(owner, METER_CHANNEL, "maxMana," + (string)baseMana);
 }
 
 // Send notification
