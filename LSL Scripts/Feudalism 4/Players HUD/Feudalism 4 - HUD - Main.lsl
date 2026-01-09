@@ -100,35 +100,6 @@ float lastToggleTime = 0.0;  // Time of last toggle for debouncing
 
 // =========================== UTILITY FUNCTIONS ==============================
 
-// Broadcast character data to Meter (floating text display)
-broadcastToMeter() {
-    // Throttle broadcasts to prevent spam (max 1/second)
-    float now = llGetTime();
-    if (now - lastMeterBroadcast < 1.0) {
-        return;
-    }
-    lastMeterBroadcast = now;
-    
-    key owner = llGetOwner();
-    
-    // Send identity info (read from LSD)
-    string charName = llLinksetDataRead("name");
-    string charTitle = llLinksetDataRead("title");
-    string charSpecies = llLinksetDataRead("species_id");
-    string charGender = llLinksetDataRead("gender");
-    string charClass = llLinksetDataRead("class_id");
-    
-    llRegionSayTo(owner, METER_CHANNEL, "name," + charName);
-    llRegionSayTo(owner, METER_CHANNEL, "title," + charTitle);
-    llRegionSayTo(owner, METER_CHANNEL, "species," + charSpecies);
-    llRegionSayTo(owner, METER_CHANNEL, "gender," + charGender);
-    llRegionSayTo(owner, METER_CHANNEL, "class," + charClass);
-    
-    // Resource values are broadcast by Stats script in updateResourceDisplays()
-    
-    debugLog("Broadcasted character identity to Meter");
-}
-
 integer getLinkNumberByName(string linkName) {
     integer i = 0;
     while (i <= llGetNumberOfPrims()) {
@@ -175,6 +146,35 @@ calculateMana() {
                 llList2Integer(myStats, INTELLIGENCE)) * manaFactor;
     if (currentMana > baseMana) currentMana = baseMana;
     if (currentMana < 0) currentMana = 0;
+}
+
+// Broadcast character identity to Meter (floating text display)
+broadcastToMeter() {
+    // Throttle broadcasts to prevent spam (max 1/second)
+    float now = llGetTime();
+    if (now - lastMeterBroadcast < 1.0) {
+        return;
+    }
+    lastMeterBroadcast = now;
+    
+    key owner = llGetOwner();
+    
+    // Send identity info (read from LSD)
+    string charName = llLinksetDataRead("name");
+    string charTitle = llLinksetDataRead("title");
+    string charSpecies = llLinksetDataRead("species_id");
+    string charGender = llLinksetDataRead("gender");
+    string charClass = llLinksetDataRead("class_id");
+    
+    llRegionSayTo(owner, METER_CHANNEL, "name," + charName);
+    llRegionSayTo(owner, METER_CHANNEL, "title," + charTitle);
+    llRegionSayTo(owner, METER_CHANNEL, "species," + charSpecies);
+    llRegionSayTo(owner, METER_CHANNEL, "gender," + charGender);
+    llRegionSayTo(owner, METER_CHANNEL, "class," + charClass);
+    
+    // Resource values are broadcast by Stats script in updateResourceDisplays()
+    
+    debugLog("Broadcasted character identity to Meter");
 }
 
 updateResourceDisplays() {
@@ -548,11 +548,6 @@ default {
             isResting = FALSE;
             llSetTimerEvent(0.0);
             llOwnerSay("Stopped resting.");
-        }
-        // Meter requests data
-        else if (msg == "meter" && (string)id == "request_data") {
-            // Meter is requesting character data on startup/region change
-            broadcastToMeter();
         }
         // Mode changes
         else if (msg == "tournament mode") {
