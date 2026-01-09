@@ -18,15 +18,15 @@ var DebugLog = {
         this.content = document.getElementById('debug-content');
         var toggle = document.getElementById('debug-toggle');
         
-        // Debug panel is hidden by default
+        // Debug panel is ALWAYS VISIBLE for troubleshooting
         if (this.panel) {
-            this.panel.style.display = 'none';
-            this.log('Debug panel initialized (hidden by default)', 'info');
+            this.panel.style.display = 'block';
+            this.log('Debug panel initialized (VISIBLE)', 'info');
         } else {
             // If panel doesn't exist, create it
             var newPanel = document.createElement('div');
             newPanel.id = 'debug-panel';
-            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: none;';
+            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: block;';
             newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Show</button></div><div id="debug-content"></div>';
             document.body.appendChild(newPanel);
             this.panel = newPanel;
@@ -1457,7 +1457,12 @@ try {
         console.log('[renderAll] Rendering inventory. this.state.inventory:', this.state.inventory);
         // Only render inventory if we have data - otherwise loadInventory will handle it when tab is shown
         if (this.state.inventory && Array.isArray(this.state.inventory) && this.state.inventory.length > 0) {
-            UI.renderInventory(this.state.inventory);
+            // Safety check: ensure UI.renderInventory exists before calling
+            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
+                UI.renderInventory(this.state.inventory);
+            } else {
+                console.error('[renderAll] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
+            }
         }
         
         // If inventory tab is active but no inventory loaded, load it
@@ -1546,8 +1551,12 @@ try {
             // Update main inventory state
             this.state.inventory = this.state.inventoryPagination.items;
             
-            // Render inventory
-            UI.renderInventory(this.state.inventoryPagination.items);
+            // Render inventory - with safety check
+            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
+                UI.renderInventory(this.state.inventoryPagination.items);
+            } else {
+                console.error('[loadInventory] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
+            }
         } catch (error) {
             console.error('[loadInventory] Error loading inventory:', error);
             if (UI.elements.inventoryGrid) {

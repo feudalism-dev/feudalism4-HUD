@@ -177,12 +177,20 @@ const UI = {
                     console.error('[switchTab] Error loading inventory:', err);
                     // If load fails but we have cached inventory, render that
                     if (App.state && App.state.inventory && App.state.inventory.length > 0) {
-                        UI.renderInventory(App.state.inventory);
+                        if (typeof this.renderInventory === 'function') {
+                            this.renderInventory(App.state.inventory);
+                        } else {
+                            console.error('[switchTab] UI.renderInventory not found!');
+                        }
                     }
                 });
             } else if (App.state && App.state.inventory) {
                 // Fallback: render cached inventory if loadInventory doesn't exist
-                UI.renderInventory(App.state.inventory);
+                if (typeof this.renderInventory === 'function') {
+                    this.renderInventory(App.state.inventory);
+                } else {
+                    console.error('[switchTab] UI.renderInventory not found!');
+                }
             }
         }
     },
