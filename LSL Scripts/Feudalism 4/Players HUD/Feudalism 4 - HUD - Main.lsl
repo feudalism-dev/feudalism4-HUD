@@ -593,6 +593,41 @@ default {
             llMessageLinked(LINK_SET, currentStamina, "save stamina", (string)baseStamina + "|" + (string)baseStamina);
             llMessageLinked(LINK_SET, currentMana, "save mana", (string)baseMana + "|" + (string)baseMana);
         }
+        // Stamina change from Stamina Manager (automatic drain)
+        else if (msg == "change stamina") {
+            integer staminaChange = num;  // Can be positive (restore) or negative (drain)
+            
+            debugLog("Stamina change: " + (string)staminaChange + " (reason: " + (string)id + ")");
+            
+            // Apply change
+            currentStamina += staminaChange;
+            
+            // Check for wake up (if was 0 and now positive)
+            if (currentStamina > 0 && isPassedOut) {
+                isPassedOut = FALSE;
+                notify("You regain consciousness!");
+                // TODO: Play wake up animation (Phase 2)
+            }
+            
+            // Clamp to valid range
+            if (currentStamina > baseStamina) {
+                currentStamina = baseStamina;
+            }
+            else if (currentStamina <= 0) {
+                currentStamina = 0;
+                if (!isPassedOut) {
+                    isPassedOut = TRUE;
+                    notify("You pass out from exhaustion!");
+                    // TODO: Play pass out animation (Phase 2)
+                }
+            }
+            
+            // Update displays
+            updateResourceDisplays();
+            
+            // Save to Firestore
+            llMessageLinked(LINK_SET, currentStamina, "save stamina", (string)baseStamina + "|" + (string)baseStamina);
+        }
     }
     
     listen(integer channel, string name, key id, string message) {
