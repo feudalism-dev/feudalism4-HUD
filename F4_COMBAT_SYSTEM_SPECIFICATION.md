@@ -6,18 +6,134 @@
 
 ## EXECUTIVE SUMMARY
 
-The Feudalism 3 combat system is a **dice-based melee/ranged combat** system with:
-- **D20 dice rolling** (1-20 per die)
-- **Attack vs Defense rolls** with stat modifiers
-- **Degrees of Success** (damage scaling based on roll difference)
-- **Hit location system** (9 body parts)
-- **Armor defense** calculations
-- **Speed/height/impairment** bonuses/penalties
-- **XP rewards** for combat
-- **Weapon drop mechanics** (critical successes/failures)
-- **Collision damage** for arrows and projectiles
+The Feudalism combat system is a **unique hybrid** combining:
+- **Physical Action Combat** - Players click weapons, aim arrows, move tactically
+- **Tabletop RPG Mechanics** - D20 dice rolls, stats, armor, character progression
+
+This creates combat where **player skill AND character stats both matter**.
+
+### Core Systems:
+- **D20 dice rolling** (1-20 per die) - Stats determine dice pool size
+- **Attack vs Defense rolls** - With speed/height/impairment modifiers
+- **Degrees of Success** - Damage scaling based on roll difference
+- **Hit location system** - 9 body parts with individual armor
+- **Physical projectiles** - Arrows use collision + stat resolution
+- **Weapon interactions** - Click to swing, broadcast attack data
+- **XP rewards** - Combat participation and victories
+- **Critical mechanics** - Weapon drops on extreme rolls
+
+**Key Innovation:** Melee uses broadcasts (no hitbox collision), arrows use physics (actual collision), but **both** resolve damage via dice rolls.
 
 **Status in F4:** ❌ **NOT IMPLEMENTED** - Needs to be ported
+
+---
+
+## HYBRID COMBAT DESIGN PHILOSOPHY
+
+### The Best of Both Worlds
+
+Feudalism's combat system is a **unique hybrid** that combines:
+- **Physical Action Combat** (movement, clicking, aiming)
+- **Tabletop RPG Mechanics** (dice rolls, stats, character progression)
+
+This design creates a combat experience where **both player skill AND character stats matter**.
+
+### Layer 1: Physical Action (Player Skill)
+
+**Melee Combat:**
+- 🖱️ **Player clicks their weapon** to initiate attack
+- 📡 **Weapon broadcasts attack** to nearby players (no physical collision required)
+- 🏃 **Movement affects combat** - Moving fast (>3.2 m/s) gives +5 dodge bonus
+- ⛰️ **Height matters** - Higher ground = +1 attack bonus
+- 🎯 **Positioning is tactical** - Players must be in range
+
+**Ranged Combat:**
+- 🏹 **Player aims and fires** - Physical targeting skill required
+- 🎯 **Arrow flies as physical projectile** - Uses SL physics
+- 💥 **Collision detection** - Arrow must physically hit target
+- 📍 **Distance and movement** affect difficulty
+
+### Layer 2: Statistical Resolution (Character Stats)
+
+**Melee Combat:**
+- 🎲 **Target's HUD rolls dice** - Attack vs Defense (D20 system)
+- 📊 **Stats determine rolls** - Fighting stat = number of d20 to roll
+- ⚔️ **Bonuses/penalties applied** - Agility, speed, height, impairment
+- 🛡️ **Armor reduces damage** - Based on hit location
+- 📈 **Degrees of success** scale damage
+
+**Ranged Combat:**
+- 💥 **Collision triggers** stat check (physical hit confirmed)
+- 🎲 **Marksmanship vs Athletics** - Dice roll determines damage scaling
+- 📊 **Base damage (5) modified** by roll difference
+- 🛡️ **Armor should apply** (F4 enhancement)
+
+### Why This Hybrid Works
+
+#### ✅ **Prevents "Twitch Shooter" Dominance**
+- Fast clicking ≠ automatic win
+- A level 2 warrior can't beat a level 10 warrior just by clicking faster
+- **Character progression matters**
+
+#### ✅ **Maintains Physical Immersion**
+- Combat **feels active** - you swing, aim, dodge
+- Not standing still clicking "Attack" buttons
+- **Visceral and engaging**
+
+#### ✅ **Balanced for Roleplayers**
+- Stat-based resolution means **roleplay time investment pays off**
+- Older players or those with disabilities aren't at massive disadvantage
+- **Fair competitive balance**
+
+#### ✅ **Tactical Depth**
+- Position yourself on high ground
+- Move to get dodge bonus
+- Draw shield for defense
+- Wear better armor
+- **Multiple paths to victory**
+
+#### ✅ **Arrows Are Best of Both Worlds**
+- **Physical aiming** - Player must have skill to hit
+- **Stat resolution** - Marksmanship vs Athletics after collision
+- Combines **accuracy** (player) with **effectiveness** (character)
+
+### Combat Flow Visualization
+
+```
+MELEE ATTACK:
+Player Action          Statistical Resolution          Result
+─────────────          ──────────────────────          ──────
+Click Sword     →      Attack Roll (Fighting)    →     
+                       vs                              Hit/Miss
+Move Fast       →      Defense Roll (Agility)    →     determined
+                       +Speed/Height/Armor             by dice
+Stand on Rock   →      Calculate Damage          →     
+                       Apply to Health                 Display msg
+
+
+RANGED ATTACK:
+Player Action          Physical Layer           Statistical Layer        Result
+─────────────          ──────────────           ─────────────────        ──────
+Aim Bow         →      Arrow Flies       →      Collision?        →      No hit
+                       (Physics)                                         
+Click Fire      →      Travels Path      →      YES!              →      
+                                                                          
+                                                 Marksmanship      →      Damage
+                                                 vs Athletics             scaled
+                                                                          
+                                                 Apply Damage      →      Display
+```
+
+### Design Implications for F4
+
+**This hybrid nature means:**
+1. **Weapon objects** must handle physical interactions (clicks, broadcasts)
+2. **HUD scripts** must handle statistical resolution (dice, damage)
+3. **Arrow objects** bridge both systems (physics + stats)
+4. **Communication** must be robust (weapon → HUD broadcasts)
+5. **Balance testing** requires both mechanical and statistical tuning
+
+**The beauty:** Players experience smooth action combat, but the **fairness of RPG mechanics protects the integrity of character progression**.
 
 ---
 
@@ -62,6 +178,14 @@ integer rollDice(integer numDice) {
 
 ### Purpose
 Process melee weapon attacks between two players.
+
+**Critical Design Note:** Melee combat uses **broadcast communication**, NOT physical collision detection. When a player clicks their weapon:
+1. The weapon object broadcasts attack data to all nearby players
+2. Each player's HUD receives the broadcast and checks if they're in range
+3. The TARGET's HUD rolls dice to determine hit/miss
+4. **The sword mesh does NOT need to physically touch the target**
+
+This design prevents hitbox exploits and ensures **stats determine combat outcome**, not lag or hitbox manipulation. Player skill is shown through positioning, timing, and movement.
 
 ### Function: `processAttack()`
 **Location:** F3 Main.lsl lines 166-353
@@ -358,6 +482,12 @@ integer getArmorWorn(string part) {
 
 ### Purpose
 Handle damage from arrows, projectiles, and spell effects.
+
+**Critical Design Note:** This is where the **hybrid combat truly shines**. Arrows require:
+1. **Physical player skill** - Must aim and physically hit target (collision_start event)
+2. **Character stats** - Marksmanship vs Athletics dice roll determines damage scaling
+
+This means a skilled archer with low Marksmanship might hit often but deal less damage, while a high-Marksmanship character who can't aim won't hit at all. **Both skills matter.**
 
 ### Event: `collision_start(integer numDetected)`
 **Location:** F3 Main.lsl lines 788-875
