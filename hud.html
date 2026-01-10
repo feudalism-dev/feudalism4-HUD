@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
-    <link rel="stylesheet" href="css/styles.css?v=22">
+    <link rel="stylesheet" href="css/styles.css?v=13">
 </head>
 <body>
     <!-- Invisible autoplay video to force MOAP initialization -->
@@ -28,7 +28,7 @@
                 <button id="btn-new-character-nav" class="action-btn secondary" style="display: inline-block; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 12px; border-radius: 4px;">🆕 New Character</button>
                 <a id="open-in-browser-link" href="#" style="display: none; color: #10b981; text-decoration: none; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 8px; border: 1px solid #10b981; border-radius: 4px;">🌐 Open in Browser</a>
                 <span id="user-role" class="role-badge">Player</span>
-                <span id="connection-status" class="status-dot online"></span>
+                <button id="debug-toggle-btn" class="status-dot online" title="Toggle Debug Panel" aria-label="Toggle Debug Panel"></button>
             </div>
         </header>
 
@@ -434,11 +434,10 @@
         <!-- Toast -->
         <div id="toast-container"></div>
         
-        <!-- Debug Panel (visible in SL) -->
-        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: block !important;">
+        <!-- Debug Panel (hidden by default, toggle with green dot) -->
+        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #0f0; padding-bottom: 5px;">
-                <strong style="color: #0f0; font-size: 14px;">🐛 DEBUG LOG (SL Browser)</strong>
-                <button id="debug-toggle" style="background: #0f0; color: #000; border: 1px solid #0f0; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: bold; border-radius: 3px;">Hide</button>
+                <strong style="color: #0f0; font-size: 14px;">🐛 DEBUG LOG (Click green dot to hide)</strong>
             </div>
             <div id="debug-content" style="line-height: 1.6; min-height: 50px;"></div>
         </div>
@@ -512,23 +511,23 @@
     <script>
         window.simpleDebug('About to load firebase-config.js', 'info');
     </script>
-    <script src="js/firebase-config.js?v=11" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
+    <script src="js/firebase-config.js?v=13" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load seed-data.js', 'info');
     </script>
-    <script src="js/seed-data.js?v=11" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
+    <script src="js/seed-data.js?v=13" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load api-firestore.js', 'info');
     </script>
-    <script src="js/api-firestore.js?v=11" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
+    <script src="js/api-firestore.js?v=13" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load ui.js', 'info');
     </script>
-    <script src="js/ui.js?v=11" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
+    <script src="js/ui.js?v=13" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load app.js', 'info');
     </script>
-    <script src="js/app.js?v=11" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
+    <script src="js/app.js?v=13" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
     <script>
         window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
         // Try to call init after a short delay

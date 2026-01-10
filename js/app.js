@@ -16,34 +16,37 @@ var DebugLog = {
     init() {
         this.panel = document.getElementById('debug-panel');
         this.content = document.getElementById('debug-content');
-        var toggle = document.getElementById('debug-toggle');
+        var toggleBtn = document.getElementById('debug-toggle-btn');
         
-        // Debug panel is ALWAYS VISIBLE for troubleshooting
+        // Debug panel starts hidden
         if (this.panel) {
-            this.panel.style.display = 'block';
-            this.log('Debug panel initialized (VISIBLE)', 'info');
+            this.panel.style.display = 'none';
+            this.log('Debug panel initialized (hidden by default - click green dot to show)', 'info');
         } else {
-            // If panel doesn't exist, create it
+            // If panel doesn't exist, create it (hidden)
             var newPanel = document.createElement('div');
             newPanel.id = 'debug-panel';
-            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: block;';
-            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Show</button></div><div id="debug-content"></div>';
+            newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: none;';
+            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG (Click green dot to hide)</strong></div><div id="debug-content"></div>';
             document.body.appendChild(newPanel);
             this.panel = newPanel;
             this.content = document.getElementById('debug-content');
         }
         
-        if (toggle) {
+        // Setup toggle button (green dot in header)
+        if (toggleBtn) {
             var self = this;
-            toggle.addEventListener('click', function() {
+            toggleBtn.addEventListener('click', function() {
                 if (self.panel.style.display === 'none') {
                     self.panel.style.display = 'block';
-                    toggle.textContent = 'Hide';
+                    self.log('Debug panel shown', 'info');
                 } else {
                     self.panel.style.display = 'none';
-                    toggle.textContent = 'Show';
                 }
             });
+            this.log('Debug toggle button connected to green dot', 'info');
+        } else {
+            this.log('Warning: Debug toggle button not found in header', 'warn');
         }
         
         this.log('Debug system ready', 'info');
