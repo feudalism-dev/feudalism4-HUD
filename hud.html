@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feudalism 4 - Setup HUD</title>
+    <link rel="stylesheet" href="css/styles.css?v=22">
+</head>
+<body>
+    <!-- Invisible autoplay video to force MOAP initialization -->
+    <!-- Using publicly hosted blank video from GitHub -->
+    <video autoplay muted playsinline style="display:none;width:1px;height:1px;">
+        <source src="https://raw.githubusercontent.com/esc0rtd3w/blank-intro-videos/master/blank.mp4" type="video/mp4">
+    </video>
+
+    <div id="app">
+        <!-- Header -->
+        <header class="hud-header">
+            <div class="header-brand">
+                <img src="images/logo.png" alt="Feudalism 4" class="brand-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="brand-fallback" style="display:none;">
+                    <span class="brand-icon">⚔️</span>
+                    <h1>Feudalism 4 Setup</h1>
+                </div>
+                <h1 class="brand-title">Feudalism 4 Setup</h1>
+            </div>
+            <div class="header-info">
+                <button id="btn-new-character-nav" class="action-btn secondary" style="display: inline-block; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 12px; border-radius: 4px;">🆕 New Character</button>
+                <a id="open-in-browser-link" href="#" style="display: none; color: #10b981; text-decoration: none; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 8px; border: 1px solid #10b981; border-radius: 4px;">🌐 Open in Browser</a>
+                <span id="user-role" class="role-badge">Player</span>
+                <span id="connection-status" class="status-dot online"></span>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="character">Character</button>
+            <button class="tab-btn" data-tab="stats">Stats</button>
+            <button class="tab-btn" data-tab="career">Career</button>
+            <button class="tab-btn" data-tab="inventory">Inventory</button>
+            <button class="tab-btn" data-tab="options">Options</button>
+            <button class="tab-btn" data-tab="help">Help</button>
+            <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- Top Section: Character Selector & Status (Always Visible) -->
+            <div class="character-header-section" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); padding: var(--space-md); background: rgba(30, 58, 95, 0.3); border-radius: 8px;">
+                <!-- Character Selector -->
+                <div class="character-selector-container" style="flex: 1;">
+                    <label for="character-selector" style="display: block; margin-bottom: var(--space-xs); color: #e0e0e0; font-size: 0.9em;">Character</label>
+                    <div style="display: flex; gap: var(--space-sm); align-items: flex-start;">
+                        <select id="character-selector" style="flex: 1; max-width: 300px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px; font-size: 1em;">
+                            <option value="">Loading characters...</option>
+                        </select>
+                        <button id="btn-delete-character" class="action-btn" style="padding: 8px 16px; background: #dc2626; border-color: #dc2626; display: none;" title="Delete selected character">
+                            🗑️ Delete
+                        </button>
+                    </div>
+                    <div id="no-character-message" style="display: none; margin-top: var(--space-sm); padding: var(--space-sm); background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); border-radius: 4px; color: #fca5a5;">
+                        <strong>You do not have a character.</strong> Click "Create New Character" in the dropdown above to start the process.
+                    </div>
+                </div>
+                
+                <!-- Status Indicator -->
+                <div class="status-indicator-container" style="display: flex; align-items: center; gap: var(--space-sm);">
+                    <div id="character-status" class="status-badge" style="padding: 6px 12px; border-radius: 4px; font-size: 0.85em; font-weight: 500;">
+                        <span id="status-text">No Character</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Step Guide Panel (Always Visible) -->
+            <div class="step-guide-panel" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: rgba(30, 58, 95, 0.5); border: 1px solid #3a5f8f; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-md);">
+                    <!-- Step Indicators -->
+                    <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center;">
+                        <div class="step-item" data-step="name" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Name/Title</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="gender" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Gender</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="species" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Species</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="stats" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Stats</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="career" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Career</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Save Button -->
+                    <button id="btn-save-character" class="action-btn primary" style="padding: 10px 24px; font-size: 1em; font-weight: 600;">
+                        💾 Save Character
+                    </button>
+                </div>
+            </div>
+
+            <!-- Character Tab -->
+            <section id="tab-character" class="tab-content active">
+                
+                <!-- Hero callout for no character -->
+                <div id="no-character-hero" class="hero-callout" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-xl); background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6b 100%); border: 2px solid #3a5f8f; border-radius: 8px; text-align: center;">
+                    <h2 style="margin: 0 0 var(--space-md) 0; color: #fff; font-size: 1.5em;">You do not have a character yet.</h2>
+                    <p style="margin: 0 0 var(--space-lg) 0; color: #e0e0e0; font-size: 1.1em;">Click the button below to begin creating your character.</p>
+                    <button id="btn-create-new-hero" class="action-btn primary" style="padding: 12px 32px; font-size: 1.1em; font-weight: 600;">
+                        🆕 Create New Character
+                    </button>
+                </div>
+                
+                <div class="panel">
+                    <h2>Identity</h2>
+                    <div class="form-group">
+                        <label for="char-name">Character Name</label>
+                        <input type="text" id="char-name" placeholder="Enter your name..." maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label for="char-title">Title</label>
+                        <input type="text" id="char-title" placeholder="Your title or epithet..." maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <div id="gender-gallery" class="gender-gallery">
+                            <div class="loading-spinner">Loading genders...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Species</h2>
+                    <div id="species-gallery" class="gallery">
+                        <div class="loading-spinner">Loading species...</div>
+                    </div>
+                </div>
+
+                <div class="panel summary-panel">
+                    <h2>Character Summary</h2>
+                    <div id="char-summary">
+                        <p class="placeholder-text">Create your character above...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Tab -->
+            <section id="tab-stats" class="tab-content">
+                <div class="panel">
+                    <div class="stats-header">
+                        <h2>Attributes</h2>
+                        <div class="xp-display">
+                            <span class="xp-label">Available Points:</span>
+                            <span id="xp-available" class="xp-value">0</span>
+                        </div>
+                    </div>
+                    <div id="stats-grid" class="stats-grid">
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Vocation Bonus</h2>
+                    <div id="vocation-display" class="vocation-box">
+                        <p class="placeholder-text">Select a class to see your vocation...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Career Tab -->
+            <section id="tab-career" class="tab-content">
+                <div class="panel">
+                    <h2>Current Career</h2>
+                    <div id="current-career" class="career-display">
+                        <p class="placeholder-text">No career selected...</p>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Available Careers</h2>
+                    <div id="career-gallery" class="gallery career-gallery">
+                        <div class="loading-spinner">Loading careers...</div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Career Path</h2>
+                    <div id="career-path" class="career-path">
+                        <p class="placeholder-text">Your career progression will appear here...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Players HUD Tab -->
+            <section id="tab-players-hud" class="tab-content">
+                <div class="panel">
+                    <h2>Resource Pools</h2>
+                    <div id="resource-bars" class="resource-bars">
+                        <!-- Health Sphere -->
+                        <div class="resource-bar health-bar">
+                            <div class="resource-label">
+                                <span class="resource-icon">❤️</span>
+                                <span class="resource-name">Health</span>
+                                <span class="resource-value" id="health-value">100 / 100</span>
+                            </div>
+                            <div class="resource-sphere-container">
+                                <div class="resource-sphere">
+                                    <div class="resource-liquid" id="health-liquid" style="height: 100%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Stamina Sphere -->
+                        <div class="resource-bar stamina-bar">
+                            <div class="resource-label">
+                                <span class="resource-icon">⭐</span>
+                                <span class="resource-name">Stamina</span>
+                                <span class="resource-value" id="stamina-value">100 / 100</span>
+                            </div>
+                            <div class="resource-sphere-container">
+                                <div class="resource-sphere">
+                                    <div class="resource-liquid" id="stamina-liquid" style="height: 100%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Mana Sphere -->
+                        <div class="resource-bar mana-bar">
+                            <div class="resource-label">
+                                <span class="resource-icon">✨</span>
+                                <span class="resource-name">Mana</span>
+                                <span class="resource-value" id="mana-value">50 / 50</span>
+                            </div>
+                            <div class="resource-sphere-container">
+                                <div class="resource-sphere">
+                                    <div class="resource-liquid" id="mana-liquid" style="height: 100%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Experience</h2>
+                    <div class="xp-progress-container">
+                        <div class="xp-label-row">
+                            <span class="xp-label">XP: <span id="xp-current">0</span> / <span id="xp-next-milestone">100</span></span>
+                            <span class="xp-percentage" id="xp-percentage">0%</span>
+                        </div>
+                        <div class="xp-progress-bar">
+                            <div class="xp-progress-fill" id="xp-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="xp-milestone-info">
+                            <span id="xp-milestone-text">Next milestone at 100 XP</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Action Slots</h2>
+                    <p class="info-text">Ready items, spells, or buffs for quick activation</p>
+                    <div id="action-slots" class="action-slots-grid">
+                        <!-- Action slots will be dynamically generated -->
+                    </div>
+                    <button id="btn-add-action-slot" class="action-btn secondary" style="margin-top: var(--space-md);">
+                        ➕ Add Action Slot
+                    </button>
+                </div>
+
+                <div class="panel">
+                    <h2>Quick Actions</h2>
+                    <div class="quick-actions">
+                        <button class="action-btn" id="btn-rest">😴 Rest</button>
+                        <button class="action-btn" id="btn-reset">🔄 Reset Resources</button>
+                        <button class="action-btn" id="btn-mode">🎭 Change Mode</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Inventory Tab -->
+            <section id="tab-inventory" class="tab-content">
+                <div class="panel">
+                    <div class="currency-bar">
+                        <span class="currency-label">Currency:</span>
+                        <span id="currency-amount" class="currency-value">0</span>
+                        <span class="currency-icon">🪙</span>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Inventory</h2>
+                    <div id="inventory-grid" class="inventory-grid">
+                        <p class="placeholder-text">Your inventory is empty...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Options Tab -->
+            <section id="tab-options" class="tab-content">
+                <!-- Character Management removed per UX 2 Spec - moved to Character tab -->
+                
+                <div class="panel">
+                    <h2>Game Mode</h2>
+                    <div class="mode-selector" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--space-sm);">
+                        <button class="mode-btn" data-mode="tournament" id="btn-mode-tournament">⚔️ Tournament</button>
+                        <button class="mode-btn" data-mode="roleplay" id="btn-mode-roleplay">🎭 Roleplay</button>
+                        <button class="mode-btn" data-mode="ooc" id="btn-mode-ooc">💬 OOC</button>
+                        <button class="mode-btn" data-mode="afk" id="btn-mode-afk">😴 AFK</button>
+                        <button class="mode-btn" data-mode="none" id="btn-mode-none">*</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Display Options</h2>
+                    <div class="display-options" style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                        <button class="action-btn secondary" id="btn-show-bars">👁️ Show Bars</button>
+                        <button class="action-btn secondary" id="btn-hide-bars">🙈 Hide Bars</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Quick Actions</h2>
+                    <div class="quick-actions" style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                        <button class="action-btn secondary" id="btn-ooc-reset">🔄 OOC Reset</button>
+                        <button class="action-btn secondary" id="btn-ic-rest">😴 IC Rest</button>
+                        <button class="action-btn secondary" id="btn-stop-resting">⏹️ Stop Resting</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Help Tab -->
+            <section id="tab-help" class="tab-content">
+                <div class="panel">
+                    <h1>Help & Instructions</h1>
+                    
+                    <h2>Character Creation</h2>
+                    <p>To create a new character:</p>
+                    <ol>
+                        <li>Click the "Character" dropdown at the top and select "Create New Character"</li>
+                        <li>Follow the step guide: Name/Title → Gender → Species → Career</li>
+                        <li>Complete each step by filling in the required information</li>
+                        <li>Click "Save Character" when you're done</li>
+                    </ol>
+                    
+                    <h2>Editing Your Character</h2>
+                    <p>To edit an existing character:</p>
+                    <ol>
+                        <li>Select your character from the Character dropdown</li>
+                        <li>Make your changes in the Character Summary panel</li>
+                        <li>Click "Save Character" to save your changes</li>
+                        <li>If you try to switch characters or leave with unsaved changes, you'll be warned</li>
+                    </ol>
+                    
+                    <h2>Step Guide</h2>
+                    <p>The step guide shows your progress through character creation:</p>
+                    <ul>
+                        <li><strong>○</strong> = Step not completed</li>
+                        <li><strong>●</strong> = Current step</li>
+                        <li><strong>✓</strong> = Step completed</li>
+                    </ul>
+                    <p>You can click on any step to jump to that section.</p>
+                    
+                    <h2>Saving Your Character</h2>
+                    <p>The "Save Character" button is always visible in the step guide panel. It will:</p>
+                    <ul>
+                        <li>Be disabled when there are no changes to save</li>
+                        <li>Be enabled when you make gameplay changes (name, stats, species, career, etc.)</li>
+                        <li>Save all your changes to the server when clicked</li>
+                    </ul>
+                    
+                    <h2>Character Selection</h2>
+                    <p>Use the Character dropdown at the top to:</p>
+                    <ul>
+                        <li>Switch between your characters (grouped by universe)</li>
+                        <li>Create a new character</li>
+                        <li>See which character is currently active</li>
+                    </ul>
+                    
+                    <h2>Tabs</h2>
+                    <ul>
+                        <li><strong>Character</strong>: Overview and management of your character</li>
+                        <li><strong>Stats</strong>: Detailed view and editing of your 20 attribute stats</li>
+                        <li><strong>Career</strong>: Browse and select your character's career/class</li>
+                        <li><strong>Inventory</strong>: Manage your character's items and currency</li>
+                        <li><strong>Options</strong>: Game mode settings and quick actions</li>
+                        <li><strong>Help</strong>: This page</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Admin Tab -->
+            <section id="tab-admin" class="tab-content">
+                <div class="panel admin-panel">
+                    <h2>Administration</h2>
+                    <div class="admin-nav">
+                        <button class="admin-btn" data-admin="users">👥 Users</button>
+                        <button class="admin-btn" data-admin="universes">🌌 Universes</button>
+                        <button class="admin-btn" data-admin="species">🐉 Species</button>
+                        <button class="admin-btn" data-admin="classes">⚔️ Classes</button>
+                        <button class="admin-btn" data-admin="genders">⚧ Genders</button>
+                        <button class="admin-btn" data-admin="vocations">📜 Vocations</button>
+                        <button class="admin-btn" data-admin="consumables">🧪 Consumables</button>
+                        <button class="admin-btn" data-admin="xp">⭐ Award XP</button>
+                        <button class="admin-btn" data-admin="givecoins">💰 Give Coins</button>
+                        <button class="admin-btn" data-admin="giveitem">📦 Give Item</button>
+                    </div>
+                </div>
+
+                <div id="admin-content" class="panel">
+                    <p class="placeholder-text">Select an admin function above...</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer Actions - Removed per UX 2 Spec: Save moved to Step Guide, other buttons not needed -->
+
+        <!-- Modal -->
+        <div id="modal" class="modal hidden">
+            <div class="modal-content">
+                <button class="modal-close">&times;</button>
+                <div id="modal-body"></div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div id="toast-container"></div>
+        
+        <!-- Debug Panel (visible in SL) -->
+        <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: block !important;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #0f0; padding-bottom: 5px;">
+                <strong style="color: #0f0; font-size: 14px;">🐛 DEBUG LOG (SL Browser)</strong>
+                <button id="debug-toggle" style="background: #0f0; color: #000; border: 1px solid #0f0; padding: 4px 12px; cursor: pointer; font-size: 11px; font-weight: bold; border-radius: 3px;">Hide</button>
+            </div>
+            <div id="debug-content" style="line-height: 1.6; min-height: 50px;"></div>
+        </div>
+    </div>
+
+    <!-- Polyfills for SL browser compatibility -->
+    <script>
+        // Store original console.log before it gets overridden
+        var originalConsoleLog = console.log;
+        var simpleDebugInProgress = false;
+        
+        // Simple debug log that works immediately
+        window.simpleDebug = function(msg, type) {
+            // Prevent infinite recursion
+            if (simpleDebugInProgress) {
+                return;
+            }
+            simpleDebugInProgress = true;
+            
+            try {
+                const panel = document.getElementById('debug-panel');
+                const content = document.getElementById('debug-content');
+                if (panel && content) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    const colors = { info: '#0f0', error: '#f00', warn: '#ff0', debug: '#0ff' };
+                    const color = colors[type] || '#0f0';
+                    const line = document.createElement('div');
+                    line.style.color = color;
+                    line.textContent = '[' + timestamp + '] ' + msg;
+                    content.appendChild(line);
+                    content.scrollTop = content.scrollHeight;
+                }
+                // Use original console.log to avoid infinite recursion
+                if (originalConsoleLog) {
+                    originalConsoleLog.call(console, '[' + type + '] ' + msg);
+                }
+            } finally {
+                simpleDebugInProgress = false;
+            }
+        };
+        
+        // Test immediately
+        window.simpleDebug('Script block loaded', 'info');
+        
+        // Polyfill for Promise.all if not available (SL browser compatibility)
+        if (typeof Promise === 'undefined' || !Promise.all) {
+            window.simpleDebug('Promise.all not available, loading polyfill...', 'warn');
+            // Load es6-promise polyfill
+            document.write('<script src="https://cdn.jsdelivr.net/npm/es6-promise@4/dist/es6-promise.auto.min.js"><\/script>');
+        }
+        
+        // Check if we're in SL browser
+        window.IS_SL_BROWSER = navigator.userAgent.includes('SecondLife') || 
+                               navigator.userAgent.includes('CefSharp') ||
+                               window.location.search.includes('uuid=');
+        
+        window.simpleDebug('User Agent: ' + navigator.userAgent, 'debug');
+        window.simpleDebug('Is SL Browser: ' + window.IS_SL_BROWSER, 'info');
+        
+        if (window.IS_SL_BROWSER) {
+            window.simpleDebug('Detected Second Life browser - using compatibility mode', 'info');
+        }
+    </script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    
+    <!-- App Scripts -->
+    <script>
+        window.simpleDebug('About to load firebase-config.js', 'info');
+    </script>
+    <script src="js/firebase-config.js?v=11" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
+    <script>
+        window.simpleDebug('About to load seed-data.js', 'info');
+    </script>
+    <script src="js/seed-data.js?v=11" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
+    <script>
+        window.simpleDebug('About to load api-firestore.js', 'info');
+    </script>
+    <script src="js/api-firestore.js?v=11" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
+    <script>
+        window.simpleDebug('About to load ui.js', 'info');
+    </script>
+    <script src="js/ui.js?v=11" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
+    <script>
+        window.simpleDebug('About to load app.js', 'info');
+    </script>
+    <script src="js/app.js?v=11" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
+    <script>
+        window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
+        // Try to call init after a short delay
+        setTimeout(function() {
+            window.simpleDebug('Checking if App exists...', 'debug');
+            window.simpleDebug('typeof App: ' + typeof App, 'debug');
+            if (typeof App !== 'undefined') {
+                window.simpleDebug('App object found!', 'info');
+                window.simpleDebug('typeof App.init: ' + typeof App.init, 'debug');
+                if (typeof App.init === 'function') {
+                    window.simpleDebug('App.init found, calling it...', 'info');
+                    try {
+                        App.init().catch(function(err) {
+                            window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
+                            window.simpleDebug('Stack: ' + (err.stack || 'N/A'), 'error');
+                        });
+                    } catch (err) {
+                        window.simpleDebug('App.init() THREW ERROR: ' + err.message, 'error');
+                        window.simpleDebug('Stack: ' + (err.stack || 'N/A'), 'error');
+                    }
+                } else {
+                    window.simpleDebug('App.init is not a function! App keys: ' + Object.keys(App).join(', '), 'error');
+                }
+            } else {
+                window.simpleDebug('App object NOT FOUND!', 'error');
+                window.simpleDebug('Checking for syntax errors...', 'debug');
+                // Try to catch any syntax errors
+                try {
+                    eval('App');
+                } catch (e) {
+                    window.simpleDebug('Syntax error detected: ' + e.message, 'error');
+                }
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
+

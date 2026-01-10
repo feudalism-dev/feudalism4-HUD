@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feudalism 4 - Players HUD Firestore Sync</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="js/firebase-config.js?v=9"></script>
+</head>
+<body style="margin: 0; padding: 0; background: transparent; overflow: hidden;">
+    <script>
+        // ============================================================================
+        // Feudalism 4 - Players HUD Firestore Sync Interface
+        // ============================================================================
+        // Minimal interface for Players HUD to sync with Firestore
+        // This is a hidden MOAP interface, no UI needed
+        // ============================================================================
+
+        // Parse URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const uuid = params.get('uuid') || '';
+        const username = params.get('username') || '';
+        const displayName = params.get('displayname') || '';
+        const channel = parseInt(params.get('channel')) || 0;
+        const playersHudChannel = parseInt(params.get('players_hud_channel')) || 0;
+        const callbackURL = params.get('callback') || '';
+
+        // Firebase is already initialized in firebase-config.js
+        // Use the global db and auth variables from firebase-config.js
+        // (no need to redeclare them)
+
+        // Character data cache
+        let characterData = null;
+
+        /**
+         * Send message to LSL via HTTP POST to callback URL
+         */
+        async function sendToLSL(command, data) {
+            console.log('[Players HUD Sync] Sending to LSL:', command, data);
+            
+            if (!callbackURL) {
+                console.error('[Players HUD Sync] No callback URL available');
+                return;
+            }
+            
+            try {
+                const response = await fetch(callbackURL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: command + '|' + (data || '')
+                });
+                
+                if (response.ok) {
+                    console.log('[Players HUD Sync] Message sent to LSL successfully');
+                } else {
+                    console.error('[Players HUD Sync] Failed to send message to LSL');
+                }
+            } catch (error) {
+                console.error('[Players HUD Sync] Error sending to LSL:', error);
+            }
+        }
+
+        /**
+         * Load character data from Firestore
+         */
+        async function loadCharacter() {
+            try {
+                if (!uuid) {
+                    console.error('[Players HUD Sync] No UUID provided');
+                    return;
+                }
+
+                // Sign in anonymously
+                if (!auth.currentUser) {
+                    await auth.signInAnonymously();
+                }
+
+                // Load character document
+                const charRef = db.collection('characters').doc(uuid);
+                const charDoc = await charRef.get();
+
+                if (charDoc.exists) {
+                    characterData = charDoc.data();
+                    
+                    // Format character data for LSL
+                    const stats = characterData.stats || {};
+                    const statsList = [
+                        stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
+                        stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
+                        stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
+                        stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
+                        stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
+                        stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
+                        stats.will || 2, stats.wisdom || 2
+                    ];
+
+                    const health = characterData.health || { current: 0, base: 0, max: 0 };
+                    const stamina = characterData.stamina || { current: 0, base: 0, max: 0 };
+                    const mana = characterData.mana || { current: 0, base: 0, max: 0 };
+
+                    // Format: CHARACTER_DATA|stats:...|health:current,base,max|stamina:...|mana:...|xp:...|class:...
+                    let message = "CHARACTER_DATA|";
+                    message += "stats:" + statsList.join(",") + "|";
+                    message += "health:" + health.current + "," + health.base + "," + health.max + "|";
+                    message += "stamina:" + stamina.current + "," + stamina.base + "," + stamina.max + "|";
+                    message += "mana:" + mana.current + "," + mana.base + "," + mana.max + "|";
+                    message += "xp:" + (characterData.xp_total || 0) + "|";
+                    message += "class:" + (characterData.class_id || "");
+
+                    // Send to LSL via HTTP POST
+                    await sendToLSL('CHARACTER_DATA', message);
+                    console.log('[Players HUD Sync] Character data loaded and sent to LSL');
+                } else {
+                    console.log('[Players HUD Sync] No character found in Firestore');
+                }
+            } catch (error) {
+                console.error('[Players HUD Sync] Error loading character:', error);
+            }
+        }
+
+        /**
+         * Save character data to Firestore
+         */
+        async function saveCharacter(dataString) {
+            try {
+                if (!uuid) {
+                    console.error('[Players HUD Sync] No UUID provided');
+                    return;
+                }
+
+                // Parse data from LSL
+                // Format: stats:...|health:current,base,max|stamina:...|mana:...|xp:...|class:...
+                const parts = dataString.split('|');
+                const data = {};
+                
+                parts.forEach(part => {
+                    if (!part) return;
+                    const [key, value] = part.split(':');
+                    if (key === 'stats') {
+                        const statsArray = value.split(',').map(v => parseInt(v) || 2);
+                        data.stats = {
+                            agility: statsArray[0] || 2,
+                            animal_handling: statsArray[1] || 2,
+                            athletics: statsArray[2] || 2,
+                            awareness: statsArray[3] || 2,
+                            crafting: statsArray[4] || 2,
+                            deception: statsArray[5] || 2,
+                            endurance: statsArray[6] || 2,
+                            entertaining: statsArray[7] || 2,
+                            fighting: statsArray[8] || 2,
+                            healing: statsArray[9] || 2,
+                            influence: statsArray[10] || 2,
+                            intelligence: statsArray[11] || 2,
+                            knowledge: statsArray[12] || 2,
+                            marksmanship: statsArray[13] || 2,
+                            persuasion: statsArray[14] || 2,
+                            stealth: statsArray[15] || 2,
+                            survival: statsArray[16] || 2,
+                            thievery: statsArray[17] || 2,
+                            will: statsArray[18] || 2,
+                            wisdom: statsArray[19] || 2
+                        };
+                    } else if (key === 'health' || key === 'stamina' || key === 'mana') {
+                        const [current, base, max] = value.split(',').map(v => parseInt(v) || 0);
+                        data[key] = { current, base, max };
+                    } else if (key === 'xp') {
+                        data.xp_total = parseInt(value) || 0;
+                    } else if (key === 'class') {
+                        data.class_id = value || '';
+                    }
+                });
+
+                // Sign in anonymously
+                if (!auth.currentUser) {
+                    await auth.signInAnonymously();
+                }
+
+                // Update character document
+                const charRef = db.collection('characters').doc(uuid);
+                await charRef.set({
+                    ...data,
+                    updated_at: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                // Confirm save
+                await sendToLSL('SAVE_CONFIRMED', '');
+                console.log('[Players HUD Sync] Character data saved to Firestore');
+            } catch (error) {
+                console.error('[Players HUD Sync] Error saving character:', error);
+            }
+        }
+
+        // Initialize on load
+        (async function() {
+            console.log('[Players HUD Sync] Initializing...');
+            
+            // Sign in anonymously
+            try {
+                if (!auth.currentUser) {
+                    await auth.signInAnonymously();
+                }
+                
+                // Load character data immediately
+                await loadCharacter();
+                
+                // Set up polling for LSL requests
+                // LSL will update URL parameters with requests
+                let lastRequest = params.get('request') || '';
+                setInterval(() => {
+                    // Check for new requests in URL parameters
+                    const currentParams = new URLSearchParams(window.location.search);
+                    const currentRequest = currentParams.get('request') || '';
+                    
+                    if (currentRequest !== lastRequest && currentRequest !== '') {
+                        lastRequest = currentRequest;
+                        
+                        if (currentRequest === 'LOAD') {
+                            loadCharacter();
+                        } else if (currentRequest.startsWith('SAVE|')) {
+                            const data = currentRequest.replace('SAVE|', '');
+                            saveCharacter(data);
+                        }
+                    }
+                }, 500); // Poll every 500ms
+                
+            } catch (error) {
+                console.error('[Players HUD Sync] Initialization error:', error);
+            }
+        })();
+    </script>
+</body>
+</html>
+
