@@ -16,37 +16,34 @@ var DebugLog = {
     init() {
         this.panel = document.getElementById('debug-panel');
         this.content = document.getElementById('debug-content');
-        var toggleBtn = document.getElementById('debug-toggle-btn');
+        var toggle = document.getElementById('debug-toggle');
         
-        // Debug panel starts hidden
+        // Debug panel is hidden by default
         if (this.panel) {
             this.panel.style.display = 'none';
-            this.log('Debug panel initialized (hidden by default - click green dot to show)', 'info');
+            this.log('Debug panel initialized (hidden by default)', 'info');
         } else {
-            // If panel doesn't exist, create it (hidden)
+            // If panel doesn't exist, create it
             var newPanel = document.createElement('div');
             newPanel.id = 'debug-panel';
             newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: none;';
-            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG (Click green dot to hide)</strong></div><div id="debug-content"></div>';
+            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Show</button></div><div id="debug-content"></div>';
             document.body.appendChild(newPanel);
             this.panel = newPanel;
             this.content = document.getElementById('debug-content');
         }
         
-        // Setup toggle button (green dot in header)
-        if (toggleBtn) {
+        if (toggle) {
             var self = this;
-            toggleBtn.addEventListener('click', function() {
+            toggle.addEventListener('click', function() {
                 if (self.panel.style.display === 'none') {
                     self.panel.style.display = 'block';
-                    self.log('Debug panel shown', 'info');
+                    toggle.textContent = 'Hide';
                 } else {
                     self.panel.style.display = 'none';
+                    toggle.textContent = 'Show';
                 }
             });
-            this.log('Debug toggle button connected to green dot', 'info');
-        } else {
-            this.log('Warning: Debug toggle button not found in header', 'warn');
         }
         
         this.log('Debug system ready', 'info');
@@ -1460,12 +1457,7 @@ try {
         console.log('[renderAll] Rendering inventory. this.state.inventory:', this.state.inventory);
         // Only render inventory if we have data - otherwise loadInventory will handle it when tab is shown
         if (this.state.inventory && Array.isArray(this.state.inventory) && this.state.inventory.length > 0) {
-            // Safety check: ensure UI.renderInventory exists before calling
-            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
-                UI.renderInventory(this.state.inventory);
-            } else {
-                console.error('[renderAll] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
-            }
+            UI.renderInventory(this.state.inventory);
         }
         
         // If inventory tab is active but no inventory loaded, load it
@@ -1554,12 +1546,8 @@ try {
             // Update main inventory state
             this.state.inventory = this.state.inventoryPagination.items;
             
-            // Render inventory - with safety check
-            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
-                UI.renderInventory(this.state.inventoryPagination.items);
-            } else {
-                console.error('[loadInventory] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
-            }
+            // Render inventory
+            UI.renderInventory(this.state.inventoryPagination.items);
         } catch (error) {
             console.error('[loadInventory] Error loading inventory:', error);
             if (UI.elements.inventoryGrid) {
@@ -3373,7 +3361,7 @@ try {
     
     /**
      * Render two-panel checkbox UI for universe identity management
-     * @param {string} type - 'careers', 'classes', 'species', or 'genders'
+     * @param {string} type - 'classes', 'species', or 'genders' (and legacy 'careers' if re-enabled)
      * @param {Array} allItems - All available items globally
      * @param {Array} allowedItems - Items currently allowed in universe (empty array = allow all)
      * @param {string} containerId - ID of container element
@@ -3537,7 +3525,8 @@ try {
             <div class="tab-nav" style="display: flex; gap: var(--space-xs); border-bottom: 2px solid var(--border-color); margin-bottom: var(--space-md); flex-wrap: wrap;">
                 <button class="tab-btn active" data-tab="profile">Profile</button>
                 <button class="tab-btn" data-tab="identity">Identity</button>
-                <button class="tab-btn" data-tab="careers">Careers</button>
+                <!-- Careers tab removed: duplicated Classes list; allowedCareers unused in validation. Re-enable with distinct vocations/careers templates. -->
+                <!-- <button class="tab-btn" data-tab="careers">Careers</button> -->
                 <button class="tab-btn" data-tab="classes">Classes</button>
                 <button class="tab-btn" data-tab="species">Species</button>
                 <button class="tab-btn" data-tab="genders">Genders</button>
@@ -3616,9 +3605,9 @@ try {
             case 'identity':
                 await this.showUniverseIdentityTab(tabContent, universeId, universe, isEdit);
                 break;
-            case 'careers':
-                await this.showUniverseCareersTab(tabContent, universeId, universe, isEdit);
-                break;
+            // case 'careers': // removed from UI — same data as Classes until careers/vocations split exists
+            //     await this.showUniverseCareersTab(tabContent, universeId, universe, isEdit);
+            //     break;
             case 'classes':
                 await this.showUniverseClassesTab(tabContent, universeId, universe, isEdit);
                 break;
@@ -3705,15 +3694,16 @@ try {
         container.innerHTML = `
             <div class="panel" style="padding: var(--space-md);">
                 <p style="color: var(--text-muted);">
-                    Identity options are now managed in separate tabs: Careers, Classes, Species, and Genders.
+                    Identity options are now managed in separate tabs: Classes, Species, and Genders.
                 </p>
             </div>
         `;
     },
     
-    /**
-     * Careers Tab - Two-panel checkbox UI
-     */
+    /*
+     * Careers tab — REMOVED FROM UI (2026): duplicated Classes (same getClasses() list); allowedCareers
+     * was not used in validateIdentityOptions(). Restore when careers/vocations are a distinct template.
+     *
     async showUniverseCareersTab(container, universeId, universe, isEdit) {
         if (!isEdit) {
             container.innerHTML = '<p style="color: var(--text-muted);">Save the universe first to manage careers.</p>';
@@ -3792,6 +3782,7 @@ try {
             UI.showToast('Career admin panel coming soon', 'info');
         });
     },
+    */
     
     /**
      * Classes Tab - Two-panel checkbox UI
@@ -4256,8 +4247,8 @@ try {
                 manaEnabled: document.getElementById('universe-mana-enabled').checked,
                 allowedGenders: allowedGenders,
                 allowedSpecies: allowedSpecies,
-                allowedClasses: allowedClasses,
-                allowedCareers: [] // TODO: Add careers when implemented
+                allowedClasses: allowedClasses
+                // allowedCareers: not edited in UI; omit so Firestore field unchanged on save
             };
             
             // Handle signup key
