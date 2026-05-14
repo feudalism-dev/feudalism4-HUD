@@ -2600,6 +2600,7 @@ try {
                                     <select class="role-select" data-uuid="${u.uuid}" style="padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
                                         <option value="player" ${u.role === 'player' ? 'selected' : ''}>Player</option>
                                         <option value="sim_admin" ${u.role === 'sim_admin' ? 'selected' : ''}>Sim Admin</option>
+                                        <option value="universe_admin" ${u.role === 'universe_admin' ? 'selected' : ''}>Universe Admin</option>
                                         ${canPromoteToSysAdmin ? `<option value="sys_admin" ${u.role === 'sys_admin' ? 'selected' : ''}>Sys Admin</option>` : ''}
                                     </select>
                                     ${!isSuperAdminUser ? `
