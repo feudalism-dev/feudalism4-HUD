@@ -4367,25 +4367,127 @@ try {
     },
     
     /**
-     * Show dialog to add universe admin
+     * Show dialog to add universe admin (choose from global Universe Admin accounts)
      */
     async showAddUniverseAdminDialog(universeId) {
-        const uuid = prompt('Enter the UUID of the user to add as admin:');
-        if (!uuid || !uuid.trim()) return;
+        const modal = document.getElementById('modal');
+        const modalBody = document.getElementById('modal-body');
+        if (!modal || !modalBody) {
+            UI.showToast('Dialog unavailable', 'error');
+            return;
+        }
         
-        const role = confirm('Make this user the owner? (OK = Owner, Cancel = Admin)') ? 'owner' : 'admin';
+        modalBody.innerHTML = `
+            <div class="admin-form">
+                <h3 style="margin-bottom: var(--space-md);">Add universe admin</h3>
+                <p style="color: var(--text-secondary); font-size: 0.95em; margin-bottom: var(--space-md);">
+                    Choose someone who already has the <strong>Universe Admin</strong> role (from User Management),
+                    or enter their account UUID manually if they have a Feudalism user record.
+                </p>
+                <div id="add-universe-admin-loading" style="color: var(--text-muted);">Loading Universe Admins…</div>
+                <div id="add-universe-admin-form" class="hidden">
+                    <div class="form-group">
+                        <label for="add-universe-admin-select">Universe Admin accounts</label>
+                        <select id="add-universe-admin-select" style="width: 100%;">
+                            <option value="">— Select —</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="add-universe-admin-uuid">Or enter UUID manually</label>
+                        <input type="text" id="add-universe-admin-uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width: 100%; font-family: monospace;">
+                    </div>
+                    <div class="form-group">
+                        <label>Universe role</label>
+                        <div style="display: flex; gap: var(--space-md); flex-wrap: wrap;">
+                            <label><input type="radio" name="universe-admin-level" value="admin" checked> Admin (this universe)</label>
+                            <label><input type="radio" name="universe-admin-level" value="owner"> Owner (transfers universe ownership)</label>
+                        </div>
+                    </div>
+                    <div class="form-actions" style="display: flex; gap: var(--space-md); margin-top: var(--space-lg);">
+                        <button type="button" class="action-btn primary" id="btn-confirm-add-universe-admin">Add</button>
+                        <button type="button" class="action-btn modal-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+                <p id="add-universe-admin-error" class="hidden" style="color: var(--error); margin-top: var(--space-sm);"></p>
+            </div>
+        `;
+        
+        modal.classList.remove('hidden');
+        
+        const loadingEl = document.getElementById('add-universe-admin-loading');
+        const formEl = document.getElementById('add-universe-admin-form');
+        const errEl = document.getElementById('add-universe-admin-error');
+        const selectEl = document.getElementById('add-universe-admin-select');
         
         try {
-            const result = await API.assignUniverseAdmin(universeId, uuid.trim(), role);
-            if (result.success) {
-                UI.showToast('Admin added successfully', 'success');
-                this.loadUniverseAdmins(universeId);
-            } else {
-                UI.showToast('Failed to add admin: ' + result.error, 'error');
+            const result = await API.listUsersByGlobalRole('universe_admin');
+            if (!result.success) {
+                loadingEl.textContent = '';
+                if (errEl) {
+                    errEl.classList.remove('hidden');
+                    errEl.textContent = result.error || 'Could not load users';
+                }
+                return;
             }
-        } catch (error) {
-            UI.showToast('Error adding admin: ' + error.message, 'error');
+            
+            const users = result.data?.users || [];
+            loadingEl.classList.add('hidden');
+            formEl?.classList.remove('hidden');
+            
+            if (selectEl) {
+                users.forEach((u) => {
+                    const label = u.display_name || u.username || u.uuid || u.id || 'Unknown';
+                    const opt = document.createElement('option');
+                    opt.value = u.uuid || u.id;
+                    opt.textContent = `${label} (${u.uuid || u.id})`;
+                    selectEl.appendChild(opt);
+                });
+                if (users.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'No accounts with Universe Admin role — use UUID below or promote in User Management';
+                    opt.disabled = true;
+                    selectEl.appendChild(opt);
+                }
+            }
+        } catch (e) {
+            loadingEl.textContent = '';
+            if (errEl) {
+                errEl.classList.remove('hidden');
+                errEl.textContent = e.message || String(e);
+            }
+            return;
         }
+        
+        const closeModal = () => modal.classList.add('hidden');
+        
+        modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', closeModal);
+        
+        modalBody.querySelector('#btn-confirm-add-universe-admin')?.addEventListener('click', async () => {
+            const manual = document.getElementById('add-universe-admin-uuid')?.value.trim() || '';
+            const sel = document.getElementById('add-universe-admin-select')?.value.trim() || '';
+            const uuid = manual || sel;
+            const level = modalBody.querySelector('input[name="universe-admin-level"]:checked')?.value || 'admin';
+            const uRole = level === 'owner' ? 'owner' : 'admin';
+            
+            if (!uuid) {
+                UI.showToast('Choose a user or enter a UUID', 'warning');
+                return;
+            }
+            
+            try {
+                const assignResult = await API.assignUniverseAdmin(universeId, uuid, uRole);
+                if (assignResult.success) {
+                    UI.showToast('Admin added successfully', 'success');
+                    closeModal();
+                    this.loadUniverseAdmins(universeId);
+                } else {
+                    UI.showToast('Failed to add admin: ' + assignResult.error, 'error');
+                }
+            } catch (error) {
+                UI.showToast('Error adding admin: ' + error.message, 'error');
+            }
+        });
     },
     
     /**

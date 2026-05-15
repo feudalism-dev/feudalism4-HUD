@@ -1099,6 +1099,45 @@ const API = {
     },
     
     /**
+     * List users filtered by global role (e.g. universe_admin).
+     * Full list: sys_admin / sim_admin. Universe admins may only query universe_admin
+     * (so they cannot enumerate all players).
+     */
+    async listUsersByGlobalRole(role) {
+        try {
+            const validRoles = ['player', 'sim_admin', 'sys_admin', 'universe_admin'];
+            if (!validRoles.includes(role)) {
+                return { success: false, error: `Invalid role. Must be one of: ${validRoles.join(', ')}` };
+            }
+            
+            if (this.role === 'universe_admin') {
+                if (role !== 'universe_admin') {
+                    return { success: false, error: 'Unauthorized: You can only browse Universe Admin accounts' };
+                }
+            } else if (this.role !== 'sim_admin' && this.role !== 'sys_admin') {
+                return { success: false, error: 'Unauthorized: Admin access required' };
+            }
+            
+            const snapshot = await db.collection('users').where('role', '==', role).get();
+            const users = [];
+            snapshot.forEach(doc => {
+                users.push({ ...doc.data(), uuid: doc.id });
+            });
+            
+            users.sort((a, b) => {
+                const na = (a.display_name || a.username || a.uuid || '').toLowerCase();
+                const nb = (b.display_name || b.username || b.uuid || '').toLowerCase();
+                return na.localeCompare(nb);
+            });
+            
+            return { success: true, data: { users } };
+        } catch (error) {
+            console.error('listUsersByGlobalRole error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+    
+    /**
      * Promote or demote a user
      * Only super admin can promote to sys_admin
      */
