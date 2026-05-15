@@ -16,34 +16,37 @@ var DebugLog = {
     init() {
         this.panel = document.getElementById('debug-panel');
         this.content = document.getElementById('debug-content');
-        var toggle = document.getElementById('debug-toggle');
+        var toggleBtn = document.getElementById('debug-toggle-btn');
         
-        // Debug panel is hidden by default
+        // Debug panel starts hidden
         if (this.panel) {
             this.panel.style.display = 'none';
-            this.log('Debug panel initialized (hidden by default)', 'info');
+            this.log('Debug panel initialized (hidden by default - click green dot to show)', 'info');
         } else {
-            // If panel doesn't exist, create it
+            // If panel doesn't exist, create it (hidden)
             var newPanel = document.createElement('div');
             newPanel.id = 'debug-panel';
             newPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; z-index: 99999; overflow-y: auto; display: none;';
-            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG</strong> <button id="debug-toggle">Show</button></div><div id="debug-content"></div>';
+            newPanel.innerHTML = '<div style="margin-bottom: 10px;"><strong>DEBUG LOG (Click green dot to hide)</strong></div><div id="debug-content"></div>';
             document.body.appendChild(newPanel);
             this.panel = newPanel;
             this.content = document.getElementById('debug-content');
         }
         
-        if (toggle) {
+        // Setup toggle button (green dot in header)
+        if (toggleBtn) {
             var self = this;
-            toggle.addEventListener('click', function() {
+            toggleBtn.addEventListener('click', function() {
                 if (self.panel.style.display === 'none') {
                     self.panel.style.display = 'block';
-                    toggle.textContent = 'Hide';
+                    self.log('Debug panel shown', 'info');
                 } else {
                     self.panel.style.display = 'none';
-                    toggle.textContent = 'Show';
                 }
             });
+            this.log('Debug toggle button connected to green dot', 'info');
+        } else {
+            this.log('Warning: Debug toggle button not found in header', 'warn');
         }
         
         this.log('Debug system ready', 'info');
@@ -1457,7 +1460,12 @@ try {
         console.log('[renderAll] Rendering inventory. this.state.inventory:', this.state.inventory);
         // Only render inventory if we have data - otherwise loadInventory will handle it when tab is shown
         if (this.state.inventory && Array.isArray(this.state.inventory) && this.state.inventory.length > 0) {
-            UI.renderInventory(this.state.inventory);
+            // Safety check: ensure UI.renderInventory exists before calling
+            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
+                UI.renderInventory(this.state.inventory);
+            } else {
+                console.error('[renderAll] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
+            }
         }
         
         // If inventory tab is active but no inventory loaded, load it
@@ -1546,8 +1554,12 @@ try {
             // Update main inventory state
             this.state.inventory = this.state.inventoryPagination.items;
             
-            // Render inventory
-            UI.renderInventory(this.state.inventoryPagination.items);
+            // Render inventory - with safety check
+            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
+                UI.renderInventory(this.state.inventoryPagination.items);
+            } else {
+                console.error('[loadInventory] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
+            }
         } catch (error) {
             console.error('[loadInventory] Error loading inventory:', error);
             if (UI.elements.inventoryGrid) {
@@ -3525,7 +3537,7 @@ try {
             <div class="tab-nav" style="display: flex; gap: var(--space-xs); border-bottom: 2px solid var(--border-color); margin-bottom: var(--space-md); flex-wrap: wrap;">
                 <button class="tab-btn active" data-tab="profile">Profile</button>
                 <button class="tab-btn" data-tab="identity">Identity</button>
-                <!-- Careers tab removed: duplicated Classes list; allowedCareers unused in validation. Re-enable with distinct vocations/careers templates. -->
+                <!-- Careers tab removed: it duplicated the Classes list (getClasses); allowedCareers was not enforced in validation. Re-enable when vocations/careers are a distinct template type. -->
                 <!-- <button class="tab-btn" data-tab="careers">Careers</button> -->
                 <button class="tab-btn" data-tab="classes">Classes</button>
                 <button class="tab-btn" data-tab="species">Species</button>
@@ -4248,7 +4260,7 @@ try {
                 allowedGenders: allowedGenders,
                 allowedSpecies: allowedSpecies,
                 allowedClasses: allowedClasses
-                // allowedCareers: not edited in UI; omit so Firestore field unchanged on save
+                // allowedCareers: not edited in UI (was duplicate of classes); omit so Firestore field is left unchanged on save
             };
             
             // Handle signup key
@@ -4512,6 +4524,16 @@ try {
                     }
                 });
             });
+
+            adminContent.querySelectorAll('.clone-template').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = e.currentTarget.dataset.id;
+                    const template = templates.find(t => t.id === id);
+                    if (template) {
+                        this.showClassCloneEditor(template);
+                    }
+                });
+            });
             
         } catch (error) {
             UI.showError(adminContent, `Failed to load ${type}: ${error.message}`);
@@ -4540,11 +4562,248 @@ try {
                     </div>
                 </div>
                 <div style="display: flex; gap: var(--space-sm);">
+                    ${type === 'classes' ? `<button class="action-btn clone-template" data-type="${type}" data-id="${template.id}" title="Clone as new class (JSON editor)">📋 Clone</button>` : ''}
                     <button class="action-btn edit-template" data-type="${type}" data-id="${template.id}">✏️ Edit</button>
                     <button class="action-btn delete-template" data-type="${type}" data-id="${template.id}" style="background: var(--error);">🗑️ Delete</button>
                 </div>
             </div>
         `;
+    },
+
+    getStandardClassImagePath(classId) {
+        const id = (classId || '').trim();
+        return id ? `classes/${id}.png` : '';
+    },
+
+    buildUniformClassStatObject(value) {
+        const stats = {};
+        const names = (typeof F4_SEED_DATA !== 'undefined' && F4_SEED_DATA.statNames)
+            ? F4_SEED_DATA.statNames
+            : [];
+        names.forEach(stat => { stats[stat] = value; });
+        return stats;
+    },
+
+    getDefaultClassStatMinimums() {
+        return this.buildUniformClassStatObject(2);
+    },
+
+    getDefaultClassStatMaximums() {
+        return this.buildUniformClassStatObject(9);
+    },
+
+    wireClassFormImagePathSync(isNewClass) {
+        const idInput = document.getElementById('template-id');
+        const imageInput = document.getElementById('template-image');
+        if (!idInput || !imageInput) return;
+
+        const syncImage = () => {
+            const id = idInput.value.trim();
+            if (id && isNewClass) {
+                imageInput.value = this.getStandardClassImagePath(id);
+            }
+        };
+
+        idInput.addEventListener('input', syncImage);
+        idInput.addEventListener('change', syncImage);
+    },
+
+    prepareClassClonePayload(sourceClass) {
+        const clone = JSON.parse(JSON.stringify(sourceClass));
+        delete clone._id;
+        delete clone.createdAt;
+        delete clone.updatedAt;
+        delete clone.created_at;
+        delete clone.updated_at;
+        return clone;
+    },
+
+    applyClassCloneIdNameToJson() {
+        const textarea = document.getElementById('clone-class-json');
+        const idInput = document.getElementById('clone-class-id');
+        const nameInput = document.getElementById('clone-class-name');
+        const hint = document.getElementById('clone-class-image-hint');
+        if (!textarea || !idInput) return;
+
+        try {
+            const data = JSON.parse(textarea.value);
+            const id = idInput.value.trim();
+            const name = nameInput?.value.trim();
+            if (id) {
+                data.id = id;
+                data.image = this.getStandardClassImagePath(id);
+            }
+            if (name) {
+                data.name = name;
+            }
+            textarea.value = JSON.stringify(data, null, 2);
+            if (hint) {
+                hint.textContent = data.image || '(set a class ID)';
+            }
+        } catch (e) {
+            UI.showToast('Fix JSON before applying ID/name', 'warning');
+        }
+    },
+
+    showClassCloneEditor(sourceClass) {
+        if (!sourceClass?.id) {
+            UI.showToast('Invalid source class', 'error');
+            return;
+        }
+
+        const suggestedId = `${sourceClass.id}_copy`;
+        const payload = this.prepareClassClonePayload(sourceClass);
+        payload.id = suggestedId;
+        payload.name = `${sourceClass.name || sourceClass.id} (Copy)`;
+        payload.image = this.getStandardClassImagePath(suggestedId);
+        payload.enabled = payload.enabled !== false;
+
+        const modalBody = document.getElementById('modal-body');
+        if (!modalBody) return;
+
+        const jsonPreview = JSON.stringify(payload, null, 2)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;');
+
+        modalBody.innerHTML = `
+            <div class="admin-form">
+                <h2 style="margin-bottom: var(--space-sm);">Clone Class</h2>
+                <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">
+                    Based on <strong style="color: var(--gold-light);">${sourceClass.name || sourceClass.id}</strong>
+                    (<code>${sourceClass.id}</code>). Edit the JSON, then save. Image path is set to
+                    <code>classes/&lt;id&gt;.png</code> on save (add files under <code>images/classes/</code> in the public repo later).
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-md);">
+                    <div class="form-group" style="margin: 0;">
+                        <label>New class ID</label>
+                        <input type="text" id="clone-class-id" value="${suggestedId}" placeholder="e.g., knight_captain" style="width: 100%;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>New display name</label>
+                        <input type="text" id="clone-class-name" value="${payload.name}" style="width: 100%;">
+                    </div>
+                </div>
+                <div style="margin-bottom: var(--space-sm);">
+                    <button type="button" class="action-btn" id="btn-apply-clone-id-name">Apply ID &amp; name to JSON</button>
+                    <small style="color: var(--text-muted); margin-left: var(--space-sm);">
+                        Image: <code id="clone-class-image-hint">${payload.image}</code>
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Class JSON (edit freely)</label>
+                    <textarea id="clone-class-json" rows="18"
+                        style="width: 100%; font-family: monospace; font-size: 0.85em; line-height: 1.4;">${jsonPreview}</textarea>
+                </div>
+                <div class="form-actions" style="display: flex; gap: var(--space-md); margin-top: var(--space-lg);">
+                    <button class="action-btn primary" id="btn-save-class-clone">💾 Save as new class</button>
+                    <button class="action-btn modal-cancel-btn">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('modal').classList.remove('hidden');
+
+        document.getElementById('btn-apply-clone-id-name')?.addEventListener('click', () => {
+            this.applyClassCloneIdNameToJson();
+        });
+        document.getElementById('clone-class-id')?.addEventListener('change', () => {
+            this.applyClassCloneIdNameToJson();
+        });
+        document.getElementById('clone-class-name')?.addEventListener('change', () => {
+            this.applyClassCloneIdNameToJson();
+        });
+        document.getElementById('btn-save-class-clone')?.addEventListener('click', async () => {
+            await this.saveClassClone();
+        });
+        modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', () => {
+            document.getElementById('modal').classList.add('hidden');
+        });
+    },
+
+    async saveClassClone() {
+        const idInput = document.getElementById('clone-class-id')?.value.trim();
+        const nameInput = document.getElementById('clone-class-name')?.value.trim();
+        const jsonRaw = document.getElementById('clone-class-json')?.value.trim();
+
+        if (!jsonRaw) {
+            UI.showToast('JSON is empty', 'warning');
+            return;
+        }
+
+        let templateData;
+        try {
+            templateData = JSON.parse(jsonRaw);
+        } catch (e) {
+            UI.showToast('Invalid JSON: ' + e.message, 'error');
+            return;
+        }
+
+        const id = idInput || templateData.id;
+        const name = nameInput || templateData.name;
+
+        if (!id || !name) {
+            UI.showToast('ID and name are required', 'warning');
+            return;
+        }
+
+        if (this.state.classes.some(c => c.id === id)) {
+            UI.showToast(`Class ID "${id}" already exists`, 'warning');
+            return;
+        }
+
+        templateData.id = id;
+        templateData.name = name;
+        templateData.image = this.getStandardClassImagePath(id);
+        templateData.enabled = templateData.enabled !== false;
+
+        if (typeof templateData.prerequisites === 'string') {
+            templateData.prerequisites = templateData.prerequisites.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        if (!Array.isArray(templateData.prerequisites)) {
+            templateData.prerequisites = templateData.prerequisite ? [templateData.prerequisite] : [];
+        }
+        delete templateData.prerequisite;
+
+        if (typeof templateData.free_advances === 'string') {
+            templateData.free_advances = templateData.free_advances.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        if (!Array.isArray(templateData.free_advances)) {
+            templateData.free_advances = [];
+        }
+
+        templateData.xp_cost = parseInt(templateData.xp_cost, 10) || 0;
+
+        if (typeof templateData.stat_minimums === 'string') {
+            try {
+                templateData.stat_minimums = JSON.parse(templateData.stat_minimums);
+            } catch (e) {
+                UI.showToast('stat_minimums must be a JSON object', 'error');
+                return;
+            }
+        }
+        if (typeof templateData.stat_maximums === 'string') {
+            try {
+                templateData.stat_maximums = JSON.parse(templateData.stat_maximums);
+            } catch (e) {
+                UI.showToast('stat_maximums must be a JSON object', 'error');
+                return;
+            }
+        }
+        templateData.stat_minimums = templateData.stat_minimums || {};
+        templateData.stat_maximums = templateData.stat_maximums || {};
+
+        try {
+            await API.saveTemplate('classes', id, templateData, true);
+            UI.showToast(`Created class "${name}"`, 'success');
+            document.getElementById('modal').classList.add('hidden');
+
+            const result = await API.getClasses();
+            this.state.classes = result.data?.classes || [];
+            this.showTemplateManager('classes');
+            await this.renderAll();
+        } catch (error) {
+            UI.showToast('Failed to save: ' + error.message, 'error');
+        }
     },
     
     /**
@@ -4590,6 +4849,10 @@ try {
         modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', () => {
             document.getElementById('modal').classList.add('hidden');
         });
+
+        if (type === 'classes') {
+            this.wireClassFormImagePathSync(isNew);
+        }
     },
     
     /**
@@ -4704,14 +4967,26 @@ try {
      * Build class form
      */
     buildClassForm(cls) {
+        const defaultStatMinimums = this.getDefaultClassStatMinimums();
+        const defaultStatMaximums = this.getDefaultClassStatMaximums();
         const c = cls || {
             id: '', name: '', icon: '', description: '', image: '',
-            vocation_id: '', stat_maximums: {},
+            vocation_id: '',
+            stat_minimums: defaultStatMinimums,
+            stat_maximums: defaultStatMaximums,
             prerequisite: null, free_advances: [], xp_cost: 0
         };
-        
-        const allClasses = this.state.classes || [];
-        // const allVocations = this.state.vocations || []; // Vocation picker removed from class admin form
+
+        const statMinimumsJson = JSON.stringify(
+            cls ? (c.stat_minimums || {}) : defaultStatMinimums,
+            null,
+            2
+        );
+        const statMaximumsJson = JSON.stringify(
+            cls ? (c.stat_maximums || {}) : defaultStatMaximums,
+            null,
+            2
+        );
         
         return `
             <div class="form-group">
@@ -4732,7 +5007,8 @@ try {
             <div class="form-group">
                 <label>Image Path</label>
                 <input type="text" id="template-image" value="${c.image || ''}" 
-                       placeholder="classes/id.png" style="width: 100%;">
+                       placeholder="classes/your_class_id.png" style="width: 100%;">
+                <small style="color: var(--text-muted);">Defaults to classes/&lt;id&gt;.png when you enter the class ID (new classes).</small>
             </div>
             <div class="form-group">
                 <label>Description</label>
@@ -4760,14 +5036,15 @@ try {
             </div>
             <div class="form-group">
                 <label>Stat Minimums (JSON object) - Required stats to qualify</label>
-                <textarea id="template-stat-minimums" rows="3" 
-                          placeholder='{"fighting": 3, "endurance": 2}' style="width: 100%; font-family: monospace;">${JSON.stringify(c.stat_minimums || {}, null, 2)}</textarea>
-                <small style="color: var(--text-muted);">Stats character must have at or above these values to qualify for this class</small>
+                <textarea id="template-stat-minimums" rows="8" 
+                          placeholder='{"fighting": 2, "endurance": 2}' style="width: 100%; font-family: monospace;">${statMinimumsJson}</textarea>
+                <small style="color: var(--text-muted);">Stats character must have at or above these values to qualify for this class. New classes default to 2 in every stat.</small>
             </div>
             <div class="form-group">
                 <label>Stat Maximums (JSON object) - Stat caps in this class</label>
-                <textarea id="template-stat-maximums" rows="4" 
-                          placeholder='{"fighting": 7, "endurance": 6}' style="width: 100%; font-family: monospace;">${JSON.stringify(c.stat_maximums || {}, null, 2)}</textarea>
+                <textarea id="template-stat-maximums" rows="8" 
+                          placeholder='{"fighting": 9, "endurance": 9}' style="width: 100%; font-family: monospace;">${statMaximumsJson}</textarea>
+                <small style="color: var(--text-muted);">New classes default to 9 in every stat.</small>
             </div>
         `;
     },
@@ -4838,6 +5115,7 @@ try {
                     UI.showToast('Invalid JSON in stat fields', 'error');
                     return;
                 }
+                templateData.image = this.getStandardClassImagePath(id);
             }
             
             await API.saveTemplate(type, id, templateData, isNew);
