@@ -4142,38 +4142,53 @@ try {
     
     /**
      * Save universe from all tabs
+     * Only one tab's markup is in the DOM at a time — merge visible fields with currentUniverseData.
      */
     async saveUniverseFromTabs(universeId) {
         try {
-            // Collect data from all tabs
-            const name = document.getElementById('universe-name')?.value.trim();
+            const u = this.currentUniverseData || {};
+            
+            const pick = (id, fallback) => {
+                const el = document.getElementById(id);
+                if (!el) return fallback;
+                if (el.type === 'checkbox') return el.checked;
+                return typeof el.value === 'string' ? el.value.trim() : el.value;
+            };
+            
+            const nameEl = document.getElementById('universe-name');
+            let name = '';
+            if (nameEl) name = (nameEl.value || '').trim();
+            if (!name) name = (u.name && String(u.name).trim()) || '';
             if (!name) {
                 UI.showToast('Name is required', 'warning');
                 return;
             }
             
             const universeData = {
-                name: name,
-                description: document.getElementById('universe-description')?.value.trim() || '',
-                theme: document.getElementById('universe-theme')?.value.trim() || '',
-                roleplayType: document.getElementById('universe-roleplay-type')?.value.trim() || '',
-                imageUrl: document.getElementById('universe-image-url')?.value.trim() || '',
-                groupSlurl: document.getElementById('universe-group-slurl')?.value.trim() || '',
-                welcomeSlurl: document.getElementById('universe-welcome-slurl')?.value.trim() || '',
-                maturityRating: document.getElementById('universe-maturity-rating')?.value || 'general',
-                visibility: document.getElementById('universe-visibility')?.value || 'public',
-                acceptNewPlayers: document.getElementById('universe-accept-new-players')?.value || 'open',
-                characterLimit: parseInt(document.getElementById('universe-character-limit')?.value) || 0,
-                manaEnabled: document.getElementById('universe-mana-enabled')?.checked !== false
+                name,
+                description: pick('universe-description', u.description ?? '') ?? '',
+                theme: pick('universe-theme', u.theme ?? '') ?? '',
+                roleplayType: pick('universe-roleplay-type', u.roleplayType ?? '') ?? '',
+                imageUrl: pick('universe-image-url', u.imageUrl ?? '') ?? '',
+                groupSlurl: pick('universe-group-slurl', u.groupSlurl ?? '') ?? '',
+                welcomeSlurl: pick('universe-welcome-slurl', u.welcomeSlurl ?? '') ?? '',
+                maturityRating: pick('universe-maturity-rating', u.maturityRating || 'general') || 'general',
+                visibility: pick('universe-visibility', u.visibility || 'public') || 'public',
+                acceptNewPlayers: pick('universe-accept-new-players', u.acceptNewPlayers || 'open') || 'open',
+                characterLimit: (() => {
+                    const el = document.getElementById('universe-character-limit');
+                    if (!el) return parseInt(String(u.characterLimit !== undefined ? u.characterLimit : 0), 10) || 0;
+                    return parseInt(el.value, 10) || 0;
+                })(),
+                manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false)
             };
             
-            // Handle active state (not for default universe)
             if (universeId !== 'default') {
-                universeData.active = document.getElementById('universe-active')?.checked !== false;
+                const ac = document.getElementById('universe-active');
+                universeData.active = ac ? ac.checked : (u.active !== false);
             }
             
-            // Handle signup key
-            const signupKey = document.getElementById('universe-signup-key')?.value.trim();
+            const signupKey = pick('universe-signup-key', '') || '';
             
             // For default universe, only include maturityRating if user is Super User
             if (universeId === 'default' && API.uuid !== API.SUPER_ADMIN_UUID) {
@@ -4185,14 +4200,13 @@ try {
                 // Update existing
                 if (signupKey) {
                     await API.setSignupKey(universeId, signupKey);
-                } else if (document.getElementById('universe-accept-new-players')?.value !== 'key') {
+                } else if (universeData.acceptNewPlayers !== 'key') {
                     await API.clearSignupKey(universeId);
                 }
                 
                 result = await API.updateUniverse(universeId, universeData);
             } else {
-                // Create new
-                universeData.active = false;
+                // Create new — active already set from Profile tab (universe-active checkbox)
                 result = await API.createUniverse(universeData);
                 
                 if (signupKey && result.success) {
@@ -4216,8 +4230,17 @@ try {
      */
     async saveUniverse(universeId) {
         try {
-            // Collect form data
-            const name = document.getElementById('universe-name').value.trim();
+            const u = this.currentUniverseData || {};
+            const pick = (id, fallback) => {
+                const el = document.getElementById(id);
+                if (!el) return fallback;
+                if (el.type === 'checkbox') return el.checked;
+                return typeof el.value === 'string' ? el.value.trim() : el.value;
+            };
+            
+            const nameEl = document.getElementById('universe-name');
+            let name = nameEl ? (nameEl.value || '').trim() : '';
+            if (!name) name = (u.name && String(u.name).trim()) || '';
             if (!name) {
                 UI.showToast('Name is required', 'warning');
                 return;
@@ -4237,26 +4260,28 @@ try {
             const allowedClasses = checkedClassIds.length === allClassIds.length ? [] : checkedClassIds;
             
             const universeData = {
-                name: name,
-                description: document.getElementById('universe-description').value.trim(),
-                theme: document.getElementById('universe-theme').value.trim(),
-                roleplayType: document.getElementById('universe-roleplay-type').value.trim(),
-                imageUrl: document.getElementById('universe-image-url').value.trim(),
-                groupSlurl: document.getElementById('universe-group-slurl').value.trim(),
-                welcomeSlurl: document.getElementById('universe-welcome-slurl').value.trim(),
-                maturityRating: document.getElementById('universe-maturity-rating')?.value || 'general',
-                visibility: document.getElementById('universe-visibility').value,
-                acceptNewPlayers: document.getElementById('universe-accept-new-players').value,
-                characterLimit: parseInt(document.getElementById('universe-character-limit').value) || 0,
-                manaEnabled: document.getElementById('universe-mana-enabled').checked,
+                name,
+                description: pick('universe-description', u.description ?? '') ?? '',
+                theme: pick('universe-theme', u.theme ?? '') ?? '',
+                roleplayType: pick('universe-roleplay-type', u.roleplayType ?? '') ?? '',
+                imageUrl: pick('universe-image-url', u.imageUrl ?? '') ?? '',
+                groupSlurl: pick('universe-group-slurl', u.groupSlurl ?? '') ?? '',
+                welcomeSlurl: pick('universe-welcome-slurl', u.welcomeSlurl ?? '') ?? '',
+                maturityRating: pick('universe-maturity-rating', u.maturityRating || 'general') || 'general',
+                visibility: pick('universe-visibility', u.visibility || 'public') || 'public',
+                acceptNewPlayers: pick('universe-accept-new-players', u.acceptNewPlayers || 'open') || 'open',
+                characterLimit: (() => {
+                    const el = document.getElementById('universe-character-limit');
+                    if (!el) return parseInt(String(u.characterLimit !== undefined ? u.characterLimit : 0), 10) || 0;
+                    return parseInt(el.value, 10) || 0;
+                })(),
+                manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false),
                 allowedGenders: allowedGenders,
                 allowedSpecies: allowedSpecies,
                 allowedClasses: allowedClasses
-                // allowedCareers: not edited in UI (was duplicate of classes); omit so Firestore field is left unchanged on save
             };
             
-            // Handle signup key
-            const signupKey = document.getElementById('universe-signup-key').value.trim();
+            const signupKey = pick('universe-signup-key', '') || '';
             
             // For default universe, only include maturityRating if user is Super User
             if (universeId === 'default' && API.uuid !== API.SUPER_ADMIN_UUID) {
@@ -4265,7 +4290,8 @@ try {
             
             // Handle active state (not for default universe)
             if (universeId !== 'default') {
-                universeData.active = document.getElementById('universe-active').checked;
+                const ac = document.getElementById('universe-active');
+                universeData.active = ac ? ac.checked : (u.active !== false);
             }
             
             let result;
@@ -4274,15 +4300,14 @@ try {
                 // Handle signup key separately if provided
                 if (signupKey) {
                     await API.setSignupKey(universeId, signupKey);
-                } else if (document.getElementById('universe-accept-new-players').value !== 'key') {
+                } else if (universeData.acceptNewPlayers !== 'key') {
                     // Clear key if not using key access
                     await API.clearSignupKey(universeId);
                 }
                 
                 result = await API.updateUniverse(universeId, universeData);
             } else {
-                // Create new
-                universeData.active = false; // New universes are inactive by default
+                // Create new — active already set above from Profile checkbox when universeId !== 'default'
                 result = await API.createUniverse(universeData);
                 
                 // Set signup key if provided

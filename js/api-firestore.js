@@ -1594,7 +1594,7 @@ const API = {
                 maturityRating: universeData.maturityRating || 'general',
                 
                 ownerAdminId: this.uuid,
-                active: universeData.active !== undefined ? universeData.active : false,
+                active: universeData.active !== undefined ? universeData.active : true,
                 visibility: universeData.visibility || 'public',
                 
                 acceptNewPlayers: universeData.acceptNewPlayers || 'open',
@@ -1874,10 +1874,9 @@ const API = {
      */
     async listAvailableUniverses() {
         try {
-            // Include Default Universe + all active universes that accept new players
+            // Default + any non-deleted universe that is not explicitly inactive and accepts new players
             const universes = [];
             
-            // Always include Default Universe
             const defaultDoc = await db.collection('universes').doc('default').get();
             if (defaultDoc.exists) {
                 const defaultData = defaultDoc.data();
@@ -1886,18 +1885,30 @@ const API = {
                 }
             }
             
-            // Get all active universes that are not closed
             const snapshot = await db.collection('universes')
-                .where('active', '==', true)
                 .where('deleted', '==', false)
                 .get();
             
             snapshot.forEach(doc => {
-                const data = doc.data();
-                // Skip default (already added) and closed universes
-                if (doc.id !== 'default' && data.acceptNewPlayers !== 'closed') {
-                    universes.push({ id: doc.id, ...data });
+                if (doc.id === 'default') {
+                    return;
                 }
+                const data = doc.data();
+                if (data.active === false) {
+                    return;
+                }
+                if (data.acceptNewPlayers === 'closed') {
+                    return;
+                }
+                universes.push({ id: doc.id, ...data });
+            });
+            
+            universes.sort((a, b) => {
+                if (a.id === 'default') return -1;
+                if (b.id === 'default') return 1;
+                const na = (a.name || a.id || '').toLowerCase();
+                const nb = (b.name || b.id || '').toLowerCase();
+                return na.localeCompare(nb);
             });
             
             return { success: true, data: { universes } };
