@@ -2530,9 +2530,9 @@ try {
             case 'genders':
                 this.showTemplateManager('genders');
                 break;
-            case 'vocations':
-                this.showTemplateManager('vocations');
-                break;
+            // case 'vocations': // removed from admin UI — redundant with classes until vocation system is used
+            //     this.showTemplateManager('vocations');
+            //     break;
             case 'consumables':
                 this.showConsumablesManagement();
                 break;
@@ -4711,7 +4711,7 @@ try {
         };
         
         const allClasses = this.state.classes || [];
-        const allVocations = this.state.vocations || [];
+        // const allVocations = this.state.vocations || []; // Vocation picker removed from class admin form
         
         return `
             <div class="form-group">
@@ -4739,13 +4739,7 @@ try {
                 <textarea id="template-description" rows="3" 
                           placeholder="Description..." style="width: 100%;">${c.description || ''}</textarea>
             </div>
-            <div class="form-group">
-                <label>Vocation</label>
-                <select id="template-vocation-id" style="width: 100%;">
-                    <option value="">None</option>
-                    ${allVocations.map(v => `<option value="${v.id}" ${c.vocation_id === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
-                </select>
-            </div>
+            <!-- Vocation picker removed: vocations unused/redundant with classes. class.vocation_id preserved on save when editing. -->
             <div class="form-group">
                 <label>Prerequisites (comma-separated class IDs, or leave empty for beginner)</label>
                 <input type="text" id="template-prerequisites" 
@@ -4819,7 +4813,10 @@ try {
                     return;
                 }
             } else if (type === 'classes') {
-                templateData.vocation_id = document.getElementById('template-vocation-id')?.value || '';
+                // Vocation picker removed from admin UI — preserve existing vocation_id when editing a class
+                if (existingTemplate?.vocation_id) {
+                    templateData.vocation_id = existingTemplate.vocation_id;
+                }
                 const prereqsInput = document.getElementById('template-prerequisites')?.value.trim();
                 if (prereqsInput) {
                     templateData.prerequisites = prereqsInput.split(',').map(s => s.trim()).filter(s => s);
