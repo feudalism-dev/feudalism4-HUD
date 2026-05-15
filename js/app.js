@@ -3724,9 +3724,7 @@ try {
         
         // Get universes the user can manage (for selector)
         const universesResult = await API.listUniversesForAdmin();
-        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
-            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
-        ) : [];
+        const userUniverses = universesResult.success ? universesResult.data.universes : [];
         
         // Get all careers (for now, using classes as careers - TODO: implement careers collection)
         const classesResult = await API.getClasses();
@@ -3807,9 +3805,7 @@ try {
         
         // Get universes the user can manage (for selector)
         const universesResult = await API.listUniversesForAdmin();
-        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
-            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
-        ) : [];
+        const userUniverses = universesResult.success ? universesResult.data.universes : [];
         
         // Get all classes
         const classesResult = await API.getClasses();
@@ -3889,9 +3885,7 @@ try {
         
         // Get universes the user can manage (for selector)
         const universesResult = await API.listUniversesForAdmin();
-        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
-            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
-        ) : [];
+        const userUniverses = universesResult.success ? universesResult.data.universes : [];
         
         // Get all species
         const speciesResult = await API.getSpecies();
@@ -3971,9 +3965,7 @@ try {
         
         // Get universes the user can manage (for selector)
         const universesResult = await API.listUniversesForAdmin();
-        const userUniverses = universesResult.success ? universesResult.data.universes.filter(u => 
-            u.ownerAdminId === API.uuid || API.role === 'sys_admin' || API.uuid === API.SUPER_ADMIN_UUID
-        ) : [];
+        const userUniverses = universesResult.success ? universesResult.data.universes : [];
         
         // Get all genders
         const gendersResult = await API.getGenders();
@@ -4527,10 +4519,14 @@ try {
 
             adminContent.querySelectorAll('.clone-template').forEach(btn => {
                 btn.addEventListener('click', (e) => {
+                    const cloneType = e.currentTarget.dataset.type;
                     const id = e.currentTarget.dataset.id;
                     const template = templates.find(t => t.id === id);
-                    if (template) {
+                    if (!template) return;
+                    if (cloneType === 'classes') {
                         this.showClassCloneEditor(template);
+                    } else if (cloneType === 'species') {
+                        this.showSpeciesCloneEditor(template);
                     }
                 });
             });
@@ -4562,7 +4558,9 @@ try {
                     </div>
                 </div>
                 <div style="display: flex; gap: var(--space-sm);">
-                    ${type === 'classes' ? `<button class="action-btn clone-template" data-type="${type}" data-id="${template.id}" title="Clone as new class (JSON editor)">📋 Clone</button>` : ''}
+                    ${type === 'classes' || type === 'species'
+                        ? `<button class="action-btn clone-template" data-type="${type}" data-id="${template.id}" title="Clone (JSON editor)">📋 Clone</button>`
+                        : ''}
                     <button class="action-btn edit-template" data-type="${type}" data-id="${template.id}">✏️ Edit</button>
                     <button class="action-btn delete-template" data-type="${type}" data-id="${template.id}" style="background: var(--error);">🗑️ Delete</button>
                 </div>
@@ -4606,6 +4604,253 @@ try {
 
         idInput.addEventListener('input', syncImage);
         idInput.addEventListener('change', syncImage);
+    },
+
+    getStandardSpeciesImagePath(speciesId) {
+        const id = (speciesId || '').trim();
+        return id ? `species/${id}.png` : '';
+    },
+
+    prepareSpeciesClonePayload(sourceSpecies) {
+        const clone = JSON.parse(JSON.stringify(sourceSpecies));
+        delete clone._id;
+        delete clone.createdAt;
+        delete clone.updatedAt;
+        delete clone.created_at;
+        delete clone.updated_at;
+        return clone;
+    },
+
+    /** New species editor: stats/resources copied from Human when available. */
+    getDefaultNewSpeciesBaseline() {
+        const human = (this.state.species || []).find(sp => sp.id === 'human');
+        if (!human) {
+            return null;
+        }
+        const b = JSON.parse(JSON.stringify(human));
+        b.id = '';
+        b.name = '';
+        b.icon = '';
+        b.description = '';
+        b.image = '';
+        return b;
+    },
+
+    wireSpeciesFormImagePathSync(isNewSpecies) {
+        const idInput = document.getElementById('template-id');
+        const imageInput = document.getElementById('template-image');
+        if (!idInput || !imageInput) return;
+
+        const syncImage = () => {
+            const id = idInput.value.trim();
+            if (id && isNewSpecies) {
+                imageInput.value = this.getStandardSpeciesImagePath(id);
+            }
+        };
+
+        idInput.addEventListener('input', syncImage);
+        idInput.addEventListener('change', syncImage);
+    },
+
+    applySpeciesCloneIdNameToJson() {
+        const textarea = document.getElementById('clone-species-json');
+        const idInput = document.getElementById('clone-species-id');
+        const nameInput = document.getElementById('clone-species-name');
+        const hint = document.getElementById('clone-species-image-hint');
+        if (!textarea || !idInput) return;
+
+        try {
+            const data = JSON.parse(textarea.value);
+            const id = idInput.value.trim();
+            const name = nameInput?.value.trim();
+            if (id) {
+                data.id = id;
+                data.image = this.getStandardSpeciesImagePath(id);
+            }
+            if (name) {
+                data.name = name;
+            }
+            textarea.value = JSON.stringify(data, null, 2);
+            if (hint) {
+                hint.textContent = data.image || '(set a species ID)';
+            }
+        } catch (e) {
+            UI.showToast('Fix JSON before applying ID/name', 'warning');
+        }
+    },
+
+    showSpeciesCloneEditor(sourceSpecies) {
+        if (!sourceSpecies?.id) {
+            UI.showToast('Invalid source species', 'error');
+            return;
+        }
+
+        const suggestedId = `${sourceSpecies.id}_copy`;
+        const payload = this.prepareSpeciesClonePayload(sourceSpecies);
+        payload.id = suggestedId;
+        payload.name = `${sourceSpecies.name || sourceSpecies.id} (Copy)`;
+        payload.image = this.getStandardSpeciesImagePath(suggestedId);
+        payload.enabled = payload.enabled !== false;
+        payload.health = parseInt(payload.health, 10) || 100;
+        payload.stamina = parseInt(payload.stamina, 10) || 100;
+        const manaNum = parseInt(payload.mana, 10);
+        payload.mana = Number.isNaN(manaNum) ? 50 : manaNum;
+        payload.base_stats = payload.base_stats && typeof payload.base_stats === 'object' ? payload.base_stats : {};
+        payload.stat_minimums = payload.stat_minimums && typeof payload.stat_minimums === 'object' ? payload.stat_minimums : {};
+        payload.stat_maximums = payload.stat_maximums && typeof payload.stat_maximums === 'object' ? payload.stat_maximums : {};
+
+        delete payload.prerequisites;
+        delete payload.free_advances;
+        delete payload.prerequisite;
+        delete payload.vocation_id;
+        delete payload.xp_cost;
+
+        const modalBody = document.getElementById('modal-body');
+        if (!modalBody) return;
+
+        const jsonPreview = JSON.stringify(payload, null, 2)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;');
+
+        modalBody.innerHTML = `
+            <div class="admin-form">
+                <h2 style="margin-bottom: var(--space-sm);">Clone Species</h2>
+                <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">
+                    Based on <strong style="color: var(--gold-light);">${sourceSpecies.name || sourceSpecies.id}</strong>
+                    (<code>${sourceSpecies.id}</code>). Edit the JSON, then save. Image path is set to
+                    <code>species/&lt;id&gt;.png</code> on save (add files under <code>images/species/</code> in the public repo).
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-md);">
+                    <div class="form-group" style="margin: 0;">
+                        <label>New species ID</label>
+                        <input type="text" id="clone-species-id" value="${suggestedId}" placeholder="e.g., frost_elf" style="width: 100%;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>New display name</label>
+                        <input type="text" id="clone-species-name" value="${payload.name}" style="width: 100%;">
+                    </div>
+                </div>
+                <div style="margin-bottom: var(--space-sm);">
+                    <button type="button" class="action-btn" id="btn-apply-species-clone-id-name">Apply ID &amp; name to JSON</button>
+                    <small style="color: var(--text-muted); margin-left: var(--space-sm);">
+                        Image: <code id="clone-species-image-hint">${payload.image}</code>
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Species JSON (edit freely)</label>
+                    <textarea id="clone-species-json" rows="18"
+                        style="width: 100%; font-family: monospace; font-size: 0.85em; line-height: 1.4;">${jsonPreview}</textarea>
+                </div>
+                <div class="form-actions" style="display: flex; gap: var(--space-md); margin-top: var(--space-lg);">
+                    <button class="action-btn primary" id="btn-save-species-clone">💾 Save as new species</button>
+                    <button class="action-btn modal-cancel-btn">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('modal').classList.remove('hidden');
+
+        document.getElementById('btn-apply-species-clone-id-name')?.addEventListener('click', () => {
+            this.applySpeciesCloneIdNameToJson();
+        });
+        document.getElementById('clone-species-id')?.addEventListener('change', () => {
+            this.applySpeciesCloneIdNameToJson();
+        });
+        document.getElementById('clone-species-name')?.addEventListener('change', () => {
+            this.applySpeciesCloneIdNameToJson();
+        });
+        document.getElementById('btn-save-species-clone')?.addEventListener('click', async () => {
+            await this.saveSpeciesClone();
+        });
+        modalBody.querySelector('.modal-cancel-btn')?.addEventListener('click', () => {
+            document.getElementById('modal').classList.add('hidden');
+        });
+    },
+
+    async saveSpeciesClone() {
+        const idInput = document.getElementById('clone-species-id')?.value.trim();
+        const nameInput = document.getElementById('clone-species-name')?.value.trim();
+        const jsonRaw = document.getElementById('clone-species-json')?.value.trim();
+
+        if (!jsonRaw) {
+            UI.showToast('JSON is empty', 'warning');
+            return;
+        }
+
+        let templateData;
+        try {
+            templateData = JSON.parse(jsonRaw);
+        } catch (e) {
+            UI.showToast('Invalid JSON: ' + e.message, 'error');
+            return;
+        }
+
+        const id = idInput || templateData.id;
+        const name = nameInput || templateData.name;
+
+        if (!id || !name) {
+            UI.showToast('ID and name are required', 'warning');
+            return;
+        }
+
+        if (this.state.species.some(sp => sp.id === id)) {
+            UI.showToast(`Species ID "${id}" already exists`, 'warning');
+            return;
+        }
+
+        templateData.id = id;
+        templateData.name = name;
+        templateData.icon = templateData.icon != null ? String(templateData.icon).trim() : '';
+        templateData.description = templateData.description != null ? String(templateData.description).trim() : '';
+        templateData.image = this.getStandardSpeciesImagePath(id);
+        templateData.enabled = templateData.enabled !== false;
+        templateData.health = parseInt(templateData.health, 10) || 100;
+        templateData.stamina = parseInt(templateData.stamina, 10) || 100;
+        templateData.mana = parseInt(templateData.mana, 10);
+        if (Number.isNaN(templateData.mana)) {
+            templateData.mana = 50;
+        }
+
+        const parseObj = (val, label) => {
+            if (val == null) return {};
+            if (typeof val === 'string') {
+                try {
+                    return JSON.parse(val);
+                } catch (e) {
+                    UI.showToast(`${label} must be valid JSON`, 'error');
+                    return null;
+                }
+            }
+            return typeof val === 'object' ? val : {};
+        };
+
+        const base = parseObj(templateData.base_stats, 'base_stats');
+        const smin = parseObj(templateData.stat_minimums, 'stat_minimums');
+        const smax = parseObj(templateData.stat_maximums, 'stat_maximums');
+        if (base === null || smin === null || smax === null) return;
+
+        templateData.base_stats = base;
+        templateData.stat_minimums = smin;
+        templateData.stat_maximums = smax;
+
+        delete templateData.prerequisites;
+        delete templateData.free_advances;
+        delete templateData.prerequisite;
+        delete templateData.vocation_id;
+        delete templateData.xp_cost;
+
+        try {
+            await API.saveTemplate('species', id, templateData, true);
+            UI.showToast(`Created species "${name}"`, 'success');
+            document.getElementById('modal').classList.add('hidden');
+
+            const result = await API.getSpecies();
+            this.state.species = result.data?.species || [];
+            this.showTemplateManager('species');
+            await this.renderAll();
+        } catch (error) {
+            UI.showToast('Failed to save: ' + error.message, 'error');
+        }
     },
 
     prepareClassClonePayload(sourceClass) {
@@ -4852,6 +5097,8 @@ try {
 
         if (type === 'classes') {
             this.wireClassFormImagePathSync(isNew);
+        } else if (type === 'species') {
+            this.wireSpeciesFormImagePathSync(isNew);
         }
     },
     
@@ -4894,18 +5141,29 @@ try {
      * Build species form
      */
     buildSpeciesForm(species) {
-        const s = species || { 
-            id: '', name: '', icon: '', description: '', image: '',
-            stat_minimums: {}, stat_maximums: {}, base_stats: {},
-            health: 100, stamina: 100, mana: 50
-        };
-        
+        const isEditing = !!species;
+        const s = isEditing
+            ? species
+            : this.getDefaultNewSpeciesBaseline() || {
+                  id: '',
+                  name: '',
+                  icon: '',
+                  description: '',
+                  image: '',
+                  stat_minimums: {},
+                  stat_maximums: {},
+                  base_stats: {},
+                  health: 100,
+                  stamina: 100,
+                  mana: 50
+              };
+
         const statNames = F4_SEED_DATA.statNames || [];
         
         return `
             <div class="form-group">
                 <label>ID (unique identifier)</label>
-                <input type="text" id="template-id" value="${s.id}" ${species ? 'readonly' : ''} 
+                <input type="text" id="template-id" value="${s.id}" ${isEditing ? 'readonly' : ''} 
                        placeholder="e.g., human, elf" style="width: 100%;">
             </div>
             <div class="form-group">
@@ -4922,6 +5180,7 @@ try {
                 <label>Image Path</label>
                 <input type="text" id="template-image" value="${s.image || ''}" 
                        placeholder="species/id.png" style="width: 100%;">
+                <small style="color: var(--text-muted);">Defaults to species/&lt;id&gt;.png when you enter the species ID (new species).</small>
             </div>
             <div class="form-group">
                 <label>Description</label>
@@ -5089,6 +5348,7 @@ try {
                     UI.showToast('Invalid JSON in stat fields', 'error');
                     return;
                 }
+                templateData.image = this.getStandardSpeciesImagePath(id);
             } else if (type === 'classes') {
                 // Vocation picker removed from admin UI — preserve existing vocation_id when editing a class
                 if (existingTemplate?.vocation_id) {

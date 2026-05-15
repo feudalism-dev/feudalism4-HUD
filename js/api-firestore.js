@@ -1430,7 +1430,7 @@ const API = {
     },
     
     /**
-     * Check if user can edit a specific universe
+     * Check if user can edit a specific universe (owner, delegated admins subcollection, or sys roles)
      * @param {string} universeId - Universe ID to check
      * @param {object} universe - Universe document data (optional, will fetch if not provided)
      */
@@ -1440,7 +1440,7 @@ const API = {
             return true;
         }
         
-        // Universe Admin can only edit universes they own
+        // Universe Admin: owner or explicit entry in universes/{id}/admins/{uuid}
         if (this.role === 'universe_admin') {
             // Fetch universe if not provided
             if (!universe) {
@@ -1510,7 +1510,7 @@ const API = {
             return true;
         }
         
-        // Universe Admin can only assign admins to universes they own
+        // Universe Admin may assign/remove admins on any universe they can edit (owner or delegated admin)
         if (this.role === 'universe_admin') {
             return await this.canEditUniverse(universeId);
         }
