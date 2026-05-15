@@ -784,7 +784,7 @@ const UI = {
         if (!this.elements.currentCareer) return;
         
         if (!classTemplate) {
-            this.elements.currentCareer.innerHTML = '<p class="placeholder-text">No career selected...</p>';
+            this.elements.currentCareer.innerHTML = '<p class="placeholder-text">No class selected...</p>';
             return;
         }
         
@@ -814,7 +814,7 @@ const UI = {
         const allClasses = App.state.classes || [];
         
         if (careerHistory.length === 0 && !currentClass) {
-            return '<div class="career-path empty"><p>No career history yet</p></div>';
+            return '<div class="career-path empty"><p>No class history yet</p></div>';
         }
         
         // Build path nodes
@@ -843,7 +843,7 @@ const UI = {
         
         return `
             <div class="career-path-container">
-                <h4>Career Path</h4>
+                <h4>Class Path</h4>
                 <div class="career-path">
                     ${nodes}
                     ${currentNode}
@@ -1281,7 +1281,7 @@ const UI = {
                     <span class="summary-value">${species?.name || 'Unknown'}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">Career:</span>
+                    <span class="summary-label">Class:</span>
                     <span class="summary-value">${classTemplate?.name || 'None'}</span>
                 </div>
                 <div class="summary-item" style="background: rgba(239, 68, 68, 0.1); padding: var(--space-sm); border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3);">

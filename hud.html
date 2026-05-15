@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
-    <link rel="stylesheet" href="css/styles.css?v=13">
+    <link rel="stylesheet" href="css/styles.css?v=15">
 </head>
 <body>
     <!-- Invisible autoplay video to force MOAP initialization -->
@@ -36,7 +36,7 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="character">Character</button>
             <button class="tab-btn" data-tab="stats">Stats</button>
-            <button class="tab-btn" data-tab="career">Career</button>
+            <button class="tab-btn" data-tab="career">Classes</button>
             <button class="tab-btn" data-tab="inventory">Inventory</button>
             <button class="tab-btn" data-tab="options">Options</button>
             <button class="tab-btn" data-tab="help">Help</button>
@@ -98,7 +98,7 @@
                         <div style="color: #6b7280;">→</div>
                         <div class="step-item" data-step="career" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
                             <span class="step-marker" style="font-size: 1.2em;">○</span>
-                            <span class="step-name">Career</span>
+                            <span class="step-name">Classes</span>
                         </div>
                     </div>
                     
@@ -176,26 +176,26 @@
                 </div>
             </section>
 
-            <!-- Career Tab -->
+            <!-- Classes tab (internal id: tab-career / data-tab career) -->
             <section id="tab-career" class="tab-content">
                 <div class="panel">
-                    <h2>Current Career</h2>
+                    <h2>Current Class</h2>
                     <div id="current-career" class="career-display">
-                        <p class="placeholder-text">No career selected...</p>
+                        <p class="placeholder-text">No class selected...</p>
                     </div>
                 </div>
 
                 <div class="panel">
-                    <h2>Available Careers</h2>
+                    <h2>Available Classes</h2>
                     <div id="career-gallery" class="gallery career-gallery">
-                        <div class="loading-spinner">Loading careers...</div>
+                        <div class="loading-spinner">Loading classes...</div>
                     </div>
                 </div>
 
                 <div class="panel">
-                    <h2>Career Path</h2>
+                    <h2>Class Path</h2>
                     <div id="career-path" class="career-path">
-                        <p class="placeholder-text">Your career progression will appear here...</p>
+                        <p class="placeholder-text">Your class progression will appear here...</p>
                     </div>
                 </div>
             </section>
@@ -346,7 +346,7 @@
                     <p>To create a new character:</p>
                     <ol>
                         <li>Click the "Character" dropdown at the top and select "Create New Character"</li>
-                        <li>Follow the step guide: Name/Title → Gender → Species → Career</li>
+                        <li>Follow the step guide: Name/Title → Gender → Species → Classes</li>
                         <li>Complete each step by filling in the required information</li>
                         <li>Click "Save Character" when you're done</li>
                     </ol>
@@ -373,7 +373,7 @@
                     <p>The "Save Character" button is always visible in the step guide panel. It will:</p>
                     <ul>
                         <li>Be disabled when there are no changes to save</li>
-                        <li>Be enabled when you make gameplay changes (name, stats, species, career, etc.)</li>
+                        <li>Be enabled when you make gameplay changes (name, stats, species, class, etc.)</li>
                         <li>Save all your changes to the server when clicked</li>
                     </ul>
                     
@@ -389,7 +389,7 @@
                     <ul>
                         <li><strong>Character</strong>: Overview and management of your character</li>
                         <li><strong>Stats</strong>: Detailed view and editing of your 20 attribute stats</li>
-                        <li><strong>Career</strong>: Browse and select your character's career/class</li>
+                        <li><strong>Classes</strong>: Browse and select your character's class</li>
                         <li><strong>Inventory</strong>: Manage your character's items and currency</li>
                         <li><strong>Options</strong>: Game mode settings and quick actions</li>
                         <li><strong>Help</strong>: This page</li>
@@ -512,23 +512,23 @@
     <script>
         window.simpleDebug('About to load firebase-config.js', 'info');
     </script>
-    <script src="js/firebase-config.js?v=13" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
+    <script src="js/firebase-config.js?v=15" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load seed-data.js', 'info');
     </script>
-    <script src="js/seed-data.js?v=13" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
+    <script src="js/seed-data.js?v=15" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load api-firestore.js', 'info');
     </script>
-    <script src="js/api-firestore.js?v=13" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
+    <script src="js/api-firestore.js?v=15" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load ui.js', 'info');
     </script>
-    <script src="js/ui.js?v=13" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
+    <script src="js/ui.js?v=15" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
     <script>
         window.simpleDebug('About to load app.js', 'info');
     </script>
-    <script src="js/app.js?v=14" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
+    <script src="js/app.js?v=15" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
     <script>
         window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
         // Try to call init after a short delay

@@ -811,7 +811,7 @@ try {
             { id: 'gender', name: 'Gender', complete: !!(char && char.gender_id) },
             { id: 'species', name: 'Species', complete: !!(char && char.species_id) },
             { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0) },
-            { id: 'career', name: 'Career', complete: !!(char && char.class_id) }
+            { id: 'career', name: 'Classes', complete: !!(char && char.class_id) }
         ];
         
         steps.forEach((step, index) => {
