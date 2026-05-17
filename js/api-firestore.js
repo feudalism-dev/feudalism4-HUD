@@ -1248,10 +1248,25 @@ const API = {
     // =========================== ADMIN: TEMPLATE MANAGEMENT ===================
     
     /**
+     * Global species/classes/genders CRUD — not universe-scoped allowlists.
+     * Universe admins may only change allowedClasses/Species/Genders on a universe document.
+     */
+    canManageGlobalTemplates() {
+        if (this.uuid === this.SUPER_ADMIN_UUID) {
+            return true;
+        }
+        return this.role === 'sys_admin' || this.role === 'sim_admin';
+    },
+    
+    /**
      * Save a template (create or update)
      */
     async saveTemplate(type, id, templateData, isNew = false) {
         try {
+            if (!this.canManageGlobalTemplates()) {
+                return { success: false, error: 'Unauthorized: Only system administrators can add or edit global templates' };
+            }
+            
             if (!['species', 'classes', 'genders'].includes(type)) {
                 throw new Error('Invalid template type');
             }
@@ -1374,6 +1389,10 @@ const API = {
      */
     async deleteTemplate(type, id) {
         try {
+            if (!this.canManageGlobalTemplates()) {
+                return { success: false, error: 'Unauthorized: Only system administrators can delete global templates' };
+            }
+            
             if (!['species', 'classes', 'genders'].includes(type)) {
                 throw new Error('Invalid template type');
             }

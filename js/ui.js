@@ -200,12 +200,24 @@ const UI = {
      * @param {string} role - User role
      */
     updateRoleUI(role) {
-        const isAdmin = role === 'sim_admin' || role === 'sys_admin' || role === 'universe_admin';
+        const isUniverseAdmin = role === 'universe_admin';
+        const isSysLevelAdmin = role === 'sim_admin' || role === 'sys_admin';
+        const isAdmin = isSysLevelAdmin || isUniverseAdmin;
         
         // Show/hide admin tab
         if (this.elements.adminTab) {
             this.elements.adminTab.classList.toggle('hidden', !isAdmin);
         }
+        
+        // Universe admins: universes only (allowlists per universe, not global template CRUD)
+        document.querySelectorAll('.admin-btn').forEach(btn => {
+            const panel = btn.dataset.admin;
+            let show = isSysLevelAdmin;
+            if (isUniverseAdmin) {
+                show = panel === 'universes';
+            }
+            btn.classList.toggle('hidden', !show);
+        });
         
         // Update role badge
         if (this.elements.userRole) {
@@ -221,7 +233,8 @@ const UI = {
         const roleNames = {
             'player': 'Player',
             'sim_admin': 'Sim Admin',
-            'sys_admin': 'System Admin'
+            'sys_admin': 'System Admin',
+            'universe_admin': 'Universe Admin'
         };
         return roleNames[role] || role;
     },

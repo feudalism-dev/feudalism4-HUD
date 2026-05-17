@@ -2520,11 +2520,31 @@ try {
     },
     
     /**
+     * Global template CRUD (species/classes/genders collections) — not universe allowlists.
+     */
+    canManageGlobalTemplates() {
+        if (API.uuid === API.SUPER_ADMIN_UUID) {
+            return true;
+        }
+        return API.role === 'sys_admin' || API.role === 'sim_admin';
+    },
+
+    /**
      * Show admin panel
      */
     showAdminPanel(panel) {
         const adminContent = UI.elements.adminContent;
         if (!adminContent) return;
+
+        const globalTemplatePanels = ['species', 'classes', 'genders'];
+        if (globalTemplatePanels.includes(panel) && !this.canManageGlobalTemplates()) {
+            UI.showToast(
+                'Use Universe Management → edit a universe → Classes/Species/Genders to choose what that universe allows.',
+                'warning'
+            );
+            this.showUniverseManagement();
+            return;
+        }
         
         switch (panel) {
             case 'users':
@@ -3813,6 +3833,7 @@ try {
         
         // Get allowed classes for this universe
         const allowedClasses = universe?.allowedClasses || [];
+        const showGlobalClassAdmin = this.canManageGlobalTemplates();
         
         let html = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
@@ -3824,8 +3845,9 @@ try {
                         `).join('')}
                     </select>
                 </div>
-                <button class="btn btn-secondary" id="btn-class-admin" style="margin-top: 24px;">ADMIN</button>
+                ${showGlobalClassAdmin ? '<button class="btn btn-secondary" id="btn-class-admin" style="margin-top: 24px;">ADMIN</button>' : ''}
             </div>
+            ${!showGlobalClassAdmin ? '<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">Check or uncheck classes below to control which careers players may use in this universe.</p>' : ''}
             
             <div id="universe-classes-panels"></div>
             
@@ -3868,10 +3890,11 @@ try {
             }
         });
         
-        // Bind admin button
-        document.getElementById('btn-class-admin')?.addEventListener('click', () => {
-            this.showTemplateManager('classes');
-        });
+        if (showGlobalClassAdmin) {
+            document.getElementById('btn-class-admin')?.addEventListener('click', () => {
+                this.showTemplateManager('classes');
+            });
+        }
     },
     
     /**
@@ -4519,6 +4542,12 @@ try {
      * Show template manager for species, classes, or genders
      */
     async showTemplateManager(type) {
+        if (!this.canManageGlobalTemplates()) {
+            UI.showToast('Only system administrators can manage global class/species/gender templates.', 'warning');
+            this.showUniverseManagement();
+            return;
+        }
+
         const adminContent = UI.elements.adminContent;
         UI.showLoading(adminContent, `Loading ${type}...`);
         
@@ -4542,11 +4571,12 @@ try {
             }
             
             const typeSingular = type.slice(0, -1); // Remove 's' for singular
+            const canManageGlobal = this.canManageGlobalTemplates();
             
             adminContent.innerHTML = `
                 <div class="admin-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
                     <h3>${type.charAt(0).toUpperCase() + type.slice(1)} Management (${templates.length})</h3>
-                    <div style="display: flex; gap: var(--space-sm);">
+                    ${canManageGlobal ? `<div style="display: flex; gap: var(--space-sm);">
                         ${type === 'classes' ? `
                             <button class="action-btn" id="btn-sync-free-advances" title="Sync free advances with prerequisites">🔄 Sync Free Advances</button>
                             <button class="action-btn" id="btn-export-${type}" title="Export to CSV">📥 Export CSV</button>
@@ -4556,9 +4586,9 @@ try {
                             </label>
                         ` : ''}
                         <button class="action-btn primary" id="btn-new-${type}">+ New ${typeSingular}</button>
-                    </div>
+                    </div>` : '<span style="color: var(--text-muted); font-size: 0.9rem;">Use Universe Management → Classes tab to choose allowed classes per universe.</span>'}
                 </div>
-                ${type === 'classes' ? `
+                ${type === 'classes' && canManageGlobal ? `
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
                     <strong>📝 CSV Format Note:</strong> When editing prerequisites or free_advances, use <strong>semicolons (;)</strong> to separate multiple values, not commas. 
                     Example: <code>courtier;scholar;monk</code> (not <code>courtier,scholar,monk</code>)
@@ -4685,11 +4715,13 @@ try {
                     </div>
                 </div>
                 <div style="display: flex; gap: var(--space-sm);">
+                    ${this.canManageGlobalTemplates() ? `
                     ${type === 'classes' || type === 'species'
                         ? `<button class="action-btn clone-template" data-type="${type}" data-id="${template.id}" title="Clone (JSON editor)">📋 Clone</button>`
                         : ''}
                     <button class="action-btn edit-template" data-type="${type}" data-id="${template.id}">✏️ Edit</button>
                     <button class="action-btn delete-template" data-type="${type}" data-id="${template.id}" style="background: var(--error);">🗑️ Delete</button>
+                    ` : '<span style="color: var(--text-muted); font-size: 0.85rem;">View only</span>'}
                 </div>
             </div>
         `;
@@ -4807,6 +4839,10 @@ try {
     },
 
     showSpeciesCloneEditor(sourceSpecies) {
+        if (!this.canManageGlobalTemplates()) {
+            UI.showToast('Only system administrators can create global species templates.', 'warning');
+            return;
+        }
         if (!sourceSpecies?.id) {
             UI.showToast('Invalid source species', 'error');
             return;
@@ -5018,6 +5054,10 @@ try {
     },
 
     showClassCloneEditor(sourceClass) {
+        if (!this.canManageGlobalTemplates()) {
+            UI.showToast('Only system administrators can create global class templates.', 'warning');
+            return;
+        }
         if (!sourceClass?.id) {
             UI.showToast('Invalid source class', 'error');
             return;
@@ -5182,6 +5222,10 @@ try {
      * Show template editor modal
      */
     showTemplateEditor(type, template) {
+        if (!this.canManageGlobalTemplates()) {
+            UI.showToast('Only system administrators can add or edit global templates.', 'warning');
+            return;
+        }
         const isNew = !template;
         const typeSingular = type.slice(0, -1);
         
@@ -5439,6 +5483,10 @@ try {
      * Save template (create or update)
      */
     async saveTemplate(type, existingTemplate) {
+        if (!this.canManageGlobalTemplates()) {
+            UI.showToast('Only system administrators can add or edit global templates.', 'warning');
+            return;
+        }
         try {
             const isNew = !existingTemplate;
             const id = document.getElementById('template-id').value.trim();
