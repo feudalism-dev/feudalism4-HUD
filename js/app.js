@@ -5442,7 +5442,7 @@ try {
 
     getStandardClassImagePath(classId) {
         const id = (classId || '').trim();
-        return id ? `classes/${id}.png` : '';
+        return id ? `classes/Class_Overview_${id}.png` : '';
     },
 
     buildUniformClassStatObject(value) {
@@ -5796,7 +5796,7 @@ try {
                 <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">
                     Based on <strong style="color: var(--gold-light);">${sourceClass.name || sourceClass.id}</strong>
                     (<code>${sourceClass.id}</code>). Edit the JSON, then save. Image path is set to
-                    <code>classes/&lt;id&gt;.png</code> on save (add files under <code>images/classes/</code> in the public repo later).
+                    <code>classes/Class_Overview_&lt;id&gt;.png</code> on save (add files under <code>images/classes/</code> in the public repo later).
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-md);">
                     <div class="form-group" style="margin: 0;">
@@ -6151,7 +6151,7 @@ try {
                 <label>Image Path</label>
                 <input type="text" id="template-image" value="${c.image || ''}" 
                        placeholder="classes/your_class_id.png" style="width: 100%;">
-                <small style="color: var(--text-muted);">Defaults to classes/&lt;id&gt;.png when you enter the class ID (new classes).</small>
+                <small style="color: var(--text-muted);">Defaults to classes/Class_Overview_&lt;id&gt;.png when you enter the class ID (new classes).</small>
             </div>
             <div class="form-group">
                 <label>Description</label>
