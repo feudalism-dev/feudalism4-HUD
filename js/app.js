@@ -1562,7 +1562,7 @@ try {
         const manaRequiredClasses = [
             'cleric', 'cultist', 'druid', 'enchanter', 'footwizard', 'hedgemage',
             'mage', 'necromancer', 'priest', 'seer', 'shadowmage', 'shaman',
-            'sorcerer', 'spellmonger', 'thaumaturge', 'warlock', 'warmage',
+            'sorcerer', 'spellmonger', 'spellsinger', 'thaumaturge', 'warlock', 'warmage',
             'witch', 'wizard'
         ];
         const hasMana = character?.has_mana === true;

@@ -2461,19 +2461,26 @@ const API = {
                 allowedSpecies = allowedSpecies.filter(s => universe.allowedSpecies.includes(s.id));
             }
             
-            if (universe.allowedClasses && universe.allowedClasses.length > 0) {
-                const effectiveAllowIds = new Set(
-                    universe.allowedClasses.map((id) => String(id))
-                );
+            const allowlistIds = (universe.allowedClasses && universe.allowedClasses.length > 0)
+                ? new Set(universe.allowedClasses.map((id) => String(id)))
+                : null;
+            if (allowlistIds) {
                 const overrides = universe.classOverrides || {};
                 Object.keys(overrides).forEach((classId) => {
                     if (overrides[classId] && overrides[classId].enabled === true) {
-                        effectiveAllowIds.add(classId);
+                        allowlistIds.add(classId);
                     }
                 });
-                allowedClasses = allowedClasses.filter((c) => effectiveAllowIds.has(c.id));
+                allowedClasses = allowedClasses.filter((c) => allowlistIds.has(c.id));
             }
-            allowedClasses = allowedClasses.filter(c => c.enabled !== false);
+            // Allowlist is authoritative: a class on allowedClasses still shows even if
+            // classOverrides.enabled was saved false when the class was added later.
+            allowedClasses = allowedClasses.filter((c) => {
+                if (allowlistIds && allowlistIds.has(c.id)) {
+                    return true;
+                }
+                return c.enabled !== false;
+            });
             
             return { 
                 success: true, 
