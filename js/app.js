@@ -7169,16 +7169,19 @@ window.getSpeciesStatBudget = function(speciesId) {
 };
 
 /**
- * Available stat points (F3 zero-sum at creation).
+ * Available stat points at creation and from XP.
  * budget = cost of species default line; spent = cost of current line; + XP earned.
- * Human at all 2s: 20 - 20 = 0. Lower a 2 to 1 to gain 1 point; raise 2→3 costs 2.
+ * Humans get +10 on top of zero-sum at all 2s (10 to spend without handicaps).
+ * Other species: 0 available at racial defaults unless they lower stats.
  */
 window.calculateAvailablePoints = function(character) {
     if (!character) return 0;
 
     const XP_PER_POINT = 1000;
+    const HUMAN_STARTING_BONUS = 10;
     const speciesId = character.species_id || 'human';
     const baseBudget = window.getSpeciesStatBudget(speciesId);
+    const speciesBonus = (speciesId === 'human') ? HUMAN_STARTING_BONUS : 0;
 
     const earnedXP = character.xp_total || 0;
     const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
@@ -7189,7 +7192,7 @@ window.calculateAvailablePoints = function(character) {
         pointsSpent += window.getStatTotalCost(stats[stat] || 2);
     }
 
-    return baseBudget + earnedPoints - pointsSpent;
+    return baseBudget + speciesBonus + earnedPoints - pointsSpent;
 };
 
 /**
