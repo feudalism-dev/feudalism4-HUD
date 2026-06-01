@@ -8,7 +8,8 @@
 </head>
 <body>
     <script>
-    /* MOAP: keep URL short + keep keyboard events on inputs (run before app scripts) */
+    /* MOAP (CEF-139): keep URL short + keep keyboard events on inputs (run before app scripts) */
+    window.MOAP_CEF_TARGET = 139;
     (function () {
         function cleanMoapUrlParams() {
             try {
@@ -441,6 +442,9 @@
                         <li><strong>Options</strong>: Game mode settings and quick actions</li>
                         <li><strong>Help</strong>: This page</li>
                     </ul>
+
+                    <h2>MOAP browser</h2>
+                    <p>This HUD is built for <strong>Second Life MOAP (CEF-139)</strong>. It is tested in-world on the Setup HUD, not only in desktop Chrome. If something fails in-world, report the build label shown in the header (e.g. <code>cef139-std-v28</code>).</p>
                 </div>
             </section>
 
@@ -559,11 +563,11 @@
     <script>
         (function () {
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
-            window.HUD_CACHE_BUST = m ? m[1] : '27';
-            window.HUD_BUILD_LABEL = 'moap-input-v27';
+            window.HUD_CACHE_BUST = m ? m[1] : '28';
+            window.HUD_BUILD_LABEL = 'cef139-std-v28';
             var badge = document.getElementById('hud-build-badge');
             if (badge) {
-                badge.textContent = 'HUD ' + window.HUD_BUILD_LABEL;
+                badge.textContent = 'HUD ' + window.HUD_BUILD_LABEL + ' (CEF-' + (window.MOAP_CEF_TARGET || 139) + ')';
             }
         })();
         function hudLoadScript(src, label, next) {

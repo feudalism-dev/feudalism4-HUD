@@ -14,7 +14,7 @@ const firebaseConfig = {
     appId: "1:417226860670:web:4235990fc3bf9eaa1f502f"
 };
 
-// Initialize Firebase with error handling for SL browser
+// Initialize Firebase with error handling for SL MOAP (CEF-139)
 // IMPORTANT: These must be global variables (var) so api-firestore.js can access them
 var db, auth;
 
