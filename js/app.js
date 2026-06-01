@@ -1812,9 +1812,10 @@ try {
         
         // Render career gallery
         DebugLog.log(`Rendering career gallery with ${filteredClasses.length} classes`, 'debug');
+        const activeClassId = char?.class_id || this.state.currentClass?.id || null;
         UI.renderCareerGallery(
             identityReady ? filteredClasses : [],
-            char?.class_id,
+            activeClassId,
             char,
             identityReady ? undefined : identityGateMessage
         );

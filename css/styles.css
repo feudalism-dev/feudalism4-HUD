@@ -1521,12 +1521,21 @@ input::placeholder {
     filter: grayscale(50%);
 }
 
-.career-card.completed {
-    border-color: var(--success);
+/* Past classes: no competing ring — only the current class uses .selected */
+.career-card.past-class:not(.selected) {
+    opacity: 0.88;
 }
 
-.career-card.visited:not(.completed) {
-    border-color: var(--warning);
+.career-card .card-past-overlay {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 4px;
+    padding: 2px 4px;
+    line-height: 1;
 }
 
 .career-card.beginner .card-name::before {

@@ -687,10 +687,10 @@ const UI = {
             const requiresMana = manaRequiredClasses.includes(cls.id);
             const manaLocked = requiresMana && !hasMana;
             
-            const isSelected = cls.id === currentClassId;
+            const isCurrent = cls.id === currentClassId;
             const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
-            const isCompleted = completedClasses.includes(cls.id);
-            const wasVisited = careerHistory.some(h => h.class_id === cls.id);
+            const isCompleted = !isCurrent && completedClasses.includes(cls.id);
+            const wasVisited = !isCurrent && careerHistory.some(h => h.class_id === cls.id && !h.abandoned);
             const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
             const imageSrc = this.getClassImageSrc(cls);
             const hasImage = !!imageSrc;
@@ -704,10 +704,9 @@ const UI = {
             // Determine card classes
             const cardClasses = [
                 'gallery-card', 'career-card',
-                isSelected ? 'selected' : '',
+                isCurrent ? 'selected' : '',
                 isDisabled ? 'locked' : '',
-                isCompleted ? 'completed' : '',
-                wasVisited && !isCompleted ? 'visited' : '',
+                (isCompleted || wasVisited) ? 'past-class' : '',
                 isBeginnerClass ? 'beginner' : ''
             ].filter(Boolean).join(' ');
             
@@ -732,7 +731,8 @@ const UI = {
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <span class="card-icon-fallback" style="display:none;">${icon}</span>
                             ${isDisabled ? '<span class="card-lock-overlay">🔒</span>' : ''}
-                            ${isCompleted ? '<span class="card-complete-overlay">✓</span>' : ''}
+                            ${isCompleted ? '<span class="card-complete-overlay" title="Previously completed">✓</span>' : ''}
+                            ${wasVisited && !isCompleted ? '<span class="card-past-overlay" title="Previous class">◷</span>' : ''}
                         </div>
                     ` : `
                         <div class="card-icon">${icon}</div>
