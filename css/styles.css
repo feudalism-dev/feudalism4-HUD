@@ -360,6 +360,9 @@ select {
     border: 1px solid var(--border-color);
     border-radius: 4px;
     transition: all var(--transition-fast);
+    pointer-events: auto;
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 input:focus,

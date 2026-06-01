@@ -295,7 +295,7 @@ try {
         if (requestData === '1') {
             if (this.state.character) {
                 console.log('[Players HUD] Character found - broadcasting character data in response to LSL request');
-                this.broadcastCharacterToPlayersHUD(this.state.character);
+                this.scheduleBroadcastToPlayersHUD(this.state.character);
                 
                         // Update URL with character data so LSL can read it
                         // Use replaceState to avoid reload, then LSL will poll and see the updated URL
@@ -573,8 +573,7 @@ try {
                             console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
                             
                             // Broadcast character data to Players HUD via Setup HUD
-                            // This happens automatically when character loads
-                            this.broadcastCharacterToPlayersHUD(this.state.character);
+                            this.scheduleBroadcastToPlayersHUD(this.state.character);
                             
                             // Load and set up buffs listener
                             await this.loadBuffs();
@@ -813,7 +812,7 @@ try {
     updateStepGuide() {
         const char = this.state.character;
         // Stats step is complete if user has 0 available points (all points allocated)
-        const availablePoints = char ? window.calculateAvailablePoints(char) : 20;
+        const availablePoints = char ? window.calculateAvailablePoints(char) : 0;
         const steps = [
             { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
             { id: 'gender', name: 'Gender', complete: !!(char && char.gender) },
@@ -1249,7 +1248,7 @@ try {
             xp_total: 100,
             xp_available: 100,
             currency: 50,
-            stat_points_available: 5,  // Starting stat points to allocate
+            stat_points_available: 0,  // Derived by calculateAvailablePoints (F3 zero-sum at all 2s)
             stats: defaultStats,
             inventory: [],
             // Store species factors for LSL calculations
@@ -1673,7 +1672,7 @@ try {
         const caps = this.calculateStatCaps();
         
         // Calculate available points using the F3-style exponential system
-        const availablePoints = char ? window.calculateAvailablePoints(char) : 20;
+        const availablePoints = char ? window.calculateAvailablePoints(char) : 0;
         
         // Render stats grid with points
         UI.renderStatsGrid(stats, caps, availablePoints);
@@ -1687,8 +1686,7 @@ try {
         // Recalculate resource pools based on current stats before rendering
         if (char) {
             this.recalculateResourcePools();
-            // Broadcast updated character data to Players HUD so globes update
-            this.broadcastCharacterToPlayersHUD(char);
+            // Players HUD sync is debounced via scheduleBroadcastToPlayersHUD (not every render)
         }
         
         // Render Players HUD (resource bars, XP progress, and action slots)
@@ -1723,10 +1721,14 @@ try {
             btn.classList.toggle('active', btn.dataset.mode === currentMode);
         });
         
-        // Update form fields
+        // Update form fields (never overwrite the field the user is typing in)
         if (char) {
-            UI.elements.charName.value = char.name || '';
-            UI.elements.charTitle.value = char.title || '';
+            UI.syncFormField(UI.elements.charName, char.name || '');
+            UI.syncFormField(UI.elements.charTitle, char.title || '');
+            UI.syncFormField(
+                document.getElementById('universe-registration-code'),
+                this.state.pendingRegistrationCode || ''
+            );
             UI.selectGender(char.gender || 'unspecified');
             
             // Handle currency - can be object {gold, silver, copper} or number (legacy)
@@ -1907,22 +1909,20 @@ try {
      * Setup global event handlers
      */
     setupEventHandlers() {
-        // Character name input
-        UI.elements.charName?.addEventListener('input', async (e) => {
-            this.state.character.name = e.target.value;
-            this.state.pendingChanges.name = e.target.value;
-            this.state.dirty = true;
-            this.updateStatusIndicator();
-            await this.renderAll();
+        // Character name/title — do not call renderAll() on each keystroke (breaks MOAP text input)
+        UI.elements.charName?.addEventListener('input', (e) => {
+            this.onCharacterTextFieldInput('name', e.target.value);
         });
         
-        // Character title input
-        UI.elements.charTitle?.addEventListener('input', async (e) => {
-            this.state.character.title = e.target.value;
-            this.state.pendingChanges.title = e.target.value;
+        UI.elements.charTitle?.addEventListener('input', (e) => {
+            this.onCharacterTextFieldInput('title', e.target.value);
+        });
+
+        const registrationInput = document.getElementById('universe-registration-code');
+        registrationInput?.addEventListener('input', (e) => {
+            this.state.pendingRegistrationCode = e.target.value;
             this.state.dirty = true;
             this.updateStatusIndicator();
-            await this.renderAll();
         });
         
         // Save button
@@ -6642,6 +6642,49 @@ try {
     },
     
     /**
+     * Handle name/title typing without full UI re-render (MOAP-safe).
+     */
+    onCharacterTextFieldInput(field, value) {
+        if (!this.state.character) return;
+        if (field === 'name') {
+            this.state.character.name = value;
+            this.state.pendingChanges.name = value;
+        } else if (field === 'title') {
+            this.state.character.title = value;
+            this.state.pendingChanges.title = value;
+        }
+        this.state.dirty = true;
+        this.updateStatusIndicator();
+        this.updateStepGuide();
+        UI.renderCharacterSummary(
+            this.state.character,
+            this.state.currentSpecies,
+            this.state.currentClass
+        );
+    },
+
+    _broadcastScheduleTimer: null,
+
+    /**
+     * Debounced Players HUD sync — avoids history.replaceState on every keystroke.
+     */
+    scheduleBroadcastToPlayersHUD(character) {
+        if (!character) return;
+        const self = this;
+        if (self._broadcastScheduleTimer) {
+            clearTimeout(self._broadcastScheduleTimer);
+        }
+        self._broadcastScheduleTimer = setTimeout(function() {
+            self._broadcastScheduleTimer = null;
+            if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+                self.scheduleBroadcastToPlayersHUD(character);
+                return;
+            }
+            self.broadcastCharacterToPlayersHUD(character);
+        }, 500);
+    },
+
+    /**
      * Start session heartbeat
      */
     startHeartbeat() {
@@ -6719,13 +6762,6 @@ try {
             }
         } catch (e) {
             console.log('[Players HUD Sync] URL update failed:', e);
-        }
-        
-        // Also update hash as backup signal
-        try {
-            window.location.hash = 'char_data_' + Date.now();
-        } catch (e) {
-            console.log('[Players HUD Sync] Hash update not available');
         }
         
         console.log('[Players HUD Sync] Character data ready - LSL will retrieve via URL polling');
@@ -6848,14 +6884,9 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
                 
-                // Apply species base stats if available
-                if (species?.base_stats && speciesId !== previousSpeciesId) {
-                    const defaultStats = App.getDefaultStats();
-                    const speciesStats = species.base_stats || {};
-                    const mergedStats = { ...defaultStats };
-                    Object.keys(speciesStats).forEach(stat => {
-                        mergedStats[stat] = speciesStats[stat];
-                    });
+                // Reset stats to this species' default line (F3 zero-sum budget)
+                if (speciesId !== previousSpeciesId) {
+                    const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
@@ -6917,14 +6948,9 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}`, 'success', 3000);
                 
-                // Apply species base stats if available
-                if (species?.base_stats && speciesId !== previousSpeciesId) {
-                    const defaultStats = App.getDefaultStats();
-                    const speciesStats = species.base_stats || {};
-                    const mergedStats = { ...defaultStats };
-                    Object.keys(speciesStats).forEach(stat => {
-                        mergedStats[stat] = speciesStats[stat];
-                    });
+                // Reset stats to this species' default line (F3 zero-sum budget)
+                if (speciesId !== previousSpeciesId) {
+                    const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
@@ -7039,6 +7065,7 @@ window.onGenderSelected = async function(gender) {
     });
     
     await App.renderAll();
+    App.scheduleBroadcastToPlayersHUD(App.state.character);
 };
 
 // Bind gender buttons to global handler
@@ -7082,8 +7109,8 @@ window.getStatPointCost = function(fromLevel) {
 };
 
 /**
- * Calculate total points spent on a stat at a given level
- * Sum of costs from level 2 to current level
+ * Calculate total point cost of a stat at a given level (F3 / Stats Hud).
+ * Sum of costs from level 1 up to current level (2→3 costs 2, all 2s cost 1 each).
  */
 window.getStatTotalCost = function(level) {
     if (level <= 1) return 0;
@@ -7095,58 +7122,57 @@ window.getStatTotalCost = function(level) {
 };
 
 /**
- * Calculate available points from XP
- * Base: 20 points (20000 XP equivalent)
- * Conversion: 1000 XP = 1 point
- * 
- * Species bonuses:
- * - Humans: +8 available points (no base stat bonuses)
- * - Other species: base_stats are applied for free
+ * Default stat line for a species (all 2s, merged with species base_stats).
+ */
+window.getSpeciesDefaultStats = function(speciesId) {
+    const defaultStats = App.getDefaultStats();
+    if (!speciesId || speciesId === 'human') {
+        return defaultStats;
+    }
+    const species = App.state.species?.find(s => s.id === speciesId);
+    const speciesStats = species?.base_stats || {};
+    const merged = { ...defaultStats };
+    Object.keys(speciesStats).forEach(stat => {
+        merged[stat] = speciesStats[stat];
+    });
+    return merged;
+};
+
+/**
+ * Point budget for a species' default stat line (20 for human = all 2s).
+ * Matches F3's 20000 XP starter pool when defaults are applied.
+ */
+window.getSpeciesStatBudget = function(speciesId) {
+    const defaults = window.getSpeciesDefaultStats(speciesId || 'human');
+    let total = 0;
+    for (const stat in defaults) {
+        total += window.getStatTotalCost(defaults[stat] || 2);
+    }
+    return total;
+};
+
+/**
+ * Available stat points (F3 zero-sum at creation).
+ * budget = cost of species default line; spent = cost of current line; + XP earned.
+ * Human at all 2s: 20 - 20 = 0. Lower a 2 to 1 to gain 1 point; raise 2→3 costs 2.
  */
 window.calculateAvailablePoints = function(character) {
-    const BASE_POINTS = 20; // Everyone starts with 20 points
-    const HUMAN_BONUS = 8;  // Humans get 8 extra points for flexibility
+    if (!character) return 0;
+
     const XP_PER_POINT = 1000;
-    
-    // Get species data
-    const speciesId = character.species_id;
-    const species = App.state.species?.find(s => s.id === speciesId);
-    const speciesBaseStats = species?.base_stats || {};
-    
-    // Calculate species bonus
-    let speciesBonus = 0;
-    if (speciesId === 'human') {
-        // Humans get 8 bonus points
-        speciesBonus = HUMAN_BONUS;
-    } else {
-        // Other species: calculate "free points" from base_stats
-        for (const stat in speciesBaseStats) {
-            const bonusLevel = speciesBaseStats[stat] || 2;
-            speciesBonus += window.getStatTotalCost(bonusLevel);
-        }
-    }
-    
-    // Calculate points from earned XP
+    const speciesId = character.species_id || 'human';
+    const baseBudget = window.getSpeciesStatBudget(speciesId);
+
     const earnedXP = character.xp_total || 0;
     const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
-    
-    // Calculate points spent on stats (above species base)
+
     let pointsSpent = 0;
-    const stats = character.stats || {};
+    const stats = character.stats || window.getSpeciesDefaultStats(speciesId);
     for (const stat in stats) {
-        const currentLevel = stats[stat] || 2;
-        const speciesBase = speciesBaseStats[stat] || 2;
-        
-        // Only count points spent ABOVE the species base
-        if (currentLevel > speciesBase) {
-            // Cost from species base to current level
-            for (let lvl = speciesBase; lvl < currentLevel; lvl++) {
-                pointsSpent += window.getStatPointCost(lvl);
-            }
-        }
+        pointsSpent += window.getStatTotalCost(stats[stat] || 2);
     }
-    
-    return BASE_POINTS + speciesBonus + earnedPoints - pointsSpent;
+
+    return baseBudget + earnedPoints - pointsSpent;
 };
 
 /**
@@ -7197,6 +7223,7 @@ window.onStatChange = async function(stat, action) {
     App.updateStatusIndicator();
     
     await App.renderAll();
+    App.scheduleBroadcastToPlayersHUD(App.state.character);
 };
 
 // =========================== INITIALIZATION =============================

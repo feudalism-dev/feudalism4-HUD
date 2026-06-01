@@ -58,6 +58,28 @@ const UI = {
     },
     
     /**
+     * Set an input value from app state without clobbering in-progress typing (MOAP/CEF).
+     */
+    syncFormField(element, value) {
+        if (!element) return;
+        const next = value == null ? '' : String(value);
+        if (document.activeElement === element) return;
+        if (element.value !== next) {
+            element.value = next;
+        }
+    },
+
+    /**
+     * True when focus is in a text field (skip heavy re-render side effects).
+     */
+    isFormFieldFocused() {
+        const active = document.activeElement;
+        if (!active || !active.tagName) return false;
+        const tag = active.tagName.toLowerCase();
+        return tag === 'input' || tag === 'textarea' || tag === 'select';
+    },
+
+    /**
      * Cache frequently used DOM elements
      */
     cacheElements() {
