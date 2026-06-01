@@ -1,0 +1,98 @@
+/* MOAP-safe modal overlays (CEF-139) — shared by Setup HUD and Gameplay HUD */
+
+.moap-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.moap-dialog-overlay.hidden {
+    display: none;
+}
+
+.moap-dialog-panel {
+    background: #2a2420;
+    border: 2px solid #8b7355;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 90%;
+    max-height: 80%;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    color: #e8dcc8;
+    font-family: Arial, sans-serif;
+}
+
+.moap-dialog-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    font-size: 1.5rem;
+    background: transparent;
+    border: none;
+    color: #a89880;
+    cursor: pointer;
+}
+
+.moap-dialog-close:hover {
+    color: #e8dcc8;
+}
+
+.moap-dialog-title {
+    margin: 0 0 16px;
+    font-size: 1.25rem;
+}
+
+.moap-dialog-message {
+    margin: 0;
+    color: #a89880;
+    line-height: 1.5;
+}
+
+.moap-dialog-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.moap-dialog-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid #4a4238;
+    background: #3a332c;
+    color: #e8dcc8;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.moap-dialog-btn:hover {
+    filter: brightness(1.1);
+}
+
+.moap-dialog-btn-primary {
+    background: linear-gradient(180deg, #d4af37 0%, #c9a227 100%);
+    border-color: #8b7355;
+    color: #1a1612;
+}
+
+.moap-dialog-btn-danger {
+    background: #dc2626;
+    border-color: #b91c1c;
+    color: #fff;
+}
+
+.moap-dialog-btn-danger:hover {
+    background: #ef4444;
+}

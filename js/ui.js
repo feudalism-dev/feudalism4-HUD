@@ -1454,10 +1454,7 @@ const UI = {
      * Close the modal
      */
     closeModal() {
-        if (this._confirmDialogDone) {
-            const done = this._confirmDialogDone;
-            this._confirmDialogDone = null;
-            done(false);
+        if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog()) {
             return;
         }
         if (!this.elements.modal) return;
@@ -1465,55 +1462,25 @@ const UI = {
     },
 
     /**
-     * MOAP-safe confirmation (replaces window.confirm — native dialogs fail in SL MOAP)
-     * @param {object} options
-     * @param {string} options.title
-     * @param {string} options.message
-     * @param {string} [options.confirmLabel='Confirm']
-     * @param {string} [options.cancelLabel='Cancel']
-     * @param {boolean} [options.danger=false] - style confirm as destructive
+     * MOAP-safe confirmation (replaces window.confirm)
      * @returns {Promise<boolean>}
      */
     showConfirmDialog(options) {
-        const opts = options || {};
-        const title = opts.title || 'Confirm';
-        const message = opts.message || '';
-        const confirmLabel = opts.confirmLabel || 'Confirm';
-        const cancelLabel = opts.cancelLabel || 'Cancel';
-        const danger = !!opts.danger;
-        const confirmBtnClass = danger ? 'action-btn confirm-dialog-danger' : 'action-btn primary';
+        if (typeof MoapDialogs !== 'undefined') {
+            return MoapDialogs.showConfirm(options);
+        }
+        return Promise.resolve(false);
+    },
 
-        return new Promise((resolve) => {
-            let settled = false;
-            const done = (value) => {
-                if (settled) return;
-                settled = true;
-                this._confirmDialogDone = null;
-                if (this.elements.modal) {
-                    this.elements.modal.classList.add('hidden');
-                }
-                resolve(value);
-            };
-
-            this._confirmDialogDone = done;
-
-            const safeMessage = this.escapeHtml(String(message)).replace(/\n/g, '<br>');
-            const content = `
-                <div class="confirm-dialog">
-                    <h2 class="confirm-dialog-title">${this.escapeHtml(String(title))}</h2>
-                    <p class="confirm-dialog-message">${safeMessage}</p>
-                    <div class="confirm-dialog-actions">
-                        <button type="button" class="action-btn secondary" id="confirm-dialog-cancel">${this.escapeHtml(String(cancelLabel))}</button>
-                        <button type="button" class="${confirmBtnClass}" id="confirm-dialog-confirm">${this.escapeHtml(String(confirmLabel))}</button>
-                    </div>
-                </div>
-            `;
-
-            this.showModal(content);
-
-            document.getElementById('confirm-dialog-confirm')?.addEventListener('click', () => done(true), { once: true });
-            document.getElementById('confirm-dialog-cancel')?.addEventListener('click', () => done(false), { once: true });
-        });
+    /**
+     * MOAP-safe alert (replaces window.alert)
+     * @returns {Promise<void>}
+     */
+    showAlertDialog(options) {
+        if (typeof MoapDialogs !== 'undefined') {
+            return MoapDialogs.showAlert(options);
+        }
+        return Promise.resolve();
     },
     
     /**

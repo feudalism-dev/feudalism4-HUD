@@ -2161,12 +2161,15 @@ try {
     /**
      * Handle Reset Resources action (full restore)
      */
-    handleResetResources() {
+    async handleResetResources() {
         if (!this.state.character) return;
         
-        if (!confirm('Reset all resources to maximum? This will restore Health, Stamina, and Mana to full.')) {
-            return;
-        }
+        const confirmed = await UI.showConfirmDialog({
+            title: 'Reset resources?',
+            message: 'Reset all resources to maximum? This will restore Health, Stamina, and Mana to full.',
+            confirmLabel: 'Reset'
+        });
+        if (!confirmed) return;
         
         this.state.character.health.current = this.state.character.health.max;
         this.state.character.stamina.current = this.state.character.stamina.max;
@@ -2276,10 +2279,13 @@ try {
     /**
      * Handle OOC reset
      */
-    handleOOCReset() {
-        if (!confirm('Reset character resources? This will restore Health, Stamina, and Mana to maximum.')) {
-            return;
-        }
+    async handleOOCReset() {
+        const confirmed = await UI.showConfirmDialog({
+            title: 'Reset resources?',
+            message: 'Reset character resources? This will restore Health, Stamina, and Mana to maximum.',
+            confirmLabel: 'Reset'
+        });
+        if (!confirmed) return;
         this.sendToLSL('OOC_RESET', {});
         UI.showToast('Character resources reset', 'success');
     },
@@ -3041,7 +3047,13 @@ try {
             document.querySelectorAll('[data-action="delete"]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const consumableId = e.target.closest('[data-consumable-id]').dataset.consumableId;
-                    if (confirm(`Delete consumable "${consumableId}"? This cannot be undone.`)) {
+                    const confirmed = await UI.showConfirmDialog({
+                        title: 'Delete consumable?',
+                        message: `Delete consumable "${consumableId}"? This cannot be undone.`,
+                        confirmLabel: 'Delete',
+                        danger: true
+                    });
+                    if (confirmed) {
                         const result = await API.deleteConsumable(consumableId);
                         if (result.success) {
                             UI.showToast('Consumable deleted', 'success');
@@ -3609,7 +3621,13 @@ try {
             adminContent.querySelectorAll('[data-action="delete"]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const universeId = e.target.closest('[data-universe-id]').dataset.universeId;
-                    if (confirm('Are you sure you want to delete this universe? All characters in this universe will be reassigned to the Default Universe.')) {
+                    const confirmed = await UI.showConfirmDialog({
+                        title: 'Delete universe?',
+                        message: 'Are you sure you want to delete this universe? All characters in this universe will be reassigned to the Default Universe.',
+                        confirmLabel: 'Delete',
+                        danger: true
+                    });
+                    if (confirmed) {
                         const result = await API.deleteUniverse(universeId);
                         if (result.success) {
                             UI.showToast(`Universe deleted. ${result.data.charactersReassigned || 0} characters reassigned to Default Universe.`, 'success');
@@ -4878,7 +4896,13 @@ try {
             adminsList.querySelectorAll('[data-action="remove-admin"]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const adminUuid = e.target.closest('[data-admin-uuid]').dataset.adminUuid;
-                    if (confirm('Remove this admin from the universe?')) {
+                    const confirmed = await UI.showConfirmDialog({
+                        title: 'Remove admin?',
+                        message: 'Remove this admin from the universe?',
+                        confirmLabel: 'Remove',
+                        danger: true
+                    });
+                    if (confirmed) {
                         const result = await API.removeUniverseAdmin(universeId, adminUuid);
                         if (result.success) {
                             UI.showToast('Admin removed', 'success');
@@ -5142,7 +5166,13 @@ try {
                 btn.addEventListener('click', async (e) => {
                     const id = e.target.dataset.id;
                     const name = templates.find(t => t.id === id)?.name || id;
-                    if (confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) {
+                    const confirmed = await UI.showConfirmDialog({
+                        title: 'Delete template?',
+                        message: `Are you sure you want to delete "${name}"? This cannot be undone.`,
+                        confirmLabel: 'Delete',
+                        danger: true
+                    });
+                    if (confirmed) {
                         try {
                             await API.deleteTemplate(type, id);
                             UI.showToast(`Deleted ${name}`, 'success');
@@ -6337,13 +6367,14 @@ try {
                 return;
             }
             
-            // Confirm import
-            const confirmed = confirm(
-                `Import ${classes.length} classes?\n\n` +
-                `This will update existing classes and create new ones.\n` +
-                `Classes not in the CSV will remain unchanged.`
-            );
-            
+            const confirmed = await UI.showConfirmDialog({
+                title: 'Import classes?',
+                message:
+                    `Import ${classes.length} classes?\n\n` +
+                    `This will update existing classes and create new ones.\n` +
+                    `Classes not in the CSV will remain unchanged.`,
+                confirmLabel: 'Import'
+            });
             if (!confirmed) return;
             
             UI.showToast(`Importing ${classes.length} classes...`, 'info');
@@ -6585,12 +6616,14 @@ try {
             ).join('\n');
             const more = updates.length > 5 ? `\n... and ${updates.length - 5} more` : '';
             
-            const confirmed = confirm(
-                `Update ${updates.length} classes?\n\n` +
-                `Preview:\n${preview}${more}\n\n` +
-                `This will add classes that require each class as a prerequisite to their free_advances.`
-            );
-            
+            const confirmed = await UI.showConfirmDialog({
+                title: 'Sync free advances?',
+                message:
+                    `Update ${updates.length} classes?\n\n` +
+                    `Preview:\n${preview}${more}\n\n` +
+                    `This will add classes that require each class as a prerequisite to their free_advances.`,
+                confirmLabel: 'Update'
+            });
             if (!confirmed) return;
             
             UI.showToast(`Updating ${updates.length} classes...`, 'info');

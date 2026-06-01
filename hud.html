@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
     <link rel="stylesheet" href="css/styles.css?v=18">
+    <link rel="stylesheet" href="css/moap-dialogs.css?v=1">
 </head>
 <body>
     <script>
@@ -563,8 +564,8 @@
     <script>
         (function () {
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
-            window.HUD_CACHE_BUST = m ? m[1] : '29';
-            window.HUD_BUILD_LABEL = 'delete-confirm-overlay-v29';
+            window.HUD_CACHE_BUST = m ? m[1] : '30';
+            window.HUD_BUILD_LABEL = 'moap-dialogs-v30';
             var badge = document.getElementById('hud-build-badge');
             if (badge) {
                 badge.textContent = 'HUD ' + window.HUD_BUILD_LABEL + ' (CEF-' + (window.MOAP_CEF_TARGET || 139) + ')';
@@ -586,10 +587,12 @@
         hudLoadScript('js/firebase-config.js', 'firebase-config.js', function () {
             hudLoadScript('js/seed-data.js', 'seed-data.js', function () {
                 hudLoadScript('js/api-firestore.js', 'api-firestore.js', function () {
+                    hudLoadScript('js/moap-dialogs.js', 'moap-dialogs.js', function () {
                     hudLoadScript('js/ui.js', 'ui.js', function () {
                         hudLoadScript('js/app.js', 'app.js', function () {
                             window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
                         });
+                    });
                     });
                 });
             });

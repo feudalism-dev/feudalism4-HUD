@@ -250,16 +250,26 @@ function calculateNextMilestone(xp) {
 // Actions
 // ============================================================================
 
-function openSetupHUD() {
+async function openSetupHUD() {
     // TODO: Send command to main controller to open setup HUD
     console.log('[Gameplay HUD] Open Setup HUD requested');
-    alert('Setup HUD will open in main controller');
+    if (typeof MoapDialogs !== 'undefined') {
+        await MoapDialogs.showAlert({
+            title: 'Setup HUD',
+            message: 'Setup HUD will open in main controller.'
+        });
+    }
 }
 
-function showChallengeTest() {
+async function showChallengeTest() {
     // TODO: Show challenge test dialog
     console.log('[Gameplay HUD] Challenge Test requested');
-    alert('Challenge Test dialog (coming soon)');
+    if (typeof MoapDialogs !== 'undefined') {
+        await MoapDialogs.showAlert({
+            title: 'Challenge Test',
+            message: 'Challenge Test dialog (coming soon).'
+        });
+    }
 }
 
 function showError(message) {
