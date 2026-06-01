@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
-    <link rel="stylesheet" href="css/styles.css?v=18">
+    <link rel="stylesheet" href="css/styles.css?v=19">
     <link rel="stylesheet" href="css/moap-dialogs.css?v=1">
 </head>
 <body>
@@ -133,11 +133,16 @@
                         </div>
                     </div>
                     
-                    <!-- Save Button -->
-                    <button id="btn-save-character" class="action-btn primary" style="padding: 10px 24px; font-size: 1em; font-weight: 600;">
-                        💾 Save Character
-                    </button>
+                    <!-- Save + step navigation (creation flow) -->
+                    <div class="creation-toolbar" style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm);">
+                        <button type="button" id="btn-save-character" class="action-btn primary" style="padding: 10px 20px; font-weight: 600;">
+                            💾 Save Character
+                        </button>
+                        <button type="button" id="btn-creation-back" class="action-btn secondary creation-nav-btn" style="display: none;">« Back</button>
+                        <button type="button" id="btn-creation-next" class="action-btn primary creation-nav-btn" style="display: none;">Next »</button>
+                    </div>
                 </div>
+                <p id="creation-step-hint" class="creation-step-hint" style="display: none; margin: var(--space-md) 0 0; padding: var(--space-sm) var(--space-md); background: rgba(15, 23, 42, 0.6); border-left: 3px solid #60a5fa; color: #e2e8f0; font-size: 0.95em; line-height: 1.5;"></p>
             </div>
 
             <!-- Character Tab -->
@@ -181,6 +186,7 @@
                     </div>
                     <div class="form-group">
                         <label>Gender</label>
+                        <p class="field-hint">Click a portrait below to view details and select your gender.</p>
                         <div id="gender-gallery" class="gender-gallery">
                             <div class="loading-spinner">Loading genders...</div>
                         </div>
@@ -189,6 +195,7 @@
 
                 <div class="panel">
                     <h2>Species</h2>
+                    <p class="field-hint">Click a species card below to view details and select your people.</p>
                     <div id="species-gallery" class="gallery">
                         <div class="loading-spinner">Loading species...</div>
                     </div>
@@ -205,6 +212,7 @@
 
             <!-- Stats Tab -->
             <section id="tab-stats" class="tab-content">
+                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Spend all available stat points, then use <strong>Next »</strong> in the bar above or save your progress.</p>
                 <div class="panel">
                     <div class="stats-header">
                         <h2>Attributes</h2>
@@ -227,6 +235,7 @@
 
             <!-- Classes tab (internal id: tab-career / data-tab career) -->
             <section id="tab-career" class="tab-content">
+                <p class="field-hint tab-step-hint" data-creation-step="career" style="display: none;">Click a class card below to view details and select your starting class.</p>
                 <div class="panel">
                     <h2>Current Class</h2>
                     <div id="current-career" class="career-display">
@@ -394,10 +403,10 @@
                     <h2>Character Creation</h2>
                     <p>To create a new character:</p>
                     <ol>
-                        <li>Click the "Character" dropdown at the top and select "Create New Character"</li>
-                        <li>Follow the step guide: Name/Title → Gender → Species → Classes</li>
-                        <li>Complete each step by filling in the required information</li>
-                        <li>Click "Save Character" when you're done</li>
+                        <li>Choose <strong>Create New Character</strong> and pick a universe</li>
+                        <li>Follow the blue step bar: use <strong>Next »</strong> after each step</li>
+                        <li>Click portraits and cards to select gender, species, and class</li>
+                        <li>Use <strong>Save Progress</strong> anytime; click <strong>Finish</strong> on the last step</li>
                     </ol>
                     
                     <h2>Editing Your Character</h2>
@@ -564,8 +573,8 @@
     <script>
         (function () {
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
-            window.HUD_CACHE_BUST = m ? m[1] : '30';
-            window.HUD_BUILD_LABEL = 'moap-dialogs-v30';
+            window.HUD_CACHE_BUST = m ? m[1] : '31';
+            window.HUD_BUILD_LABEL = 'char-creation-flow-v31';
             var badge = document.getElementById('hud-build-badge');
             if (badge) {
                 badge.textContent = 'HUD ' + window.HUD_BUILD_LABEL + ' (CEF-' + (window.MOAP_CEF_TARGET || 139) + ')';

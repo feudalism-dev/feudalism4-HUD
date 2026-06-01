@@ -376,6 +376,7 @@ const UI = {
                         <div class="card-icon">${icon}</div>
                     `}
                     <div class="card-name">${sp.name}</div>
+                    <span class="gallery-select-hint">Click to select</span>
                     ${manaInfo}
                 </div>
             `;
@@ -721,6 +722,7 @@ const UI = {
                     `}
                     <div class="card-name">${cls.name}</div>
                     <div class="card-desc">${isDisabled ? 'Locked' : (isBeginnerClass ? 'Free' : (cls.xp_cost ? cls.xp_cost + ' XP' : 'Free'))}</div>
+                    ${isDisabled ? '' : '<span class="gallery-select-hint">Click to select</span>'}
                 </div>
             `;
         }).join('');
@@ -1254,6 +1256,7 @@ const UI = {
                         <span class="gender-icon">${icon}</span>
                     `}
                     <span class="gender-label">${gender.name}</span>
+                    <span class="gallery-select-hint">Click to select</span>
                 </button>
             `;
         }).join('');

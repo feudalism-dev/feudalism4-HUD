@@ -167,7 +167,15 @@ try {
         selectedCharacterId: null,
         pendingChanges: {},
         isNewCharacter: false,
-        dirty: false  // UX 2: Track unsaved changes
+        creationInProgress: false,
+        dirty: false,  // UX 2: Track unsaved changes
+        creationStepHints: {
+            name: 'Enter your character\'s name and optional title, then click <strong>Next »</strong>. Use <strong>Save Progress</strong> anytime.',
+            gender: 'Click a <strong>portrait</strong> below to view details, then press <strong>Select This Gender</strong>.',
+            species: 'Click a <strong>species card</strong> below to view details, then press <strong>Select This Species</strong>.',
+            stats: 'Allocate all stat points (Available Points must reach 0), then click <strong>Next »</strong>.',
+            career: 'Click a <strong>class card</strong> to view details and select your starting class, then click <strong>Finish</strong>.'
+        }
     },
     
     // LSL integration state
@@ -458,7 +466,9 @@ try {
                             this.state.isNewCharacter = true;
                         } else {
                             this.state.character = character;
-                            this.state.isNewCharacter = false;
+                            if (!this.state.creationInProgress) {
+                                this.state.isNewCharacter = false;
+                            }
                             this.state.selectedCharacterId = character.id; // Ensure selected ID is set
                             
                             // Load universe data for the character
@@ -692,6 +702,7 @@ try {
                 UI.closeModal();
                 this.state.selectedUniverseId = universeId;
                 this.state.isNewCharacter = true;
+                this.state.creationInProgress = true;
                 this.state.character = this.createDefaultCharacter();
                 this.state.character.universe_id = universeId;
                 
@@ -718,6 +729,9 @@ try {
                 // Switch to Character tab and show universe selection
                 UI.switchTab('character');
                 await this.renderAll();
+                this.navigateToStep('name');
+                this.updateCreationNavigation();
+                setTimeout(() => document.getElementById('char-name')?.focus(), 200);
             };
         } catch (error) {
             console.error('Failed to show new character dialog:', error);
@@ -765,17 +779,173 @@ try {
     /**
      * Update step guide panel with progress markers (UX 2)
      */
-    updateStepGuide() {
+    getCreationSteps() {
         const char = this.state.character;
-        // Stats step is complete if user has 0 available points (all points allocated)
         const availablePoints = char ? window.calculateAvailablePoints(char) : 0;
-        const steps = [
+        return [
             { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
             { id: 'gender', name: 'Gender', complete: !!(char && char.gender) },
             { id: 'species', name: 'Species', complete: !!(char && char.species_id) },
             { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0) },
             { id: 'career', name: 'Classes', complete: !!(char && char.class_id) }
         ];
+    },
+
+    isInCreationFlow() {
+        const char = this.state.character;
+        return !!(char && (this.state.creationInProgress || !char.id || this.state.isNewCharacter));
+    },
+
+    getCurrentCreationStepId(steps) {
+        const list = steps || this.getCreationSteps();
+        const firstOpen = list.findIndex(s => !s.complete);
+        if (firstOpen === -1) {
+            return list[list.length - 1].id;
+        }
+        return list[firstOpen].id;
+    },
+
+    validateCreationStep(stepId) {
+        const char = this.state.character;
+        if (!char) {
+            return { ok: false, message: 'Start by creating a new character.' };
+        }
+        switch (stepId) {
+            case 'name':
+                if (!char.name || !char.name.trim()) {
+                    return { ok: false, message: 'Please enter a character name.' };
+                }
+                return { ok: true };
+            case 'gender':
+                if (!char.gender) {
+                    return { ok: false, message: 'Please select a gender — click a portrait below.' };
+                }
+                return { ok: true };
+            case 'species':
+                if (!char.species_id) {
+                    return { ok: false, message: 'Please select a species — click a card below.' };
+                }
+                return { ok: true };
+            case 'stats': {
+                const pts = window.calculateAvailablePoints(char);
+                if (pts !== 0) {
+                    return { ok: false, message: `You have ${pts} stat point(s) left to allocate.` };
+                }
+                return { ok: true };
+            }
+            case 'career':
+                if (!char.class_id) {
+                    return { ok: false, message: 'Please select a starting class.' };
+                }
+                return { ok: true };
+            default:
+                return { ok: true };
+        }
+    },
+
+    updateCreationNavigation() {
+        const hintEl = document.getElementById('creation-step-hint');
+        const backBtn = document.getElementById('btn-creation-back');
+        const nextBtn = document.getElementById('btn-creation-next');
+        const inCreation = this.isInCreationFlow();
+
+        document.querySelectorAll('.tab-step-hint').forEach(el => {
+            el.style.display = 'none';
+        });
+
+        if (backBtn) backBtn.style.display = inCreation ? 'inline-block' : 'none';
+        if (nextBtn) nextBtn.style.display = inCreation ? 'inline-block' : 'none';
+
+        if (!inCreation) {
+            if (hintEl) hintEl.style.display = 'none';
+            document.querySelectorAll('.step-item').forEach(item => item.classList.remove('step-item-current'));
+            return;
+        }
+
+        const steps = this.getCreationSteps();
+        const currentId = this.getCurrentCreationStepId(steps);
+        const currentIndex = steps.findIndex(s => s.id === currentId);
+
+        if (hintEl) {
+            hintEl.style.display = 'block';
+            hintEl.innerHTML = this.state.creationStepHints[currentId] || '';
+        }
+
+        document.querySelectorAll('.step-item').forEach(item => {
+            item.classList.toggle('step-item-current', item.dataset.step === currentId);
+        });
+
+        document.querySelectorAll(`.tab-step-hint[data-creation-step="${currentId}"]`).forEach(el => {
+            el.style.display = 'block';
+        });
+
+        if (backBtn) {
+            backBtn.disabled = currentIndex <= 0;
+            backBtn.style.opacity = currentIndex <= 0 ? '0.5' : '1';
+        }
+
+        if (nextBtn) {
+            const nextStep = steps[currentIndex + 1];
+            if (currentIndex >= steps.length - 1 || steps.every(s => s.complete)) {
+                nextBtn.textContent = 'Finish ✓';
+            } else if (nextStep) {
+                nextBtn.textContent = 'Next: ' + nextStep.name + ' »';
+            } else {
+                nextBtn.textContent = 'Next »';
+            }
+        }
+    },
+
+    async goToNextCreationStep() {
+        const steps = this.getCreationSteps();
+        const currentId = this.getCurrentCreationStepId(steps);
+        const validation = this.validateCreationStep(currentId);
+        if (!validation.ok) {
+            UI.showToast(validation.message, 'warning');
+            this.navigateToStep(currentId);
+            return;
+        }
+
+        const saved = await this.saveCharacter({ draft: true, silent: true });
+        if (saved === false) {
+            return;
+        }
+
+        const currentIndex = steps.findIndex(s => s.id === currentId);
+
+        if (currentIndex >= steps.length - 1) {
+            for (let i = 0; i < steps.length; i++) {
+                const stepCheck = this.validateCreationStep(steps[i].id);
+                if (!stepCheck.ok) {
+                    UI.showToast(stepCheck.message, 'warning');
+                    this.navigateToStep(steps[i].id);
+                    return;
+                }
+            }
+            await this.saveCharacter({ draft: false });
+            return;
+        }
+
+        const nextStep = steps[currentIndex + 1];
+        this.navigateToStep(nextStep.id);
+        this.updateStepGuide();
+        UI.showToast('Now: ' + nextStep.name, 'info', 2000);
+    },
+
+    goToPrevCreationStep() {
+        const steps = this.getCreationSteps();
+        const currentId = this.getCurrentCreationStepId(steps);
+        const currentIndex = steps.findIndex(s => s.id === currentId);
+        if (currentIndex <= 0) {
+            return;
+        }
+        const prevStep = steps[currentIndex - 1];
+        this.navigateToStep(prevStep.id);
+        this.updateStepGuide();
+    },
+
+    updateStepGuide() {
+        const steps = this.getCreationSteps();
         
         steps.forEach((step, index) => {
             const stepItem = document.querySelector(`.step-item[data-step="${step.id}"]`);
@@ -797,11 +967,12 @@ try {
                     }
                 }
                 
-                // Make clickable
                 stepItem.style.cursor = 'pointer';
                 stepItem.onclick = () => this.navigateToStep(step.id);
             }
         });
+
+        this.updateCreationNavigation();
     },
     
     /**
@@ -848,6 +1019,7 @@ try {
         const statusBadge = document.getElementById('character-status');
         const statusText = document.getElementById('status-text');
         const saveBtn = document.getElementById('btn-save-character');
+        const inCreation = this.isInCreationFlow();
         
         if (!statusBadge || !statusText) return;
         
@@ -855,33 +1027,44 @@ try {
             statusText.textContent = 'No Character';
             statusBadge.style.background = 'rgba(107, 114, 128, 0.3)';
             statusBadge.style.color = '#9ca3af';
-            // Disable save button when no character
             if (saveBtn) {
                 saveBtn.disabled = true;
                 saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
+                saveBtn.textContent = '💾 Save Character';
+            }
+        } else if (inCreation) {
+            statusText.textContent = this.state.character.id ? 'Draft Saved' : 'Creating Character';
+            statusBadge.style.background = 'rgba(59, 130, 246, 0.35)';
+            statusBadge.style.color = '#93c5fd';
+            statusBadge.style.border = '1px solid rgba(59, 130, 246, 0.5)';
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.style.opacity = '1';
+                saveBtn.style.cursor = 'pointer';
+                saveBtn.textContent = '💾 Save Progress';
             }
         } else if (this.state.dirty) {
             statusText.textContent = 'Unsaved Changes';
             statusBadge.style.background = 'rgba(239, 68, 68, 0.3)';
             statusBadge.style.color = '#fca5a5';
             statusBadge.style.border = '1px solid rgba(239, 68, 68, 0.5)';
-            // Enable save button when there are unsaved changes
             if (saveBtn) {
                 saveBtn.disabled = false;
                 saveBtn.style.opacity = '1';
                 saveBtn.style.cursor = 'pointer';
+                saveBtn.textContent = '💾 Save Character';
             }
         } else {
             statusText.textContent = 'Saved';
             statusBadge.style.background = 'rgba(16, 185, 129, 0.3)';
             statusBadge.style.color = '#6ee7b7';
             statusBadge.style.border = 'none';
-            // Disable save button when everything is saved
             if (saveBtn) {
                 saveBtn.disabled = true;
                 saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
+                saveBtn.textContent = '💾 Save Character';
             }
         }
     },
@@ -1201,11 +1384,11 @@ try {
         const baseMana = this.calculateMana(defaultStats, species, hasMana);
         
         return {
-            name: 'New Character',
-            title: 'My Title',
-            gender: 'other',
-            species_id: 'human',
-            class_id: 'adventurer',
+            name: '',
+            title: '',
+            gender: null,
+            species_id: null,
+            class_id: null,
             xp_total: 100,
             xp_available: 100,
             currency: 50,
@@ -1879,8 +2062,14 @@ try {
             this.updateStatusIndicator();
         });
         
-        // Save button
-        UI.elements.btnSave?.addEventListener('click', () => this.saveCharacter());
+        // Save button (draft while creating; full save when editing existing)
+        UI.elements.btnSave?.addEventListener('click', () => {
+            const draft = this.isInCreationFlow();
+            this.saveCharacter({ draft: draft });
+        });
+
+        document.getElementById('btn-creation-next')?.addEventListener('click', () => this.goToNextCreationStep());
+        document.getElementById('btn-creation-back')?.addEventListener('click', () => this.goToPrevCreationStep());
         
         // Challenge Test button (renamed from "Roll")
         UI.elements.btnRoll?.addEventListener('click', () => this.showChallengeTestDialog());
@@ -2362,83 +2551,101 @@ try {
     /**
      * Save character to server
      */
-    async saveCharacter() {
+    async saveCharacter(options) {
+        if (options === undefined) {
+            options = {};
+        }
+        const draft = !!options.draft;
+        const silent = !!options.silent;
+
         try {
             const char = this.state.character;
-            
-            // Validate character
+            if (!char) {
+                if (!silent) UI.showToast('No character to save', 'warning');
+                return false;
+            }
+
             if (!char.name || char.name.trim() === '') {
-                UI.showToast('Please enter a character name', 'warning');
-                return;
+                if (!silent) UI.showToast('Please enter a character name', 'warning');
+                return false;
+            }
+
+            if (!draft) {
+                if (!char.gender) {
+                    UI.showToast('Please select a gender', 'warning');
+                    return false;
+                }
+                if (!char.species_id) {
+                    UI.showToast('Please select a species', 'warning');
+                    return false;
+                }
             }
             
-            if (!char.gender) {
-                UI.showToast('Please select a gender', 'warning');
-                return;
+            if (!silent) {
+                UI.showToast(draft ? 'Saving progress...' : 'Saving...', 'info', 1000);
             }
-            
-            if (!char.species_id) {
-                UI.showToast('Please select a species', 'warning');
-                return;
-            }
-            
-            UI.showToast('Saving...', 'info', 1000);
             
             // Determine if this is a new character or an update
             // Check if character has an ID - if it does, it's an existing character
             const isNewCharacter = this.state.isNewCharacter && !char.id;
             
             if (isNewCharacter) {
-                // Validate universe selection
                 if (!this.state.selectedUniverseId) {
-                    UI.showToast('Please select a universe', 'warning');
-                    return;
+                    if (!silent) UI.showToast('Please select a universe', 'warning');
+                    return false;
                 }
                 
-                // Get universe to check registration code and other settings
                 const universeResult = await API.getUniverse(this.state.selectedUniverseId);
                 if (!universeResult.success) {
-                    UI.showToast('Failed to load universe data', 'error');
-                    return;
+                    if (!silent) UI.showToast('Failed to load universe data', 'error');
+                    return false;
                 }
                 const universe = universeResult.data.universe;
                 
-                // Validate registration code if required
                 if (universe.registrationCode && universe.registrationCode.trim() !== '') {
                     const registrationInput = document.getElementById('universe-registration-code');
                     const registrationCode = registrationInput ? registrationInput.value.trim() : '';
                     if (!registrationCode) {
-                        UI.showToast('Registration code is required for this universe', 'warning');
-                        return;
+                        if (!silent) UI.showToast('Registration code is required for this universe', 'warning');
+                        return false;
                     }
                     if (universe.registrationCode !== registrationCode) {
-                        UI.showToast('Invalid registration code', 'error');
-                        return;
+                        if (!silent) UI.showToast('Invalid registration code', 'error');
+                        return false;
                     }
                 }
                 
-                // Validate character limit
                 const limitCheck = await API.validateCharacterLimit(this.state.selectedUniverseId, API.uuid);
                 if (!limitCheck.success || !limitCheck.data.allowed) {
-                    UI.showToast(`Character limit reached for this universe (${limitCheck.data.currentCount}/${limitCheck.data.limit})`, 'error');
-                    return;
+                    if (!silent) {
+                        UI.showToast(`Character limit reached for this universe (${limitCheck.data.currentCount}/${limitCheck.data.limit})`, 'error');
+                    }
+                    return false;
+                }
+
+                const saveGender = char.gender || 'other';
+                const saveSpeciesId = char.species_id || 'human';
+
+                if (char.gender && char.species_id) {
+                    const identityCheck = await API.validateIdentityOptions(
+                        this.state.selectedUniverseId,
+                        saveGender,
+                        saveSpeciesId,
+                        char.class_id || null
+                    );
+                    if (!identityCheck.success || !identityCheck.data.valid) {
+                        if (!silent) {
+                            UI.showToast('Selected identity options are not allowed in this universe: ' + identityCheck.data.errors.join(', '), 'error');
+                        }
+                        return false;
+                    }
+                } else if (!draft) {
+                    if (!silent) UI.showToast('Please select gender and species before finishing', 'warning');
+                    return false;
                 }
                 
-                // Validate identity options against universe allowed lists
-                const identityCheck = await API.validateIdentityOptions(
-                    this.state.selectedUniverseId,
-                    char.gender,
-                    char.species_id,
-                    char.class_id
-                );
-                if (!identityCheck.success || !identityCheck.data.valid) {
-                    UI.showToast('Selected identity options are not allowed in this universe: ' + identityCheck.data.errors.join(', '), 'error');
-                    return;
-                }
-                
-                // Get species to check mana rule (only if universe allows mana)
-                const species = this.state.species.find(s => s.id === char.species_id);
-                const hasMana = universe.manaEnabled && species && App.rollManaChance(species);
+                const species = this.state.species.find(s => s.id === saveSpeciesId);
+                const hasMana = char.has_mana === true || (universe.manaEnabled && species && App.rollManaChance(species));
                 
                 // Calculate mana based on stats if has_mana is true
                 // Use character stats if available, otherwise use default stats (all 2s)
@@ -2466,10 +2673,10 @@ try {
                 
                 const result = await API.createCharacter({
                     name: char.name,
-                    title: char.title,
-                    gender: char.gender,
-                    species_id: char.species_id,
-                    class_id: char.class_id,
+                    title: char.title || '',
+                    gender: saveGender,
+                    species_id: saveSpeciesId,
+                    class_id: char.class_id || null,
                     universe_id: this.state.selectedUniverseId,
                     has_mana: hasMana,
                     mana: manaPool,
@@ -2479,44 +2686,42 @@ try {
                 console.log('[saveCharacter] createCharacter result:', result);
                 
                 if (!result) {
-                    UI.showToast('Failed to create character: No response from server', 'error');
-                    console.error('[saveCharacter] createCharacter returned null/undefined');
-                    return;
+                    if (!silent) UI.showToast('Failed to create character: No response from server', 'error');
+                    return false;
                 }
                 
                 if (!result.success) {
-                    UI.showToast('Failed to create character: ' + (result.error || 'Unknown error'), 'error');
-                    console.error('[saveCharacter] createCharacter failed:', result.error);
-                    return;
+                    if (!silent) UI.showToast('Failed to create character: ' + (result.error || 'Unknown error'), 'error');
+                    return false;
                 }
                 
-                if (!result.data) {
-                    UI.showToast('Failed to create character: Invalid response from server (no data)', 'error');
-                    console.error('[saveCharacter] createCharacter returned success but no data:', result);
-                    return;
-                }
-                
-                if (!result.data.character) {
-                    UI.showToast('Failed to create character: Invalid response from server (no character)', 'error');
-                    console.error('[saveCharacter] createCharacter returned success but no character:', result);
-                    return;
+                if (!result.data || !result.data.character) {
+                    if (!silent) UI.showToast('Failed to create character: Invalid response from server', 'error');
+                    return false;
                 }
                 
                 this.state.character = result.data.character;
-                this.state.isNewCharacter = false;
-                this.state.selectedCharacterId = result.data.character.id; // Set selected character ID
-                this.state.dirty = false; // Clear dirty flag after successful save
-                UI.showToast('Character created!', 'success');
-                this.updateStatusIndicator(); // Update status badge and save button
-                
-                // Reload character list and update selector
+                this.state.selectedCharacterId = result.data.character.id;
+                this.state.dirty = false;
+                if (draft) {
+                    this.state.isNewCharacter = true;
+                    this.state.creationInProgress = true;
+                    if (!silent) UI.showToast('Progress saved', 'success');
+                } else {
+                    this.state.isNewCharacter = false;
+                    this.state.creationInProgress = false;
+                    if (!silent) UI.showToast('Character created!', 'success');
+                }
+                this.updateStatusIndicator();
+                this.updateStepGuide();
                 await this.loadData();
+                return true;
             } else {
                 // Update existing character (must target the selected doc, not "first" character)
                 const characterId = char.id || this.state.selectedCharacterId;
                 if (!characterId) {
-                    UI.showToast('Cannot save: character has no ID. Use Create New Character for a new slot.', 'warning');
-                    return;
+                    if (!silent) UI.showToast('Cannot save: character has no ID. Use Create New Character for a new slot.', 'warning');
+                    return false;
                 }
                 
                 // Ensure class_id is included - use currentClass.id as fallback
@@ -2556,45 +2761,40 @@ try {
                 console.log('[saveCharacter] updateCharacter result:', result);
                 
                 if (!result) {
-                    UI.showToast('Failed to update character: No response from server', 'error');
-                    console.error('[saveCharacter] updateCharacter returned null/undefined');
-                    return;
+                    if (!silent) UI.showToast('Failed to update character: No response from server', 'error');
+                    return false;
                 }
                 
                 if (!result.success) {
-                    UI.showToast('Failed to update character: ' + (result.error || 'Unknown error'), 'error');
-                    console.error('[saveCharacter] updateCharacter failed:', result.error);
-                    return;
+                    if (!silent) UI.showToast('Failed to update character: ' + (result.error || 'Unknown error'), 'error');
+                    return false;
                 }
                 
-                if (!result.data) {
-                    UI.showToast('Failed to update character: Invalid response from server (no data)', 'error');
-                    console.error('[saveCharacter] updateCharacter returned success but no data:', result);
-                    return;
-                }
-                
-                if (!result.data.character) {
-                    UI.showToast('Failed to update character: Invalid response from server (no character)', 'error');
-                    console.error('[saveCharacter] updateCharacter returned success but no character:', result);
-                    return;
+                if (!result.data || !result.data.character) {
+                    if (!silent) UI.showToast('Failed to update character: Invalid response from server', 'error');
+                    return false;
                 }
                 
                 this.state.character = result.data.character;
                 this.state.selectedCharacterId = result.data.character.id;
-                this.state.isNewCharacter = false;
-                // Update currentClass after save to ensure it's in sync
+                if (draft) {
+                    this.state.isNewCharacter = true;
+                    this.state.creationInProgress = true;
+                } else {
+                    this.state.isNewCharacter = false;
+                    this.state.creationInProgress = false;
+                }
                 if (this.state.character.class_id) {
                     this.state.currentClass = this.state.classes.find(c => c.id === this.state.character.class_id);
                 }
-                this.state.dirty = false; // Clear dirty flag after successful save
-                UI.showToast('Character saved!', 'success');
-                this.updateStatusIndicator(); // Update status badge and save button
-                
-                // Refresh dropdown so renamed characters appear correctly
+                this.state.dirty = false;
+                if (!silent) {
+                    UI.showToast(draft ? 'Progress saved' : 'Character saved!', 'success');
+                }
+                this.updateStatusIndicator();
+                this.updateStepGuide();
                 await this.loadData();
-                
-                // Force update CHARACTER_DATA in URL after save to ensure LSL gets the class
-                // Wait a moment for state to update, then trigger heartbeat
+
                 setTimeout(() => {
                     if (this.state.character) {
                         // Trigger the heartbeat update manually
@@ -2643,14 +2843,17 @@ try {
                         }
                     }
                 }, 500);
+                return true;
             }
             
             this.state.pendingChanges = {};
             await this.renderAll();
+            return true;
             
         } catch (error) {
             console.error('Save failed:', error);
-            UI.showToast('Failed to save: ' + error.message, 'error');
+            if (!silent) UI.showToast('Failed to save: ' + error.message, 'error');
+            return false;
         }
     },
     
