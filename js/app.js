@@ -4093,6 +4093,11 @@ try {
                     ? ' These become baseline defaults for other universes.'
                     : ' Overrides here apply on top of Default Universe settings.'}
             </p>
+            <p style="color: #10b981; font-size: 0.85rem; margin-bottom: var(--space-sm);">
+                <strong>Universe → Classes tab</strong> (not Species/Genders).
+                Scroll the table below; click <strong>Edit</strong> on a row for tier and prerequisites.
+                ${typeof window !== 'undefined' && window.HUD_BUILD_LABEL ? `(UI: ${window.HUD_BUILD_LABEL})` : ''}
+            </p>
             
             <div id="universe-classes-builder"></div>
             

@@ -28,6 +28,7 @@
                 <button id="btn-new-character-nav" class="action-btn secondary" style="display: inline-block; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 12px; border-radius: 4px;">🆕 New Character</button>
                 <a id="open-in-browser-link" href="#" style="display: none; color: #10b981; text-decoration: none; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 8px; border: 1px solid #10b981; border-radius: 4px;">🌐 Open in Browser</a>
                 <span id="user-role" class="role-badge">Player</span>
+                <span id="hud-build-badge" style="font-size:0.75rem;color:#94a3b8;margin-right:var(--space-sm);" title="HUD web build">HUD …</span>
                 <button id="debug-toggle-btn" class="status-dot online" title="Toggle Debug Panel" aria-label="Toggle Debug Panel"></button>
             </div>
         </header>
@@ -526,27 +527,42 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     
-    <!-- App Scripts -->
+    <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
-        window.simpleDebug('About to load firebase-config.js', 'info');
+        (function () {
+            var m = /[?&]t=(\d+)/.exec(window.location.search || '');
+            window.HUD_CACHE_BUST = m ? m[1] : '23';
+            window.HUD_BUILD_LABEL = 'class-edit-v23';
+            var badge = document.getElementById('hud-build-badge');
+            if (badge) {
+                badge.textContent = 'HUD ' + window.HUD_BUILD_LABEL;
+            }
+        })();
+        function hudLoadScript(src, label, next) {
+            window.simpleDebug('About to load ' + label, 'info');
+            var s = document.createElement('script');
+            s.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(window.HUD_CACHE_BUST);
+            s.onload = function () {
+                window.simpleDebug(label + ' loaded', 'info');
+                if (next) { next(); }
+            };
+            s.onerror = function () {
+                window.simpleDebug('ERROR loading ' + label, 'error');
+            };
+            document.body.appendChild(s);
+        }
+        hudLoadScript('js/firebase-config.js', 'firebase-config.js', function () {
+            hudLoadScript('js/seed-data.js', 'seed-data.js', function () {
+                hudLoadScript('js/api-firestore.js', 'api-firestore.js', function () {
+                    hudLoadScript('js/ui.js', 'ui.js', function () {
+                        hudLoadScript('js/app.js', 'app.js', function () {
+                            window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
+                        });
+                    });
+                });
+            });
+        });
     </script>
-    <script src="js/firebase-config.js?v=15" onload="window.simpleDebug('firebase-config.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading firebase-config.js', 'error');"></script>
-    <script>
-        window.simpleDebug('About to load seed-data.js', 'info');
-    </script>
-    <script src="js/seed-data.js?v=15" onload="window.simpleDebug('seed-data.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading seed-data.js', 'error');"></script>
-    <script>
-        window.simpleDebug('About to load api-firestore.js', 'info');
-    </script>
-    <script src="js/api-firestore.js?v=22" onload="window.simpleDebug('api-firestore.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading api-firestore.js', 'error');"></script>
-    <script>
-        window.simpleDebug('About to load ui.js', 'info');
-    </script>
-    <script src="js/ui.js?v=22" onload="window.simpleDebug('ui.js loaded', 'info');" onerror="window.simpleDebug('ERROR loading ui.js', 'error');"></script>
-    <script>
-        window.simpleDebug('About to load app.js', 'info');
-    </script>
-    <script src="js/app.js?v=22" onload="window.simpleDebug('app.js loaded', 'info'); window.simpleDebug('Checking App after load: ' + typeof App, 'debug');" onerror="window.simpleDebug('ERROR loading app.js', 'error');"></script>
     <script>
         window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
         // Try to call init after a short delay
