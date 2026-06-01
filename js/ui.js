@@ -331,6 +331,22 @@ const UI = {
         return roleNames[role] || role;
     },
     
+  /**
+     * Resolve class portrait URL (Firestore may still store classes/<id>.png)
+     */
+    getClassImageSrc(cls) {
+        if (!cls || !cls.id) {
+            return '';
+        }
+        let path = cls.image || '';
+        if (typeof API !== 'undefined' && API.normalizeClassImagePath) {
+            path = API.normalizeClassImagePath(cls.id, path);
+        } else if (!path || path === `classes/${cls.id}.png`) {
+            path = `classes/Class_Overview_${cls.id}.png`;
+        }
+        return path.startsWith('images/') ? path : 'images/' + path;
+    },
+
     // =========================== SPECIES GALLERY ========================
     
     /**
@@ -676,7 +692,8 @@ const UI = {
             const isCompleted = completedClasses.includes(cls.id);
             const wasVisited = careerHistory.some(h => h.class_id === cls.id);
             const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
-            const hasImage = cls.image ? true : false;
+            const imageSrc = this.getClassImageSrc(cls);
+            const hasImage = !!imageSrc;
             // Support both single prerequisite (backward compat) and multiple prerequisites
             const prerequisites = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
             const isBeginnerClass = prerequisites.length === 0;
@@ -711,7 +728,7 @@ const UI = {
                      style="${isDisabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}">
                     ${hasImage ? `
                         <div class="card-image">
-                            <img src="${cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image}" alt="${cls.name}" 
+                            <img src="${imageSrc}" alt="${cls.name}" 
                                  onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                             <span class="card-icon-fallback" style="display:none;">${icon}</span>
                             ${isDisabled ? '<span class="card-lock-overlay">🔒</span>' : ''}
@@ -739,8 +756,7 @@ const UI = {
         if (!modal || !modalBody) return;
         
         const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
-        const imagePath = cls.image ? 
-            (cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image) : null;
+        const imagePath = this.getClassImageSrc(cls) || null;
         
         const isSelected = App.state.character?.class_id === cls.id;
         const allClasses = App.state.filteredClasses && App.state.filteredClasses.length > 0

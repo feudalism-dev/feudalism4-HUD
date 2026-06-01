@@ -188,23 +188,70 @@ const API = {
     },
     
     /**
+     * Standard class portrait path (files live under images/classes/Class_Overview_<id>.png)
+     */
+    normalizeClassImagePath(classId, image) {
+        const id = (classId || '').trim();
+        if (!id) {
+            return image || '';
+        }
+        const standard = `classes/Class_Overview_${id}.png`;
+        const raw = (image || '').trim();
+        if (!raw || raw === `classes/${id}.png` || raw === `${id}.png` || raw.endsWith(`/${id}.png`)) {
+            return standard;
+        }
+        if (raw.indexOf('Class_Overview_') !== -1) {
+            return raw;
+        }
+        return standard;
+    },
+
+    /**
      * Get all class templates
      */
     async getClasses() {
         try {
             console.log('[DEBUG] getClasses() called');
             console.log('[DEBUG] Querying classes collection (enabled=true)...');
-            const snapshot = await db.collection('classes').where('enabled', '==', true).get();
+            let snapshot = await db.collection('classes').where('enabled', '==', true).get();
             console.log('[DEBUG] Classes query returned', snapshot.size, 'documents');
             
             if (snapshot.empty) {
-                await this.seedDefaultClasses();
-                return this.getClasses();
+                const allSnapshot = await db.collection('classes').limit(1).get();
+                if (allSnapshot.empty) {
+                    await this.seedDefaultClasses();
+                    return this.getClasses();
+                }
+                snapshot = await db.collection('classes').get();
+            } else {
+                // Include enabled templates that omit the enabled flag (common on cloned classes)
+                const allSnapshot = await db.collection('classes').get();
+                if (allSnapshot.size > snapshot.size) {
+                    const enabledIds = new Set();
+                    snapshot.forEach((doc) => enabledIds.add(doc.id));
+                    allSnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        if (!enabledIds.has(doc.id) && data.enabled !== false) {
+                            enabledIds.add(doc.id);
+                        }
+                    });
+                    if (enabledIds.size > snapshot.size) {
+                        snapshot = await db.collection('classes').get();
+                    }
+                }
             }
             
             const classes = [];
             snapshot.forEach(doc => {
-                classes.push({ id: doc.id, ...doc.data() });
+                const data = doc.data();
+                if (data.enabled === false) {
+                    return;
+                }
+                classes.push({
+                    id: doc.id,
+                    ...data,
+                    image: this.normalizeClassImagePath(doc.id, data.image)
+                });
             });
             
             console.log('[DEBUG] getClasses() returning', classes.length, 'classes');
@@ -212,7 +259,24 @@ const API = {
             return { success: true, data: { classes } };
         } catch (error) {
             console.error('getClasses error:', error);
-            return { success: false, error: error.message };
+            try {
+                const snapshot = await db.collection('classes').get();
+                const classes = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.enabled === false) {
+                        return;
+                    }
+                    classes.push({
+                        id: doc.id,
+                        ...data,
+                        image: this.normalizeClassImagePath(doc.id, data.image)
+                    });
+                });
+                return { success: true, data: { classes } };
+            } catch (fallbackError) {
+                return { success: false, error: error.message };
+            }
         }
     },
 
@@ -1414,7 +1478,14 @@ const API = {
                 sanitizedData.stat_maximums = JSON.parse(JSON.stringify(sanitizedData.stat_maximums));
             }
             
-            if (isNew) {
+                if (type === 'classes') {
+                    sanitizedData.image = this.normalizeClassImagePath(id, sanitizedData.image);
+                    if (sanitizedData.enabled === undefined) {
+                        sanitizedData.enabled = true;
+                    }
+                }
+
+                if (isNew) {
                 // Check if already exists
                 const existing = await ref.get();
                 if (existing.exists) {
@@ -1470,6 +1541,13 @@ const API = {
                     }
                 }
                 
+                if (type === 'classes') {
+                    finalData.image = this.normalizeClassImagePath(id, finalData.image || sanitizedData.image);
+                    if (finalData.enabled === undefined && sanitizedData.enabled !== undefined) {
+                        finalData.enabled = !!sanitizedData.enabled;
+                    }
+                }
+
                 // Add timestamp
                 finalData.updated_at = firebase.firestore.FieldValue.serverTimestamp();
                 
@@ -2384,7 +2462,16 @@ const API = {
             }
             
             if (universe.allowedClasses && universe.allowedClasses.length > 0) {
-                allowedClasses = allowedClasses.filter(c => universe.allowedClasses.includes(c.id));
+                const effectiveAllowIds = new Set(
+                    universe.allowedClasses.map((id) => String(id))
+                );
+                const overrides = universe.classOverrides || {};
+                Object.keys(overrides).forEach((classId) => {
+                    if (overrides[classId] && overrides[classId].enabled === true) {
+                        effectiveAllowIds.add(classId);
+                    }
+                });
+                allowedClasses = allowedClasses.filter((c) => effectiveAllowIds.has(c.id));
             }
             allowedClasses = allowedClasses.filter(c => c.enabled !== false);
             
