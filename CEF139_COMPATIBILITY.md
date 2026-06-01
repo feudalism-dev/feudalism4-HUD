@@ -26,6 +26,7 @@ When adding UI or JavaScript, assume the in-world viewer — not your desktop Ch
 - JavaScript or CSS features documented as **Chrome 140+** only
 - `navigator.share`, File System Access API, and other APIs commonly missing or disabled in embedded CEF
 - Assuming keyboard/focus behavior matches a normal browser tab (MOAP has known focus quirks — use `installMoapInputFix`, avoid re-rendering inputs on every keystroke, keep URLs short)
+- Using `window.confirm` / `window.alert` — use `UI.showConfirmDialog()` and in-page modals instead
 
 ## MOAP-specific issues (not “browser too old”)
 

@@ -932,6 +932,36 @@ input::placeholder {
     color: var(--text-primary);
 }
 
+.confirm-dialog-title {
+    margin: 0 0 var(--space-md);
+    color: var(--text-primary);
+}
+
+.confirm-dialog-message {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.action-btn.confirm-dialog-danger {
+    background: #dc2626;
+    border-color: #b91c1c;
+    color: #fff;
+}
+
+.action-btn.confirm-dialog-danger:hover {
+    background: #ef4444;
+    border-color: #dc2626;
+}
+
 /* === Species/Class Detail Modal === */
 .species-detail {
     display: flex;

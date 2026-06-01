@@ -945,11 +945,16 @@ try {
             return;
         }
         
-        // Get character name for confirmation
+        // Get character name for confirmation (MOAP: overlay, not window.confirm)
         const charName = this.state.character?.name || 'this character';
-        
-        // Confirm deletion
-        if (!confirm(`Are you sure you want to delete "${charName}"?\n\nThis action cannot be undone.`)) {
+        const confirmed = await UI.showConfirmDialog({
+            title: 'Delete character?',
+            message: `Are you sure you want to delete "${charName}"? This action cannot be undone.`,
+            confirmLabel: 'Delete',
+            cancelLabel: 'Cancel',
+            danger: true
+        });
+        if (!confirmed) {
             return;
         }
         
