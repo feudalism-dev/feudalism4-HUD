@@ -534,12 +534,7 @@ const API = {
         }
         
         try {
-            // Check if character already exists
-            const existing = await this.getCharacter();
-            if (existing.success) {
-                return { success: false, error: 'Character already exists' };
-            }
-            
+            // Multi-character: per-universe limits are enforced in saveCharacter via validateCharacterLimit.
             // SECURITY: Always set owner_uuid to current user's UUID - cannot be overridden
             // Remove any attempt to set owner_uuid from charData
             if (charData.owner_uuid) {
@@ -653,37 +648,45 @@ const API = {
     },
     
     /**
-     * Update character
+     * Update character by document ID (required for multi-character accounts).
+     * @param {object} charData - Fields to update
+     * @param {string} [characterId] - Firestore character doc id (falls back to charData.id)
      */
-    async updateCharacter(charData) {
+    async updateCharacter(charData, characterId) {
         if (!this.uuid) {
             return { success: false, error: 'No UUID' };
         }
         
+        const targetId = characterId || charData.id;
+        if (!targetId) {
+            return { success: false, error: 'No character ID specified' };
+        }
+        
         try {
-            const snapshot = await db.collection('characters')
-                .where('owner_uuid', '==', this.uuid)
-                .limit(1)
-                .get();
+            const docRef = db.collection('characters').doc(targetId);
+            const doc = await docRef.get();
             
-            if (snapshot.empty) {
-                return { success: false, error: 'No character found' };
+            if (!doc.exists) {
+                return { success: false, error: 'Character not found' };
             }
             
-            const doc = snapshot.docs[0];
+            const existing = doc.data();
+            if (existing.owner_uuid !== this.uuid) {
+                return { success: false, error: 'Access denied - not your character' };
+            }
+            
             const updateData = {
                 ...charData,
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            // Don't allow changing owner_uuid
+            // Don't allow changing owner_uuid or document id
             delete updateData.owner_uuid;
             delete updateData.id;
             
-            await doc.ref.update(updateData);
+            await docRef.update(updateData);
             
-            // Fetch the updated document to get actual server timestamp values
-            const updatedDoc = await doc.ref.get();
+            const updatedDoc = await docRef.get();
             const updatedCharacter = { id: updatedDoc.id, ...updatedDoc.data() };
             
             return { 
@@ -705,13 +708,15 @@ const API = {
      * @param {object} classData - The class template data
      * @param {boolean} isFreeAdvance - If true, no XP cost
      */
-    async changeClass(newClassId, classData, isFreeAdvance = false) {
+    async changeClass(newClassId, classData, isFreeAdvance = false, characterId) {
         if (!this.uuid) {
             return { success: false, error: 'No UUID' };
         }
         
         try {
-            const charResult = await this.getCharacter();
+            const charResult = characterId
+                ? await this.getCharacterById(characterId)
+                : await this.getCharacter();
             if (!charResult.success) {
                 return { success: false, error: 'No character found' };
             }
@@ -784,7 +789,7 @@ const API = {
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
             };
             
-            const result = await this.updateCharacter(updateData);
+            const result = await this.updateCharacter(updateData, character.id);
             
             if (result.success) {
                 if (isFreeAdvance) {

@@ -2291,7 +2291,7 @@ try {
         // Save mode to Firestore immediately
         if (this.state.character && this.state.character.id) {
             try {
-                const result = await API.updateCharacter({ mode: mode });
+                const result = await API.updateCharacter({ mode: mode }, this.state.character.id);
                 if (result.success) {
                     console.log('[Mode] Saved mode to Firestore:', mode);
                 } else {
@@ -2534,7 +2534,13 @@ try {
                 // Reload character list and update selector
                 await this.loadData();
             } else {
-                // Update existing character
+                // Update existing character (must target the selected doc, not "first" character)
+                const characterId = char.id || this.state.selectedCharacterId;
+                if (!characterId) {
+                    UI.showToast('Cannot save: character has no ID. Use Create New Character for a new slot.', 'warning');
+                    return;
+                }
+                
                 // Ensure class_id is included - use currentClass.id as fallback
                 let classId = char.class_id;
                 if (!classId && this.state.currentClass) {
@@ -2560,9 +2566,14 @@ try {
                     name: char.name,
                     title: char.title,
                     gender: char.gender,
+                    species_id: char.species_id,
                     stats: char.stats,
-                    class_id: classId
-                });
+                    class_id: classId,
+                    has_mana: char.has_mana,
+                    mana: char.mana,
+                    health: char.health,
+                    stamina: char.stamina
+                }, characterId);
                 
                 console.log('[saveCharacter] updateCharacter result:', result);
                 
@@ -2591,6 +2602,8 @@ try {
                 }
                 
                 this.state.character = result.data.character;
+                this.state.selectedCharacterId = result.data.character.id;
+                this.state.isNewCharacter = false;
                 // Update currentClass after save to ensure it's in sync
                 if (this.state.character.class_id) {
                     this.state.currentClass = this.state.classes.find(c => c.id === this.state.character.class_id);
@@ -2598,6 +2611,9 @@ try {
                 this.state.dirty = false; // Clear dirty flag after successful save
                 UI.showToast('Character saved!', 'success');
                 this.updateStatusIndicator(); // Update status badge and save button
+                
+                // Refresh dropdown so renamed characters appear correctly
+                await this.loadData();
                 
                 // Force update CHARACTER_DATA in URL after save to ensure LSL gets the class
                 // Wait a moment for state to update, then trigger heartbeat
@@ -7024,11 +7040,12 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
     
     // For existing characters, use the changeClass API for career tracking
     try {
-        const result = await API.changeClass(classId, classTemplate, isFreeAdvance);
+        const characterId = App.state.character.id;
+        const result = await API.changeClass(classId, classTemplate, isFreeAdvance, characterId);
         
         if (result.success) {
             // Reload character to get updated career history
-            const charResult = await API.getCharacter();
+            const charResult = await API.getCharacterById(characterId);
             if (charResult.success) {
                 App.state.character = charResult.data.character;
             }
