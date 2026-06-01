@@ -155,6 +155,7 @@ try {
         character: null,
         species: [],
         classes: [],
+        filteredClasses: [],
         vocations: [],
         genders: [],
         currentSpecies: null,
@@ -748,6 +749,13 @@ try {
                 if (universeResult.success) {
                     this.state.currentUniverse = universeResult.data.universe;
                 }
+
+                const pageRegistrationInput = document.getElementById('universe-registration-code');
+                if (pageRegistrationInput && registrationCode) {
+                    pageRegistrationInput.value = registrationCode;
+                }
+
+                await this.applyUniverseIdentityDefaults({ force: true });
                 
                 // Update character selector with temp option
                 this.updateCharacterSelectorWithTemp();
@@ -808,7 +816,7 @@ try {
         const availablePoints = char ? window.calculateAvailablePoints(char) : 20;
         const steps = [
             { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
-            { id: 'gender', name: 'Gender', complete: !!(char && char.gender_id) },
+            { id: 'gender', name: 'Gender', complete: !!(char && char.gender) },
             { id: 'species', name: 'Species', complete: !!(char && char.species_id) },
             { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0) },
             { id: 'career', name: 'Classes', complete: !!(char && char.class_id) }
@@ -1140,7 +1148,11 @@ try {
                     if (!select.hasAttribute('data-listener-added')) {
                         select.setAttribute('data-listener-added', 'true');
                         select.onchange = async (e) => {
-                            this.state.selectedUniverseId = e.target.value;
+                            const newUniverseId = e.target.value;
+                            this.state.selectedUniverseId = newUniverseId;
+                            if (this.state.character) {
+                                this.state.character.universe_id = newUniverseId;
+                            }
                             const selectedOption = e.target.options[e.target.selectedIndex];
                             const requiresCode = selectedOption.dataset.requiresCode === 'true';
                             const registrationGroup = document.getElementById('universe-registration-group');
@@ -1151,7 +1163,11 @@ try {
                                     registrationInput.value = '';
                                 }
                             }
-                            // Re-render to update filtered identity options
+                            const universeResult = await API.getUniverse(newUniverseId);
+                            if (universeResult.success) {
+                                this.state.currentUniverse = universeResult.data.universe;
+                            }
+                            await this.applyUniverseIdentityDefaults({ force: true });
                             await this.renderAll();
                         };
                     }
@@ -1334,6 +1350,176 @@ try {
     },
     
     /**
+     * Universe ID used for creation filtering (dropdown wins for unsaved drafts).
+     */
+    getActiveUniverseId() {
+        const char = this.state.character;
+        if (this.state.isNewCharacter && char && !char.id) {
+            return this.state.selectedUniverseId || char.universe_id || null;
+        }
+        if (char?.universe_id) {
+            return char.universe_id;
+        }
+        if (this.state.isNewCharacter && this.state.selectedUniverseId) {
+            return this.state.selectedUniverseId;
+        }
+        return null;
+    },
+
+    /**
+     * Load filtered identity options for the active universe.
+     */
+    async getFilteredIdentityForCreation() {
+        const universeId = this.getActiveUniverseId();
+        if (!universeId) {
+            return {
+                universeId: null,
+                genders: [],
+                species: [],
+                classes: []
+            };
+        }
+        const result = await API.getFilteredIdentityOptions(universeId);
+        if (result.success) {
+            return {
+                universeId,
+                genders: result.data.genders,
+                species: result.data.species,
+                classes: result.data.classes
+            };
+        }
+        return {
+            universeId,
+            genders: this.state.genders,
+            species: this.state.species,
+            classes: this.state.classes
+        };
+    },
+
+    /**
+     * Pick a sensible default class from an allowed list (beginner, non-arcane if no mana).
+     */
+    pickDefaultClassId(classes, character) {
+        if (!classes || classes.length === 0) {
+            return null;
+        }
+        const manaRequiredClasses = [
+            'cleric', 'cultist', 'druid', 'enchanter', 'footwizard', 'hedgemage',
+            'mage', 'necromancer', 'priest', 'seer', 'shadowmage', 'shaman',
+            'sorcerer', 'spellmonger', 'thaumaturge', 'warlock', 'warmage',
+            'witch', 'wizard'
+        ];
+        const hasMana = character?.has_mana === true;
+        const beginner = classes.filter(cls => {
+            if (manaRequiredClasses.includes(cls.id) && !hasMana) {
+                return false;
+            }
+            const prerequisites = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
+            return prerequisites.length === 0;
+        });
+        if (beginner.length > 0) {
+            return beginner[0].id;
+        }
+        return classes[0].id;
+    },
+
+    /**
+     * Apply species-derived fields after species change.
+     */
+    applySpeciesToCharacter(char, species) {
+        if (!char || !species) {
+            return;
+        }
+        const manaEnabled = this.state.currentUniverse?.manaEnabled !== false;
+        char.has_mana = manaEnabled && this.rollManaChance(species);
+        char.species_factors = {
+            health_factor: species.health_factor || 25,
+            stamina_factor: species.stamina_factor || 25,
+            mana_factor: species.mana_factor || 25
+        };
+        this.recalculateResourcePools();
+    },
+
+    /**
+     * Ensure gender/species/class are allowed for the active universe.
+     */
+    async applyUniverseIdentityDefaults(options = {}) {
+        const { force = false, filtered = null } = options;
+        const char = this.state.character;
+        if (!char) {
+            return false;
+        }
+
+        let genders;
+        let species;
+        let classes;
+        if (filtered) {
+            genders = filtered.genders;
+            species = filtered.species;
+            classes = filtered.classes;
+        } else {
+            const result = await this.getFilteredIdentityForCreation();
+            genders = result.genders;
+            species = result.species;
+            classes = result.classes;
+        }
+
+        let changed = false;
+
+        if (genders.length > 0 && (force || !genders.some(g => g.id === char.gender))) {
+            char.gender = genders[0].id;
+            changed = true;
+        }
+
+        if (species.length > 0 && (force || !species.some(s => s.id === char.species_id))) {
+            char.species_id = species[0].id;
+            this.applySpeciesToCharacter(char, species[0]);
+            changed = true;
+        }
+
+        if (classes.length > 0 && (force || !classes.some(c => c.id === char.class_id))) {
+            char.class_id = this.pickDefaultClassId(classes, char) || classes[0].id;
+            changed = true;
+        }
+
+        if (char.universe_id !== this.getActiveUniverseId() && this.getActiveUniverseId()) {
+            char.universe_id = this.getActiveUniverseId();
+            changed = true;
+        }
+
+        return changed;
+    },
+
+    /**
+     * Update the universe restriction notice on the Character tab.
+     */
+    updateUniverseFilterNotice(filteredGenders, filteredSpecies, filteredClasses) {
+        const noticeEl = document.getElementById('universe-filter-notice');
+        if (!noticeEl) {
+            return;
+        }
+        const universe = this.state.currentUniverse;
+        const universeName = universe?.name || this.getActiveUniverseId() || 'this universe';
+        const totalG = this.state.genders.length;
+        const totalS = this.state.species.length;
+        const totalC = this.state.classes.length;
+        const restricted = (
+            (totalG > 0 && filteredGenders.length < totalG) ||
+            (totalS > 0 && filteredSpecies.length < totalS) ||
+            (totalC > 0 && filteredClasses.length < totalC)
+        );
+        if (restricted) {
+            noticeEl.textContent =
+                `Showing options allowed in ${universeName} ` +
+                `(${filteredGenders.length} genders, ${filteredSpecies.length} species, ${filteredClasses.length} classes). ` +
+                'Change universe below to see a different set.';
+        } else {
+            noticeEl.textContent =
+                `All identity options are available in ${universeName}. Change universe below if you meant to join a different world.`;
+        }
+    },
+
+    /**
      * Render all UI components
      */
     async renderAll() {
@@ -1371,57 +1557,111 @@ try {
             newCharBanner.style.display = shouldShow ? 'block' : 'none';
         }
         
-        // Show/hide universe selection (only for new characters)
+        // Show/hide universe selection (only for new unsaved characters)
         const universeGroup = document.getElementById('universe-selection-group');
+        const identitySection = document.getElementById('character-identity-section');
+        const identityReady = !!char;
+        const identityGateMessage =
+            'Click Create New Character and choose a universe to begin identity selection.';
+
+        if (identitySection) {
+            identitySection.style.display = identityReady ? 'block' : 'none';
+        }
+
         if (universeGroup) {
-            universeGroup.style.display = this.state.isNewCharacter ? 'block' : 'none';
-            
-            // Load available universes if showing
-            if (this.state.isNewCharacter) {
-                this.loadAvailableUniverses();
+            const showUniverse = identityReady && this.state.isNewCharacter && !char?.id;
+            universeGroup.style.display = showUniverse ? 'block' : 'none';
+            if (showUniverse) {
+                await this.loadAvailableUniverses();
             }
         }
         
-        // Find current species, class, and vocation (use full lists for lookup)
-        this.state.currentSpecies = this.state.species.find(s => s.id === char?.species_id);
-        this.state.currentClass = this.state.classes.find(c => c.id === char?.class_id);
-        this.state.currentVocation = this.state.currentClass ? 
+        // Filter identity options by universe (only after creation draft exists)
+        let filteredGenders = [];
+        let filteredSpecies = [];
+        let filteredClasses = [];
+        const universeManaEnabled = this.state.currentUniverse?.manaEnabled !== false;
+
+        if (identityReady) {
+            const universeId = this.getActiveUniverseId();
+            if (universeId) {
+                if (!this.state.currentUniverse || this.state.currentUniverse.id !== universeId) {
+                    const universeResult = await API.getUniverse(universeId);
+                    if (universeResult.success) {
+                        this.state.currentUniverse = universeResult.data.universe;
+                    }
+                }
+                const filteredResult = await API.getFilteredIdentityOptions(universeId);
+                if (filteredResult.success) {
+                    filteredGenders = filteredResult.data.genders;
+                    filteredSpecies = filteredResult.data.species;
+                    filteredClasses = filteredResult.data.classes;
+                } else {
+                    filteredGenders = this.state.genders;
+                    filteredSpecies = this.state.species;
+                    filteredClasses = this.state.classes;
+                }
+            } else {
+                filteredGenders = this.state.genders;
+                filteredSpecies = this.state.species;
+                filteredClasses = this.state.classes;
+            }
+
+            await this.applyUniverseIdentityDefaults({
+                force: false,
+                filtered: {
+                    genders: filteredGenders,
+                    species: filteredSpecies,
+                    classes: filteredClasses
+                }
+            });
+
+            if (this.state.isNewCharacter && !char.id) {
+                this.updateUniverseFilterNotice(filteredGenders, filteredSpecies, filteredClasses);
+            } else {
+                const noticeEl = document.getElementById('universe-filter-notice');
+                if (noticeEl) {
+                    noticeEl.textContent = '';
+                }
+            }
+        }
+        this.state.filteredClasses = filteredClasses;
+
+        // Look up selections from filtered lists first (summary matches visible options)
+        this.state.currentSpecies = filteredSpecies.find(s => s.id === char?.species_id)
+            || this.state.species.find(s => s.id === char?.species_id)
+            || null;
+        this.state.currentClass = filteredClasses.find(c => c.id === char?.class_id)
+            || this.state.classes.find(c => c.id === char?.class_id)
+            || null;
+        this.state.currentVocation = this.state.currentClass ?
             this.state.vocations.find(v => v.id === this.state.currentClass.vocation_id) : null;
-        
-        // Filter identity options by universe
-        let filteredGenders = this.state.genders;
-        let filteredSpecies = this.state.species;
-        let filteredClasses = this.state.classes;
-        
-        if (char && char.universe_id) {
-            // Get filtered options for the character's universe
-            const filteredResult = await API.getFilteredIdentityOptions(char.universe_id);
-            if (filteredResult.success) {
-                filteredGenders = filteredResult.data.genders;
-                filteredSpecies = filteredResult.data.species;
-                filteredClasses = filteredResult.data.classes;
-            }
-        } else if (this.state.isNewCharacter && this.state.selectedUniverseId) {
-            // For new characters, filter by selected universe
-            const filteredResult = await API.getFilteredIdentityOptions(this.state.selectedUniverseId);
-            if (filteredResult.success) {
-                filteredGenders = filteredResult.data.genders;
-                filteredSpecies = filteredResult.data.species;
-                filteredClasses = filteredResult.data.classes;
-            }
-        }
         
         // Render gender selection
         DebugLog.log(`Rendering gender selection with ${filteredGenders.length} genders`, 'debug');
-        UI.renderGenderSelection(filteredGenders, char?.gender);
+        UI.renderGenderSelection(
+            identityReady ? filteredGenders : [],
+            char?.gender,
+            identityReady ? undefined : identityGateMessage
+        );
         
         // Render species gallery
         DebugLog.log(`Rendering species gallery with ${filteredSpecies.length} species`, 'debug');
-        UI.renderSpeciesGallery(filteredSpecies, char?.species_id);
+        UI.renderSpeciesGallery(
+            identityReady ? filteredSpecies : [],
+            char?.species_id,
+            universeManaEnabled,
+            identityReady ? undefined : identityGateMessage
+        );
         
         // Render career gallery
         DebugLog.log(`Rendering career gallery with ${filteredClasses.length} classes`, 'debug');
-        UI.renderCareerGallery(filteredClasses, char?.class_id, char);
+        UI.renderCareerGallery(
+            identityReady ? filteredClasses : [],
+            char?.class_id,
+            char,
+            identityReady ? undefined : identityGateMessage
+        );
         
         // Render current career with career path
         UI.renderCurrentCareer(this.state.currentClass, this.state.currentVocation, char);
@@ -2151,6 +2391,11 @@ try {
             // Validate character
             if (!char.name || char.name.trim() === '') {
                 UI.showToast('Please enter a character name', 'warning');
+                return;
+            }
+            
+            if (!char.gender) {
+                UI.showToast('Please select a gender', 'warning');
                 return;
             }
             
@@ -3826,13 +4071,8 @@ try {
         // Get universes the user can manage (for selector)
         const universesResult = await API.listUniversesForAdmin();
         const userUniverses = universesResult.success ? universesResult.data.universes : [];
-        
-        // Get all classes
-        const classesResult = await API.getClasses();
-        const allClasses = classesResult.success ? classesResult.data.classes : [];
-        
-        // Get allowed classes for this universe
-        const allowedClasses = universe?.allowedClasses || [];
+        const classConfigResult = await API.getUniverseClassConfiguration(universeId);
+        const allClasses = classConfigResult.success ? classConfigResult.data.classes : [];
         const showGlobalClassAdmin = this.canManageGlobalTemplates();
         
         let html = `
@@ -3847,9 +4087,14 @@ try {
                 </div>
                 ${showGlobalClassAdmin ? '<button class="btn btn-secondary" id="btn-class-admin" style="margin-top: 24px;">ADMIN</button>' : ''}
             </div>
-            ${!showGlobalClassAdmin ? '<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">Check or uncheck classes below to control which careers players may use in this universe.</p>' : ''}
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-sm);">
+                Configure class availability and relationships for this universe.
+                ${universeId === 'default'
+                    ? ' These become baseline defaults for other universes.'
+                    : ' Overrides here apply on top of Default Universe settings.'}
+            </p>
             
-            <div id="universe-classes-panels"></div>
+            <div id="universe-classes-builder"></div>
             
             <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
                 <button class="btn btn-primary" id="btn-save-classes">Save Changes</button>
@@ -3857,9 +4102,10 @@ try {
         `;
         
         container.innerHTML = html;
+        this.currentUniverseClassRows = allClasses;
+        this.currentUniverseClassOverrides = { ...(this.currentUniverseData?.classOverrides || {}) };
         
-        // Render two-panel UI
-        this.renderUniverseIdentityPanels('classes', allClasses, allowedClasses, 'universe-classes-panels');
+        this.renderUniverseClassBuilderRows(allClasses, this.currentUniverseData);
         
         // Bind universe selector
         document.getElementById('universe-class-selector')?.addEventListener('change', async (e) => {
@@ -3867,23 +4113,32 @@ try {
             const result = await API.getUniverse(selectedUniverseId);
             if (result.success) {
                 const selectedUniverse = result.data.universe;
-                this.renderUniverseIdentityPanels('classes', allClasses, selectedUniverse.allowedClasses || [], 'universe-classes-panels');
                 this.currentUniverseId = selectedUniverseId;
                 this.currentUniverseData = selectedUniverse;
+                const cfg = await API.getUniverseClassConfiguration(selectedUniverseId);
+                this.currentUniverseClassRows = cfg.success ? cfg.data.classes : [];
+                this.currentUniverseClassOverrides = { ...(selectedUniverse.classOverrides || {}) };
+                this.renderUniverseClassBuilderRows(this.currentUniverseClassRows, selectedUniverse);
             }
         });
         
         // Bind save button
         document.getElementById('btn-save-classes')?.addEventListener('click', async () => {
-            const checked = this.getCheckedItems('universe-allowed-classes');
-            const result = await API.updateUniverse(this.currentUniverseId, { allowedClasses: checked });
+            const classConfig = this.collectUniverseClassBuilderState();
+            const result = await API.updateUniverse(this.currentUniverseId, {
+                allowedClasses: classConfig.allowedClasses,
+                classOverrides: classConfig.classOverrides
+            });
             if (result.success) {
                 UI.showToast('Classes updated!', 'success');
                 // Reload universe data
                 const reloadResult = await API.getUniverse(this.currentUniverseId);
                 if (reloadResult.success) {
                     this.currentUniverseData = reloadResult.data.universe;
-                    this.renderUniverseIdentityPanels('classes', allClasses, this.currentUniverseData.allowedClasses || [], 'universe-classes-panels');
+                    const cfg = await API.getUniverseClassConfiguration(this.currentUniverseId);
+                    this.currentUniverseClassRows = cfg.success ? cfg.data.classes : [];
+                    this.currentUniverseClassOverrides = { ...(this.currentUniverseData.classOverrides || {}) };
+                    this.renderUniverseClassBuilderRows(this.currentUniverseClassRows, this.currentUniverseData);
                 }
             } else {
                 UI.showToast('Failed to update classes: ' + result.error, 'error');
@@ -3895,6 +4150,109 @@ try {
                 this.showTemplateManager('classes');
             });
         }
+    },
+
+    renderUniverseClassBuilderRows(allClasses, universeData) {
+        const container = document.getElementById('universe-classes-builder');
+        if (!container) return;
+        const allowedSet = new Set((universeData?.allowedClasses || []).map(id => String(id)));
+        const hasAllowlist = allowedSet.size > 0;
+        const classOptions = allClasses.map(c =>
+            `<option value="${c.id}">${c.name || c.id}</option>`
+        ).join('');
+
+        const rows = allClasses
+            .slice()
+            .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+            .map((cls) => {
+                const prerequisites = Array.isArray(cls.prerequisites) ? cls.prerequisites : [];
+                const tier = cls.tier || (prerequisites.length === 0 ? 'beginner' : 'advanced');
+                const enabled = hasAllowlist ? allowedSet.has(cls.id) : cls.enabled !== false;
+                return `
+                    <tr data-class-id="${cls.id}">
+                        <td><strong>${cls.name || cls.id}</strong><div style="font-size:0.8rem;color:var(--text-muted);">${cls.id}</div></td>
+                        <td style="text-align:center;"><input type="checkbox" class="universe-class-enabled" ${enabled ? 'checked' : ''}></td>
+                        <td>
+                            <select class="universe-class-tier">
+                                <option value="beginner" ${tier === 'beginner' ? 'selected' : ''}>Beginner</option>
+                                <option value="advanced" ${tier === 'advanced' ? 'selected' : ''}>Advanced</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="universe-class-prereqs" multiple size="4" style="width:100%;">
+                                ${classOptions}
+                            </select>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+        container.innerHTML = `
+            <div class="admin-table-container" style="overflow-x:auto;">
+                <table class="admin-table" style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr>
+                            <th>Class</th>
+                            <th>Enabled</th>
+                            <th>Tier</th>
+                            <th>Prerequisites (multi-select)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+
+        container.querySelectorAll('tr[data-class-id]').forEach((row) => {
+            const classId = row.dataset.classId;
+            const cls = allClasses.find(c => c.id === classId);
+            const prereqSelect = row.querySelector('.universe-class-prereqs');
+            const prerequisites = Array.isArray(cls?.prerequisites) ? cls.prerequisites : [];
+            Array.from(prereqSelect.options).forEach(opt => {
+                if (opt.value === classId) {
+                    opt.disabled = true;
+                }
+                opt.selected = prerequisites.includes(opt.value);
+            });
+            row.querySelector('.universe-class-tier')?.addEventListener('change', (e) => {
+                if (e.target.value === 'beginner') {
+                    Array.from(prereqSelect.options).forEach(opt => { opt.selected = false; });
+                }
+            });
+        });
+    },
+
+    collectUniverseClassBuilderState() {
+        const rows = Array.from(document.querySelectorAll('#universe-classes-builder tr[data-class-id]'));
+        let allowedClasses = [];
+        const classOverrides = {};
+        rows.forEach((row) => {
+            const classId = row.dataset.classId;
+            const enabled = row.querySelector('.universe-class-enabled')?.checked === true;
+            const tier = row.querySelector('.universe-class-tier')?.value || 'advanced';
+            const prereqSelect = row.querySelector('.universe-class-prereqs');
+            let prerequisites = [];
+            if (prereqSelect) {
+                prerequisites = Array.from(prereqSelect.selectedOptions)
+                    .map(o => o.value)
+                    .filter(v => v && v !== classId);
+            }
+            if (tier === 'beginner') {
+                prerequisites = [];
+            }
+            if (enabled) {
+                allowedClasses.push(classId);
+            }
+            classOverrides[classId] = {
+                enabled,
+                tier,
+                prerequisites
+            };
+        });
+        if (allowedClasses.length === rows.length) {
+            allowedClasses = [];
+        }
+        return { allowedClasses, classOverrides };
     },
     
     /**
@@ -4269,18 +4627,25 @@ try {
                 return;
             }
             
-            // Collect allowed lists (empty array if all checked, array of IDs if some unchecked)
-            const allGenderIds = Array.from(document.querySelectorAll('.universe-allowed-gender')).map(cb => cb.value);
-            const checkedGenderIds = Array.from(document.querySelectorAll('.universe-allowed-gender:checked')).map(cb => cb.value);
-            const allowedGenders = checkedGenderIds.length === allGenderIds.length ? [] : checkedGenderIds;
-            
-            const allSpeciesIds = Array.from(document.querySelectorAll('.universe-allowed-species')).map(cb => cb.value);
-            const checkedSpeciesIds = Array.from(document.querySelectorAll('.universe-allowed-species:checked')).map(cb => cb.value);
-            const allowedSpecies = checkedSpeciesIds.length === allSpeciesIds.length ? [] : checkedSpeciesIds;
-            
-            const allClassIds = Array.from(document.querySelectorAll('.universe-allowed-classes')).map(cb => cb.value);
-            const checkedClassIds = Array.from(document.querySelectorAll('.universe-allowed-classes:checked')).map(cb => cb.value);
-            const allowedClasses = checkedClassIds.length === allClassIds.length ? [] : checkedClassIds;
+            // Collect allowed lists from open admin tabs, or preserve existing values
+            const collectAllowedList = (checkboxClass, existing) => {
+                const boxes = document.querySelectorAll(`.${checkboxClass}`);
+                if (boxes.length === 0) {
+                    return existing || [];
+                }
+                return this.getCheckedItems(checkboxClass);
+            };
+
+            const allowedGenders = collectAllowedList('universe-allowed-genders', u.allowedGenders);
+            const allowedSpecies = collectAllowedList('universe-allowed-species', u.allowedSpecies);
+            let allowedClasses = collectAllowedList('universe-allowed-classes', u.allowedClasses);
+            let classOverrides = u.classOverrides || {};
+            const classBuilderRows = document.querySelectorAll('#universe-classes-builder tr[data-class-id]');
+            if (classBuilderRows.length > 0) {
+                const classConfig = this.collectUniverseClassBuilderState();
+                allowedClasses = classConfig.allowedClasses;
+                classOverrides = classConfig.classOverrides;
+            }
             
             const universeData = {
                 name,
@@ -4301,7 +4666,8 @@ try {
                 manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false),
                 allowedGenders: allowedGenders,
                 allowedSpecies: allowedSpecies,
-                allowedClasses: allowedClasses
+                allowedClasses: allowedClasses,
+                classOverrides: classOverrides
             };
             
             const signupKey = pick('universe-signup-key', '') || '';
@@ -6483,7 +6849,8 @@ window.onSpeciesSelected = async function(speciesId) {
 window.onClassSelected = async function(classId, isFreeAdvance = false) {
     if (!App.state.character) return;
     
-    const classTemplate = App.state.classes.find(c => c.id === classId);
+    const classTemplate = (App.state.filteredClasses || []).find(c => c.id === classId)
+        || App.state.classes.find(c => c.id === classId);
     if (!classTemplate) return;
     
     // For new characters without a class, just set it directly

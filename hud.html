@@ -120,7 +120,24 @@
                         🆕 Create New Character
                     </button>
                 </div>
-                
+
+                <div id="universe-selection-group" class="panel" style="display: none; margin-bottom: var(--space-lg);">
+                    <h2>Universe</h2>
+                    <p id="universe-filter-notice" style="color: #cbd5e1; font-size: 0.95em; margin-bottom: var(--space-sm);"></p>
+                    <div class="form-group">
+                        <label for="char-universe">Universe for this character</label>
+                        <select id="char-universe" style="width: 100%; max-width: 400px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px;">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div id="universe-registration-group" class="form-group" style="display: none;">
+                        <label for="universe-registration-code">Registration Code</label>
+                        <input type="text" id="universe-registration-code" placeholder="Enter registration code..." maxlength="100" style="width: 100%; max-width: 400px; padding: 8px 12px; background: #0f172a; border: 1px solid #3a5f8f; border-radius: 4px; color: #fff;">
+                        <small style="color: #94a3b8; display: block; margin-top: var(--space-xxs);">This universe requires a registration code before you can save.</small>
+                    </div>
+                </div>
+
+                <div id="character-identity-section">
                 <div class="panel">
                     <h2>Identity</h2>
                     <div class="form-group">
@@ -152,6 +169,7 @@
                         <p class="placeholder-text">Create your character above...</p>
                     </div>
                 </div>
+                </div><!-- #character-identity-section -->
             </section>
 
             <!-- Stats Tab -->

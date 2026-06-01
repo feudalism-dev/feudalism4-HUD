@@ -247,10 +247,16 @@ const UI = {
      * @param {string} selectedId - Currently selected species ID
      * @param {boolean} universeManaEnabled - Whether the universe allows mana
      */
-    renderSpeciesGallery(species, selectedId = null, universeManaEnabled = true) {
+    renderSpeciesGallery(species, selectedId = null, universeManaEnabled = true, emptyMessage = null) {
         console.log('[DEBUG] renderSpeciesGallery() called with', species?.length || 0, 'species');
         if (!this.elements.speciesGallery) {
             console.log('[DEBUG] renderSpeciesGallery() - speciesGallery element not found!');
+            return;
+        }
+
+        if (!species || species.length === 0) {
+            this.elements.speciesGallery.innerHTML =
+                `<p class="placeholder-text">${emptyMessage || 'Loading species...'}</p>`;
             return;
         }
         
@@ -454,10 +460,16 @@ const UI = {
      * @param {string} currentClassId - Currently selected class ID
      * @param {object} character - Character data for prerequisite checking
      */
-    renderCareerGallery(classes, currentClassId, character = null) {
+    renderCareerGallery(classes, currentClassId, character = null, emptyMessage = null) {
         console.log('[DEBUG] renderCareerGallery() called with', classes?.length || 0, 'classes');
         if (!this.elements.careerGallery) {
             console.log('[DEBUG] renderCareerGallery() - careerGallery element not found!');
+            return;
+        }
+
+        if (!classes || classes.length === 0) {
+            this.elements.careerGallery.innerHTML =
+                `<p class="placeholder-text">${emptyMessage || 'Loading classes...'}</p>`;
             return;
         }
         
@@ -538,7 +550,8 @@ const UI = {
         this.elements.careerGallery.querySelectorAll('.gallery-card').forEach(card => {
             card.addEventListener('click', () => {
                 const classId = card.dataset.classId;
-                const classData = App.state.classes.find(c => c.id === classId);
+                const classData = (App.state.filteredClasses || []).find(c => c.id === classId)
+                    || App.state.classes.find(c => c.id === classId);
                 if (classData) {
                     this.showClassDetailModal(classData, character);
                 }
@@ -636,7 +649,9 @@ const UI = {
             (cls.image.startsWith('images/') ? cls.image : 'images/' + cls.image) : null;
         
         const isSelected = App.state.character?.class_id === cls.id;
-        const allClasses = App.state.classes || [];
+        const allClasses = App.state.filteredClasses && App.state.filteredClasses.length > 0
+            ? App.state.filteredClasses
+            : (App.state.classes || []);
         
         // Check if player can change to this class
         const isBeginnerClass = !cls.prerequisite || cls.prerequisite === null;
@@ -1113,7 +1128,7 @@ const UI = {
     /**
      * Render gender selection gallery with images
      */
-    renderGenderSelection(genders, selectedGender) {
+    renderGenderSelection(genders, selectedGender, emptyMessage = null) {
         console.log('[DEBUG] renderGenderSelection() called with', genders?.length || 0, 'genders');
         if (!this.elements.genderGallery) {
             console.log('[DEBUG] renderGenderSelection() - genderGallery element not found!');
@@ -1121,8 +1136,9 @@ const UI = {
         }
         
         if (!genders || genders.length === 0) {
-            console.log('[DEBUG] renderGenderSelection() - No genders, showing loading spinner');
-            this.elements.genderGallery.innerHTML = '<div class="loading-spinner">Loading genders...</div>';
+            console.log('[DEBUG] renderGenderSelection() - No genders, showing placeholder');
+            this.elements.genderGallery.innerHTML =
+                `<p class="placeholder-text">${emptyMessage || 'Loading genders...'}</p>`;
             return;
         }
         

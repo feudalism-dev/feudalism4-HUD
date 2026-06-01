@@ -215,6 +215,107 @@ const API = {
             return { success: false, error: error.message };
         }
     },
+
+    normalizeUniverseClassOverrides(classOverrides) {
+        const normalized = {};
+        if (!classOverrides || typeof classOverrides !== 'object') {
+            return normalized;
+        }
+        Object.keys(classOverrides).forEach((classId) => {
+            const raw = classOverrides[classId];
+            if (!raw || typeof raw !== 'object') {
+                return;
+            }
+            const item = {};
+            if (raw.enabled !== undefined) {
+                item.enabled = !!raw.enabled;
+            }
+            if (raw.tier === 'beginner' || raw.tier === 'advanced') {
+                item.tier = raw.tier;
+            }
+            if (Array.isArray(raw.prerequisites)) {
+                item.prerequisites = raw.prerequisites
+                    .map(p => String(p).trim())
+                    .filter(p => p);
+            }
+            normalized[classId] = item;
+        });
+        return normalized;
+    },
+
+    mergeClassOverridesForUniverse(classTemplates, universeOverrides, defaultOverrides) {
+        const defaults = this.normalizeUniverseClassOverrides(defaultOverrides);
+        const overrides = this.normalizeUniverseClassOverrides(universeOverrides);
+        return classTemplates.map((cls) => {
+            const merged = { ...cls };
+            const defaultOverride = defaults[cls.id] || {};
+            const universeOverride = overrides[cls.id] || {};
+            const effectiveOverride = { ...defaultOverride, ...universeOverride };
+
+            const basePrereqs = Array.isArray(merged.prerequisites)
+                ? merged.prerequisites
+                : (merged.prerequisite ? [merged.prerequisite] : []);
+            const prereqs = Array.isArray(effectiveOverride.prerequisites)
+                ? effectiveOverride.prerequisites
+                : basePrereqs;
+            merged.prerequisites = prereqs;
+
+            if (effectiveOverride.tier === 'beginner' || effectiveOverride.tier === 'advanced') {
+                merged.tier = effectiveOverride.tier;
+            } else {
+                merged.tier = prereqs.length === 0 ? 'beginner' : 'advanced';
+            }
+
+            if (effectiveOverride.enabled !== undefined) {
+                merged.enabled = !!effectiveOverride.enabled;
+            } else if (merged.enabled === undefined) {
+                merged.enabled = true;
+            }
+
+            return merged;
+        });
+    },
+
+    async getUniverseClassConfiguration(universeId) {
+        try {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            const universe = universeDoc.data();
+
+            const classesResult = await this.getClasses();
+            if (!classesResult.success) {
+                return { success: false, error: classesResult.error || 'Failed to load classes' };
+            }
+            const classTemplates = classesResult.data.classes || [];
+
+            let defaultOverrides = {};
+            if (universeId !== 'default') {
+                const defaultDoc = await db.collection('universes').doc('default').get();
+                if (defaultDoc.exists) {
+                    defaultOverrides = defaultDoc.data().classOverrides || {};
+                }
+            }
+
+            const effectiveClasses = this.mergeClassOverridesForUniverse(
+                classTemplates,
+                universe.classOverrides || {},
+                defaultOverrides
+            );
+
+            return {
+                success: true,
+                data: {
+                    universe: { id: universeId, ...universe },
+                    classes: effectiveClasses
+                }
+            };
+        } catch (error) {
+            console.error('getUniverseClassConfiguration error:', error);
+            return { success: false, error: error.message };
+        }
+    },
     
     /**
      * Get all vocation templates
@@ -1625,6 +1726,7 @@ const API = {
                 allowedGenders: universeData.allowedGenders || [],
                 allowedSpecies: universeData.allowedSpecies || [],
                 allowedClasses: universeData.allowedClasses || [],
+                classOverrides: this.normalizeUniverseClassOverrides(universeData.classOverrides || {}),
                 allowedCareers: universeData.allowedCareers || [],
                 
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1689,6 +1791,9 @@ const API = {
                 ...updates,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
+            if (updateData.classOverrides !== undefined) {
+                updateData.classOverrides = this.normalizeUniverseClassOverrides(updateData.classOverrides);
+            }
             
             await db.collection('universes').doc(universeId).update(updateData);
             
@@ -2189,7 +2294,11 @@ const API = {
             const universe = universeDoc.data();
             const errors = [];
             
-            // Gender is always allowed (no restrictions)
+            if (universe.allowedGenders && universe.allowedGenders.length > 0) {
+                if (!universe.allowedGenders.includes(genderId)) {
+                    errors.push(`Gender "${genderId}" is not allowed in this universe`);
+                }
+            }
             
             // Check species
             if (universe.allowedSpecies && universe.allowedSpecies.length > 0) {
@@ -2202,6 +2311,13 @@ const API = {
             if (universe.allowedClasses && universe.allowedClasses.length > 0) {
                 if (!universe.allowedClasses.includes(classId)) {
                     errors.push(`Class "${classId}" is not allowed in this universe`);
+                }
+            }
+            const classConfigResult = await this.getUniverseClassConfiguration(universeId);
+            if (classConfigResult.success) {
+                const effectiveClass = (classConfigResult.data.classes || []).find(c => c.id === classId);
+                if (!effectiveClass || effectiveClass.enabled === false) {
+                    errors.push(`Class "${classId}" is disabled in this universe`);
                 }
             }
             
@@ -2240,6 +2356,18 @@ const API = {
             let allowedGenders = gendersResult.success ? gendersResult.data.genders : [];
             let allowedSpecies = speciesResult.success ? speciesResult.data.species : [];
             let allowedClasses = classesResult.success ? classesResult.data.classes : [];
+            let defaultClassOverrides = {};
+            if (universeId !== 'default') {
+                const defaultUniverseDoc = await db.collection('universes').doc('default').get();
+                if (defaultUniverseDoc.exists) {
+                    defaultClassOverrides = defaultUniverseDoc.data().classOverrides || {};
+                }
+            }
+            allowedClasses = this.mergeClassOverridesForUniverse(
+                allowedClasses,
+                universe.classOverrides || {},
+                defaultClassOverrides
+            );
             
             // Filter by universe allowed lists (empty array = allow all)
             if (universe.allowedGenders && universe.allowedGenders.length > 0) {
@@ -2253,6 +2381,7 @@ const API = {
             if (universe.allowedClasses && universe.allowedClasses.length > 0) {
                 allowedClasses = allowedClasses.filter(c => universe.allowedClasses.includes(c.id));
             }
+            allowedClasses = allowedClasses.filter(c => c.enabled !== false);
             
             return { 
                 success: true, 
@@ -2302,6 +2431,7 @@ const API = {
                     allowedGenders: [],  // Empty = allow all
                     allowedSpecies: [],  // Empty = allow all
                     allowedClasses: [],  // Empty = allow all
+                    classOverrides: {},
                     allowedCareers: [],  // Empty = allow all
                     
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
