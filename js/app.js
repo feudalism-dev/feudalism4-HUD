@@ -4105,6 +4105,7 @@ try {
         this.currentUniverseClassRows = allClasses;
         this.currentUniverseClassOverrides = { ...(this.currentUniverseData?.classOverrides || {}) };
         
+        this.initUniverseClassBuilderState(allClasses, this.currentUniverseData);
         this.renderUniverseClassBuilderRows(allClasses, this.currentUniverseData);
         
         // Bind universe selector
@@ -4118,6 +4119,7 @@ try {
                 const cfg = await API.getUniverseClassConfiguration(selectedUniverseId);
                 this.currentUniverseClassRows = cfg.success ? cfg.data.classes : [];
                 this.currentUniverseClassOverrides = { ...(selectedUniverse.classOverrides || {}) };
+                this.initUniverseClassBuilderState(this.currentUniverseClassRows, selectedUniverse);
                 this.renderUniverseClassBuilderRows(this.currentUniverseClassRows, selectedUniverse);
             }
         });
@@ -4138,6 +4140,7 @@ try {
                     const cfg = await API.getUniverseClassConfiguration(this.currentUniverseId);
                     this.currentUniverseClassRows = cfg.success ? cfg.data.classes : [];
                     this.currentUniverseClassOverrides = { ...(this.currentUniverseData.classOverrides || {}) };
+                    this.initUniverseClassBuilderState(this.currentUniverseClassRows, this.currentUniverseData);
                     this.renderUniverseClassBuilderRows(this.currentUniverseClassRows, this.currentUniverseData);
                 }
             } else {
@@ -4152,93 +4155,210 @@ try {
         }
     },
 
+    initUniverseClassBuilderState(allClasses, universeData) {
+        const allowedSet = new Set((universeData?.allowedClasses || []).map(id => String(id)));
+        const hasAllowlist = allowedSet.size > 0;
+        const draft = {};
+        allClasses.forEach((cls) => {
+            const prerequisites = Array.isArray(cls.prerequisites) ? [...cls.prerequisites] : [];
+            const tier = cls.tier || (prerequisites.length === 0 ? 'beginner' : 'advanced');
+            const enabled = hasAllowlist ? allowedSet.has(cls.id) : cls.enabled !== false;
+            draft[cls.id] = {
+                enabled,
+                tier: tier === 'beginner' ? 'beginner' : 'advanced',
+                prerequisites: tier === 'beginner' ? [] : prerequisites.filter(p => p && p !== cls.id)
+            };
+        });
+        this.universeClassBuilderDraft = draft;
+    },
+
+    formatUniverseClassPrereqSummary(classId, prerequisiteIds, allClasses) {
+        if (!prerequisiteIds || prerequisiteIds.length === 0) {
+            return '<span style="color:var(--text-muted);">None</span>';
+        }
+        const names = prerequisiteIds.map((id) => {
+            const c = allClasses.find(x => x.id === id);
+            return c ? (c.name || c.id) : id;
+        });
+        return names.join(', ');
+    },
+
+    openUniverseClassEditModal(classId) {
+        const allClasses = this.currentUniverseClassRows || [];
+        const cls = allClasses.find(c => c.id === classId);
+        if (!cls) return;
+        const draft = this.universeClassBuilderDraft?.[classId] || {
+            enabled: true,
+            tier: 'beginner',
+            prerequisites: []
+        };
+        const classOptions = allClasses
+            .filter(c => c.id !== classId)
+            .map(c => {
+                const selected = draft.prerequisites.includes(c.id);
+                return `<option value="${c.id}" ${selected ? 'selected' : ''}>${c.name || c.id}</option>`;
+            })
+            .join('');
+
+        const content = `
+            <h2 style="margin-bottom: var(--space-sm);">Edit Class: ${cls.name || cls.id}</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-md);">
+                Set tier and prerequisites for this class in the selected universe.
+            </p>
+            <div class="form-group">
+                <label for="universe-class-edit-tier">Tier</label>
+                <select id="universe-class-edit-tier" style="width: 100%; padding: var(--space-xs);">
+                    <option value="beginner" ${draft.tier === 'beginner' ? 'selected' : ''}>Beginner</option>
+                    <option value="advanced" ${draft.tier === 'advanced' ? 'selected' : ''}>Advanced</option>
+                </select>
+            </div>
+            <div class="form-group" id="universe-class-edit-prereq-group" style="${draft.tier === 'beginner' ? 'display:none;' : ''}">
+                <label for="universe-class-edit-prereqs">Prerequisites (hold Ctrl/Cmd to select multiple)</label>
+                <select id="universe-class-edit-prereqs" multiple size="8" style="width: 100%; padding: var(--space-xs); min-height: 140px;">
+                    ${classOptions}
+                </select>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-lg);">
+                <button type="button" class="btn btn-secondary" id="universe-class-edit-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="universe-class-edit-save">Apply</button>
+            </div>
+        `;
+        UI.showModal(content);
+
+        const tierEl = document.getElementById('universe-class-edit-tier');
+        const prereqGroup = document.getElementById('universe-class-edit-prereq-group');
+        const prereqEl = document.getElementById('universe-class-edit-prereqs');
+
+        tierEl?.addEventListener('change', () => {
+            const isBeginner = tierEl.value === 'beginner';
+            if (prereqGroup) {
+                prereqGroup.style.display = isBeginner ? 'none' : '';
+            }
+            if (isBeginner && prereqEl) {
+                Array.from(prereqEl.options).forEach(opt => { opt.selected = false; });
+            }
+        });
+
+        document.getElementById('universe-class-edit-cancel')?.addEventListener('click', () => {
+            UI.closeModal();
+        }, { once: true });
+
+        document.getElementById('universe-class-edit-save')?.addEventListener('click', () => {
+            const tier = tierEl?.value === 'beginner' ? 'beginner' : 'advanced';
+            let prerequisites = [];
+            if (tier === 'advanced' && prereqEl) {
+                prerequisites = Array.from(prereqEl.selectedOptions)
+                    .map(o => o.value)
+                    .filter(v => v && v !== classId);
+            }
+            if (!this.universeClassBuilderDraft) {
+                this.universeClassBuilderDraft = {};
+            }
+            const rowDraft = this.universeClassBuilderDraft[classId] || { enabled: true };
+            this.universeClassBuilderDraft[classId] = {
+                ...rowDraft,
+                tier,
+                prerequisites
+            };
+            UI.closeModal();
+            this.renderUniverseClassBuilderRows(allClasses, this.currentUniverseData);
+            UI.showToast('Class settings updated (click Save Changes to persist)', 'info');
+        }, { once: true });
+    },
+
     renderUniverseClassBuilderRows(allClasses, universeData) {
         const container = document.getElementById('universe-classes-builder');
         if (!container) return;
-        const allowedSet = new Set((universeData?.allowedClasses || []).map(id => String(id)));
-        const hasAllowlist = allowedSet.size > 0;
-        const classOptions = allClasses.map(c =>
-            `<option value="${c.id}">${c.name || c.id}</option>`
-        ).join('');
+        if (!this.universeClassBuilderDraft) {
+            this.initUniverseClassBuilderState(allClasses, universeData);
+        }
 
         const rows = allClasses
             .slice()
             .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
             .map((cls) => {
-                const prerequisites = Array.isArray(cls.prerequisites) ? cls.prerequisites : [];
-                const tier = cls.tier || (prerequisites.length === 0 ? 'beginner' : 'advanced');
-                const enabled = hasAllowlist ? allowedSet.has(cls.id) : cls.enabled !== false;
+                const draft = this.universeClassBuilderDraft[cls.id] || {
+                    enabled: true,
+                    tier: 'beginner',
+                    prerequisites: []
+                };
+                const tierLabel = draft.tier === 'beginner' ? 'Beginner' : 'Advanced';
+                const prereqSummary = this.formatUniverseClassPrereqSummary(
+                    cls.id,
+                    draft.prerequisites,
+                    allClasses
+                );
                 return `
                     <tr data-class-id="${cls.id}">
-                        <td><strong>${cls.name || cls.id}</strong><div style="font-size:0.8rem;color:var(--text-muted);">${cls.id}</div></td>
-                        <td style="text-align:center;"><input type="checkbox" class="universe-class-enabled" ${enabled ? 'checked' : ''}></td>
                         <td>
-                            <select class="universe-class-tier">
-                                <option value="beginner" ${tier === 'beginner' ? 'selected' : ''}>Beginner</option>
-                                <option value="advanced" ${tier === 'advanced' ? 'selected' : ''}>Advanced</option>
-                            </select>
+                            <strong>${cls.name || cls.id}</strong>
+                            <div style="font-size:0.8rem;color:var(--text-muted);">${cls.id}</div>
                         </td>
-                        <td>
-                            <select class="universe-class-prereqs" multiple size="4" style="width:100%;">
-                                ${classOptions}
-                            </select>
+                        <td style="text-align:center;">
+                            <input type="checkbox" class="universe-class-enabled" ${draft.enabled ? 'checked' : ''}>
+                        </td>
+                        <td>${tierLabel}</td>
+                        <td style="font-size:0.9rem;">${prereqSummary}</td>
+                        <td style="text-align:right;">
+                            <button type="button" class="btn btn-secondary universe-class-edit-btn" data-class-id="${cls.id}" style="padding:4px 10px;font-size:0.85rem;">Edit</button>
                         </td>
                     </tr>
                 `;
             }).join('');
 
         container.innerHTML = `
-            <div class="admin-table-container" style="overflow-x:auto;">
+            <div class="admin-table-container universe-classes-scroll" style="max-height: min(55vh, 480px); overflow-y: auto; overflow-x: auto; border: 1px solid var(--border-color); border-radius: 6px;">
                 <table class="admin-table" style="width:100%; border-collapse:collapse;">
                     <thead>
                         <tr>
                             <th>Class</th>
-                            <th>Enabled</th>
-                            <th>Tier</th>
-                            <th>Prerequisites (multi-select)</th>
+                            <th style="width:70px;">On</th>
+                            <th style="width:90px;">Tier</th>
+                            <th>Prerequisites</th>
+                            <th style="width:80px;"></th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
                 </table>
             </div>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: var(--space-xs);">
+                Use <strong>Edit</strong> per class to set tier and prerequisites. Scroll the list to see all classes.
+            </p>
         `;
 
-        container.querySelectorAll('tr[data-class-id]').forEach((row) => {
-            const classId = row.dataset.classId;
-            const cls = allClasses.find(c => c.id === classId);
-            const prereqSelect = row.querySelector('.universe-class-prereqs');
-            const prerequisites = Array.isArray(cls?.prerequisites) ? cls.prerequisites : [];
-            Array.from(prereqSelect.options).forEach(opt => {
-                if (opt.value === classId) {
-                    opt.disabled = true;
-                }
-                opt.selected = prerequisites.includes(opt.value);
+        container.querySelectorAll('.universe-class-enabled').forEach((checkbox) => {
+            checkbox.addEventListener('change', (e) => {
+                const row = e.target.closest('tr[data-class-id]');
+                const classId = row?.dataset.classId;
+                if (!classId || !this.universeClassBuilderDraft[classId]) return;
+                this.universeClassBuilderDraft[classId].enabled = e.target.checked;
             });
-            row.querySelector('.universe-class-tier')?.addEventListener('change', (e) => {
-                if (e.target.value === 'beginner') {
-                    Array.from(prereqSelect.options).forEach(opt => { opt.selected = false; });
+        });
+
+        container.querySelectorAll('.universe-class-edit-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const classId = btn.dataset.classId;
+                if (classId) {
+                    this.openUniverseClassEditModal(classId);
                 }
             });
         });
     },
 
     collectUniverseClassBuilderState() {
-        const rows = Array.from(document.querySelectorAll('#universe-classes-builder tr[data-class-id]'));
+        const draft = this.universeClassBuilderDraft || {};
+        const classIds = Object.keys(draft);
         let allowedClasses = [];
         const classOverrides = {};
-        rows.forEach((row) => {
-            const classId = row.dataset.classId;
-            const enabled = row.querySelector('.universe-class-enabled')?.checked === true;
-            const tier = row.querySelector('.universe-class-tier')?.value || 'advanced';
-            const prereqSelect = row.querySelector('.universe-class-prereqs');
-            let prerequisites = [];
-            if (prereqSelect) {
-                prerequisites = Array.from(prereqSelect.selectedOptions)
-                    .map(o => o.value)
-                    .filter(v => v && v !== classId);
-            }
+        classIds.forEach((classId) => {
+            const row = draft[classId];
+            const enabled = row.enabled === true;
+            const tier = row.tier === 'beginner' ? 'beginner' : 'advanced';
+            let prerequisites = Array.isArray(row.prerequisites) ? [...row.prerequisites] : [];
             if (tier === 'beginner') {
                 prerequisites = [];
+            } else {
+                prerequisites = prerequisites.filter(v => v && v !== classId);
             }
             if (enabled) {
                 allowedClasses.push(classId);
@@ -4249,7 +4369,7 @@ try {
                 prerequisites
             };
         });
-        if (allowedClasses.length === rows.length) {
+        if (classIds.length > 0 && allowedClasses.length === classIds.length) {
             allowedClasses = [];
         }
         return { allowedClasses, classOverrides };
