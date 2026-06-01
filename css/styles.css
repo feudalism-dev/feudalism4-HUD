@@ -987,6 +987,16 @@ input::placeholder {
     outline: 1px solid rgba(96, 165, 250, 0.5);
 }
 
+.step-guide-panel.creation-active .creation-nav-btn {
+    display: inline-block !important;
+}
+
+.step-guide-panel.creation-active #btn-creation-next {
+    min-width: 140px;
+    font-weight: 700;
+    box-shadow: 0 0 12px rgba(96, 165, 250, 0.45);
+}
+
 /* === Species/Class Detail Modal === */
 .species-detail {
     display: flex;

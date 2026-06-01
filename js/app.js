@@ -168,6 +168,7 @@ try {
         pendingChanges: {},
         isNewCharacter: false,
         creationInProgress: false,
+        lastAutoSaveMessage: '',
         dirty: false,  // UX 2: Track unsaved changes
         creationStepHints: {
             name: 'Enter your character\'s name and optional title, then click <strong>Next »</strong>. Use <strong>Save Progress</strong> anytime.',
@@ -853,8 +854,16 @@ try {
             el.style.display = 'none';
         });
 
-        if (backBtn) backBtn.style.display = inCreation ? 'inline-block' : 'none';
-        if (nextBtn) nextBtn.style.display = inCreation ? 'inline-block' : 'none';
+        const stepGuidePanel = document.querySelector('.step-guide-panel');
+        if (stepGuidePanel) {
+            stepGuidePanel.classList.toggle('creation-active', inCreation);
+        }
+        if (backBtn) {
+            backBtn.style.display = inCreation ? 'inline-block' : 'none';
+        }
+        if (nextBtn) {
+            nextBtn.style.display = inCreation ? 'inline-block' : 'none';
+        }
 
         if (!inCreation) {
             if (hintEl) hintEl.style.display = 'none';
@@ -1056,7 +1065,8 @@ try {
                 saveBtn.textContent = '💾 Save Character';
             }
         } else {
-            statusText.textContent = 'Saved';
+            const autoMsg = this.state.lastAutoSaveMessage;
+            statusText.textContent = autoMsg ? autoMsg : 'Saved';
             statusBadge.style.background = 'rgba(16, 185, 129, 0.3)';
             statusBadge.style.color = '#6ee7b7';
             statusBadge.style.border = 'none';
@@ -1064,6 +1074,9 @@ try {
                 saveBtn.disabled = true;
                 saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
+                saveBtn.title = autoMsg
+                    ? 'This change was already saved automatically'
+                    : 'No unsaved changes';
                 saveBtn.textContent = '💾 Save Character';
             }
         }
@@ -6879,6 +6892,7 @@ try {
             this.state.pendingChanges.title = value;
         }
         this.state.dirty = true;
+        this.state.lastAutoSaveMessage = '';
         this.updateStatusIndicator();
         this.updateStepGuide();
         UI.renderCharacterSummary(
@@ -7225,47 +7239,72 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
     const classTemplate = (App.state.filteredClasses || []).find(c => c.id === classId)
         || App.state.classes.find(c => c.id === classId);
     if (!classTemplate) return;
-    
-    // For new characters without a class, just set it directly
-    if (!App.state.character.class_id && App.state.isNewCharacter) {
+
+    if (classId === App.state.character.class_id) {
+        UI.showToast(`Already ${classTemplate.name}`, 'info', 1500);
+        return;
+    }
+
+    // Creation wizard: pick class locally, save via Save Progress / Finish (not changeClass)
+    if (App.isInCreationFlow()) {
         App.state.character.class_id = classId;
         App.state.character.stats_at_class_start = { ...App.state.character.stats };
         App.state.character.class_started_at = new Date().toISOString();
+        App.state.currentClass = classTemplate;
         App.state.pendingChanges.class_id = classId;
         App.state.pendingChanges.stats_at_class_start = { ...App.state.character.stats };
         App.state.pendingChanges.class_started_at = App.state.character.class_started_at;
-        
-        // Mark as dirty and update save button
         App.state.dirty = true;
         App.updateStatusIndicator();
-        
+        App.updateStepGuide();
         await App.renderAll();
-        UI.showToast(`Class selected: ${classTemplate.name}`, 'success', 1500);
+        UI.showToast(`Class selected: ${classTemplate.name} — save your progress`, 'success', 2500);
         return;
     }
     
-    // For existing characters, use the changeClass API for career tracking
+    // Existing character: changeClass saves immediately (career tracking + XP)
+    const characterId = App.state.character.id;
+    if (!characterId) {
+        App.state.character.class_id = classId;
+        App.state.currentClass = classTemplate;
+        App.state.pendingChanges.class_id = classId;
+        App.state.dirty = true;
+        App.updateStatusIndicator();
+        await App.renderAll();
+        UI.showToast(`Class selected: ${classTemplate.name}`, 'success');
+        return;
+    }
+
     try {
-        const characterId = App.state.character.id;
         const result = await API.changeClass(classId, classTemplate, isFreeAdvance, characterId);
         
         if (result.success) {
-            // Reload character to get updated career history
             const charResult = await API.getCharacterById(characterId);
             if (charResult.success) {
                 App.state.character = charResult.data.character;
             }
             App.state.currentClass = classTemplate;
             App.state.pendingChanges = {};
-            
+            App.state.dirty = false;
+            App.state.lastAutoSaveMessage = result.data.message || 'Class updated';
+            App.updateStatusIndicator();
             await App.renderAll();
-            UI.showToast(result.data.message, 'success', 2000);
+            UI.showToast((result.data.message || 'Class updated') + ' — saved to server', 'success', 3500);
         } else {
-            UI.showToast(result.error || 'Failed to change class', 'error');
+            App.state.character.class_id = classId;
+            App.state.currentClass = classTemplate;
+            App.state.pendingChanges.class_id = classId;
+            App.state.dirty = true;
+            App.updateStatusIndicator();
+            await App.renderAll();
+            UI.showToast((result.error || 'Could not switch class automatically') + '. Use Save Character.', 'warning', 4000);
         }
     } catch (error) {
         console.error('Class change error:', error);
-        UI.showToast('Error changing class', 'error');
+        App.state.pendingChanges.class_id = classId;
+        App.state.dirty = true;
+        App.updateStatusIndicator();
+        UI.showToast('Error changing class — try Save Character', 'error');
     }
 };
 
