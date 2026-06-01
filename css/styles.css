@@ -373,6 +373,17 @@ select:focus {
     box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.2);
 }
 
+/* MOAP: keep fields above decorative layers and interactive */
+#app input,
+#app textarea,
+#app select,
+.modal input,
+.modal textarea,
+.modal select {
+    position: relative;
+    z-index: 2;
+}
+
 input::placeholder {
     color: var(--text-muted);
     font-style: italic;

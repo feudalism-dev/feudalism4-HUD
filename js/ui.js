@@ -53,8 +53,78 @@ const UI = {
      * Initialize UI and cache DOM elements
      */
     init() {
+        this.installMoapInputFix();
+        this.cleanMoapUrlParams();
         this.cacheElements();
         this.bindEvents();
+    },
+
+    /**
+     * Second Life MOAP: stop the viewer from swallowing keys meant for form fields.
+     */
+    installMoapInputFix() {
+        if (window._moapInputFixInstalled) return;
+        window._moapInputFixInstalled = true;
+
+        var stopKeyBubble = function(e) {
+            var t = e.target;
+            if (!t || !t.tagName) return;
+            var tag = t.tagName.toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+                e.stopPropagation();
+            }
+        };
+        document.addEventListener('keydown', stopKeyBubble, true);
+        document.addEventListener('keypress', stopKeyBubble, true);
+        document.addEventListener('keyup', stopKeyBubble, true);
+
+        document.addEventListener('mousedown', function(e) {
+            var t = e.target;
+            if (!t || !t.tagName) return;
+            var tag = t.tagName.toLowerCase();
+            if ((tag === 'input' || tag === 'textarea') && typeof t.focus === 'function') {
+                t.focus();
+            }
+        }, true);
+    },
+
+    /**
+     * Remove huge/sync params from MOAP URL (replaceState with long URLs breaks SL typing).
+     */
+    cleanMoapUrlParams() {
+        try {
+            var url = new URL(window.location.href);
+            var changed = false;
+            ['char_data', 'char_data_ts', 'lsl_cmd', 'lsl_cmd_ts'].forEach(function(param) {
+                if (url.searchParams.has(param)) {
+                    url.searchParams.delete(param);
+                    changed = true;
+                }
+            });
+            if (changed && (!this.isFormFieldFocused || !this.isFormFieldFocused())) {
+                window.history.replaceState({}, '', url.toString());
+            }
+        } catch (e) {
+            console.warn('[MOAP] cleanMoapUrlParams failed:', e);
+        }
+    },
+
+    /**
+     * Push identity fields from character state (only on load/switch — not during renderAll).
+     */
+    populateIdentityForm(character, registrationCode) {
+        if (!character) return;
+        if (this.elements.charName) {
+            this.elements.charName.value = character.name || '';
+        }
+        if (this.elements.charTitle) {
+            this.elements.charTitle.value = character.title || '';
+        }
+        var regInput = document.getElementById('universe-registration-code');
+        if (regInput && registrationCode !== undefined) {
+            regInput.value = registrationCode || '';
+        }
+        this.selectGender(character.gender || 'unspecified');
     },
     
     /**

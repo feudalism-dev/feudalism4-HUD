@@ -259,6 +259,12 @@ try {
         this.lsl.channel = API.hudChannel;
         this.lsl.connected = !!API.uuid;
         
+        // MOAP: keyboard + short URL (must run before heavy render / URL sync)
+        if (typeof UI !== 'undefined') {
+            if (UI.installMoapInputFix) UI.installMoapInputFix();
+            if (UI.cleanMoapUrlParams) UI.cleanMoapUrlParams();
+        }
+        
         // Setup "Open in Browser" link
         this.setupOpenInBrowserLink();
         
@@ -291,68 +297,10 @@ try {
         await this.loadData();
         DebugLog.log('loadData() completed', 'debug');
         
-        // If LSL requested data, ensure we broadcast it (even if character was already loaded)
-        if (requestData === '1') {
-            if (this.state.character) {
-                console.log('[Players HUD] Character found - broadcasting character data in response to LSL request');
-                this.scheduleBroadcastToPlayersHUD(this.state.character);
-                
-                        // Update URL with character data so LSL can read it
-                        // Use replaceState to avoid reload, then LSL will poll and see the updated URL
-                        setTimeout(() => {
-                            try {
-                                const stats = this.state.character.stats || {};
-                                const statsList = [
-                                    stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
-                                    stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
-                                    stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
-                                    stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
-                                    stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
-                                    stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
-                                    stats.will || 2, stats.wisdom || 2
-                                ];
-                                // Get class_id - check both character.class_id and currentClass.id
-                                let classId = this.state.character.class_id || "";
-                                if (!classId && this.state.currentClass) {
-                                    classId = this.state.currentClass.id || "";
-                                    console.log('[Players HUD] Using currentClass.id as fallback: ' + classId);
-                                }
-                                if (!classId) {
-                                    console.warn('[Players HUD] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-                                } else {
-                                    console.log('[Players HUD] Including class in JSON: ' + classId);
-                                }
-                                
-                                // Build character data as JSON object
-                                const characterJSON = {
-                                    class_id: classId,
-                                    stats: this.state.character.stats || {},
-                                    health: this.state.character.health || { current: 0, base: 0, max: 0 },
-                                    stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
-                                    mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
-                                    xp_total: this.state.character.xp_total || 0,
-                                    has_mana: this.state.character.has_mana || false,
-                                    species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
-                                };
-                                
-                                // Convert to JSON string and encode for URL
-                                const jsonString = JSON.stringify(characterJSON);
-                                const currentUrl = new URL(window.location.href);
-                                const encodedData = encodeURIComponent(jsonString);
-                                currentUrl.searchParams.set('char_data', encodedData);
-                                currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                                
-                                // Update URL without reloading - LSL will poll and see this
-                                window.history.replaceState({}, '', currentUrl.toString());
-                                console.log('[Players HUD] Updated URL with character data as JSON (length: ' + jsonString.length + ')');
-                                console.log('[Players HUD] Character data in URL: ' + encodedData.substring(0, 100) + '...');
-                            } catch (e) {
-                                console.error('[Players HUD] Failed to update URL with character data:', e);
-                            }
-                        }, 1000);  // Wait 1 second for character to be fully loaded
-            } else {
-                console.log('[Players HUD] No character found - cannot send character data to LSL');
-            }
+        // If LSL requested data, sync when safe (debounced; no inline URL replaceState)
+        if (requestData === '1' && this.state.character) {
+            console.log('[Players HUD] Character found - scheduling broadcast for LSL');
+            this.scheduleBroadcastToPlayersHUD(this.state.character);
         }
         
         // Setup event handlers
@@ -550,6 +498,10 @@ try {
                             
                             // Recalculate resource pools to ensure they're correct
                             this.recalculateResourcePools();
+                            
+                            if (UI.populateIdentityForm) {
+                                UI.populateIdentityForm(this.state.character, this.state.pendingRegistrationCode);
+                            }
                             
                             console.log('Character loaded:', this.state.character);
                             
@@ -755,6 +707,10 @@ try {
                 }
 
                 await this.applyUniverseIdentityDefaults({ force: true });
+                
+                if (UI.populateIdentityForm) {
+                    UI.populateIdentityForm(this.state.character, registrationCode);
+                }
                 
                 // Update character selector with temp option
                 this.updateCharacterSelectorWithTemp();
@@ -1721,16 +1677,9 @@ try {
             btn.classList.toggle('active', btn.dataset.mode === currentMode);
         });
         
-        // Update form fields (never overwrite the field the user is typing in)
+        // Identity form fields: only via UI.populateIdentityForm on load/switch (not here — breaks MOAP typing)
+
         if (char) {
-            UI.syncFormField(UI.elements.charName, char.name || '');
-            UI.syncFormField(UI.elements.charTitle, char.title || '');
-            UI.syncFormField(
-                document.getElementById('universe-registration-code'),
-                this.state.pendingRegistrationCode || ''
-            );
-            UI.selectGender(char.gender || 'unspecified');
-            
             // Handle currency - can be object {gold, silver, copper} or number (legacy)
             let currencyDisplay = '0';
             if (char.currency) {
@@ -2347,6 +2296,22 @@ try {
     },
     
     /**
+     * history.replaceState breaks keyboard input in SL MOAP while a field is focused.
+     */
+    safeHistoryReplaceState(urlString) {
+        if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+            return false;
+        }
+        try {
+            window.history.replaceState({}, '', urlString);
+            return true;
+        } catch (e) {
+            console.warn('[MOAP] safeHistoryReplaceState failed:', e);
+            return false;
+        }
+    },
+    
+    /**
      * Send message to LSL via channel
      * Since JavaScript can't use llRegionSay directly, we use a workaround:
      * Update the URL with the command, and LSL will poll for it
@@ -2373,9 +2338,11 @@ try {
             currentUrl.searchParams.set('lsl_cmd', encodedCmd);
             currentUrl.searchParams.set('lsl_cmd_ts', Date.now().toString());
             
-            // Update URL without reloading
-            window.history.replaceState({}, '', currentUrl.toString());
-            console.log('[LSL] Command stored in URL:', command);
+            if (!this.safeHistoryReplaceState(currentUrl.toString())) {
+                console.log('[LSL] Command deferred (form field focused):', command);
+            } else {
+                console.log('[LSL] Command stored in URL:', command);
+            }
         } catch (e) {
             console.error('[LSL] Failed to store command in URL:', e);
         }
@@ -2660,8 +2627,9 @@ try {
                         const encodedData = encodeURIComponent(jsonString);
                         currentUrl.searchParams.set('char_data', encodedData);
                         currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                        window.history.replaceState({}, '', currentUrl.toString());
-                        console.log('[Save] Updated CHARACTER_DATA in URL as JSON with class: ' + classId);
+                        if (this.safeHistoryReplaceState(currentUrl.toString())) {
+                            console.log('[Save] Updated CHARACTER_DATA in URL as JSON with class: ' + classId);
+                        }
                     }
                 }, 500);
             }
@@ -6725,6 +6693,11 @@ try {
             return; // No character or no channel available
         }
         
+        if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+            this.scheduleBroadcastToPlayersHUD(character);
+            return;
+        }
+        
         // Build character data as JSON object
         // Get class_id - check both character.class_id and currentClass.id
         let classId = character.class_id || "";
@@ -6763,18 +6736,10 @@ try {
             currentUrl.searchParams.set('char_data', encodedData);
             currentUrl.searchParams.set('char_data_ts', Date.now().toString());
             
-            // Update URL - this will be detected by LSL polling
-            window.history.replaceState({}, '', currentUrl.toString());
-            console.log('[Players HUD Sync] Character data encoded as JSON in URL for LSL to read');
-            
-            // Also try to send via llRegionSay if available (some MOAP implementations expose this)
-            if (window.llRegionSay && typeof window.llRegionSay === 'function') {
-                try {
-                    window.llRegionSay(this.lsl.channel, message);
-                    console.log('[Players HUD Sync] Character data sent via llRegionSay');
-                } catch (e) {
-                    console.log('[Players HUD Sync] llRegionSay not available, using URL polling only');
-                }
+            if (this.safeHistoryReplaceState(currentUrl.toString())) {
+                console.log('[Players HUD Sync] Character data encoded in URL for LSL to read');
+            } else {
+                console.log('[Players HUD Sync] URL sync skipped — form field focused');
             }
         } catch (e) {
             console.log('[Players HUD Sync] URL update failed:', e);
