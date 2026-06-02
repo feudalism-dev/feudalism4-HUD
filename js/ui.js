@@ -1835,12 +1835,25 @@ const UI = {
             
             // Get consumable data from master registry to display name and icon
             // For now, use the buff ID as name
-            const buffName = buff.id || 'Unknown Buff';
-            const effectDesc = `${buff.effect_type}: ${buff.effect_value > 0 ? '+' : ''}${buff.effect_value}`;
+            const buffName = buff.name || buff.id || 'Unknown';
+            const parts = [];
+            if (buff.effect_health) parts.push(`HP ${buff.effect_health > 0 ? '+' : ''}${buff.effect_health}`);
+            if (buff.effect_stamina) parts.push(`STA ${buff.effect_stamina > 0 ? '+' : ''}${buff.effect_stamina}`);
+            if (buff.effect_mana) parts.push(`MP ${buff.effect_mana > 0 ? '+' : ''}${buff.effect_mana}`);
+            let effectDesc = parts.length
+                ? parts.join(', ')
+                : `${buff.effect_type || buff.effect_category || 'effect'}: ${buff.effect_value > 0 ? '+' : ''}${buff.effect_value || 0}`;
+            if (buff.effect_category || buff.effect_type) {
+                effectDesc = (buff.effect_category || buff.effect_type) + ' — ' + effectDesc;
+            }
+            const iconFile = buff.icon ? buff.icon.replace(/\.(png|jpg|jpeg|webp)$/i, '') : '';
+            const iconHtml = iconFile
+                ? `<img src="images/${iconFile}.png" alt="" class="buff-icon-img" onerror="this.style.display='none'">`
+                : '<div class="buff-icon">✨</div>';
             
             html += `
                 <div class="buff-item">
-                    <div class="buff-icon">✨</div>
+                    ${iconHtml}
                     <div class="buff-info">
                         <div class="buff-name">${this.escapeHtml(buffName)}</div>
                         <div class="buff-effect">${this.escapeHtml(effectDesc)}</div>

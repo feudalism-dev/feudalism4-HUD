@@ -3180,7 +3180,7 @@ try {
                             <tr>
                                 <th>Name</th>
                                 <th>Effect</th>
-                                <th>Duration</th>
+                                <th>Timing</th>
                                 <th>Stackable</th>
                                 <th>RP Only</th>
                                 <th>Status</th>
@@ -3200,8 +3200,9 @@ try {
                 `;
             } else {
                 consumables.forEach(consumable => {
-                    const effectDesc = `${consumable.effect_type}: ${consumable.effect_value}`;
-                    const durationDesc = consumable.duration_seconds === 0 ? 'Instant' : `${consumable.duration_seconds}s`;
+                    const effectDesc = API.formatConsumableEffectsSummary(consumable);
+                    const durationDesc = (consumable.delay_seconds ? `${consumable.delay_seconds}s delay → ` : '')
+                        + (consumable.duration_seconds ? `${consumable.duration_seconds}s` : 'instant');
                     html += `
                         <tr>
                             <td>${consumable.name || consumable.id}</td>
@@ -3294,6 +3295,9 @@ try {
         const adminContent = UI.elements.adminContent;
         if (!adminContent) return;
         
+        if (consumable) {
+            consumable = API.normalizeConsumableData(consumable.id, consumable);
+        }
         const isEdit = consumable !== null;
         const slug = consumable?.id || '';
         
@@ -3316,32 +3320,52 @@ try {
                     <textarea id="consumable-description" rows="3" placeholder="Restores health...">${consumable?.description || ''}</textarea>
                 </div>
                 <div class="form-group">
-                    <label for="consumable-icon">Icon (HUD asset name)</label>
-                    <input type="text" id="consumable-icon" value="${consumable?.icon || ''}" placeholder="health_potion.png">
+                    <label for="consumable-icon">Icon filename (optional)</label>
+                    <input type="text" id="consumable-icon" value="${consumable?.icon || ''}" placeholder="aged_red_wine.png">
+                    <small>Image file name for gameplay HUD / buff list (under MOAP images). Leave blank for default icon.</small>
                 </div>
                 <div class="form-group">
-                    <label for="consumable-duration">Duration (seconds) *</label>
-                    <input type="number" id="consumable-duration" value="${consumable?.duration_seconds || 0}" min="0" required>
-                    <small>0 = instant effect</small>
-                </div>
-                <div class="form-group">
-                    <label for="consumable-effect-type">Effect Type *</label>
-                    <select id="consumable-effect-type" required>
-                        <option value="heal" ${consumable?.effect_type === 'heal' ? 'selected' : ''}>Heal</option>
-                        <option value="stamina" ${consumable?.effect_type === 'stamina' ? 'selected' : ''}>Stamina</option>
-                        <option value="mana" ${consumable?.effect_type === 'mana' ? 'selected' : ''}>Mana</option>
-                        <option value="buff" ${consumable?.effect_type === 'buff' ? 'selected' : ''}>Buff</option>
+                    <label for="consumable-effect-category">Effect category *</label>
+                    <select id="consumable-effect-category" required>
+                        <option value="healing" ${(consumable?.effect_category || consumable?.effect_type) === 'healing' || consumable?.effect_type === 'heal' ? 'selected' : ''}>Healing</option>
+                        <option value="poison" ${consumable?.effect_category === 'poison' ? 'selected' : ''}>Poison</option>
+                        <option value="alcohol" ${consumable?.effect_category === 'alcohol' ? 'selected' : ''}>Alcohol</option>
+                        <option value="intoxicant" ${consumable?.effect_category === 'intoxicant' ? 'selected' : ''}>Intoxicant</option>
                     </select>
+                    <small>RP label only (healing, poison, alcohol, intoxicant). Does not limit which resources you can change.</small>
+                </div>
+                <fieldset style="border: 1px solid var(--border-color); padding: var(--space-md); margin-bottom: var(--space-md); border-radius: 4px;">
+                    <legend style="padding: 0 var(--space-xs);">Resource changes (applied once after delay)</legend>
+                    <div class="form-group">
+                        <label for="consumable-effect-health">Health</label>
+                        <input type="number" id="consumable-effect-health" value="${consumable?.effect_health ?? consumable?.effect_value ?? 0}">
+                        <small>Negative = damage. Example wine: -2</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="consumable-effect-stamina">Stamina</label>
+                        <input type="number" id="consumable-effect-stamina" value="${consumable?.effect_stamina ?? 0}">
+                    </div>
+                    <div class="form-group">
+                        <label for="consumable-effect-mana">Mana</label>
+                        <input type="number" id="consumable-effect-mana" value="${consumable?.effect_mana ?? 0}">
+                    </div>
+                </fieldset>
+                <div class="form-group">
+                    <label for="consumable-delay">Delay (seconds)</label>
+                    <input type="number" id="consumable-delay" value="${consumable?.delay_seconds ?? 0}" min="0" required>
+                    <small>Time after drinking before health/stamina/mana change applies (0 = immediate).</small>
                 </div>
                 <div class="form-group">
-                    <label for="consumable-effect-value">Effect Value *</label>
-                    <input type="number" id="consumable-effect-value" value="${consumable?.effect_value || 0}" required>
+                    <label for="consumable-duration">Duration (seconds)</label>
+                    <input type="number" id="consumable-duration" value="${consumable?.duration_seconds ?? 0}" min="0" required>
+                    <small>How long the effect stays active on the buff bar after it applies (0 = instant, no buff icon).</small>
                 </div>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="consumable-stackable" ${consumable?.stackable ? 'checked' : ''}>
-                        Stackable
+                        Stackable effects
                     </label>
+                    <small>If checked, drinking again while an effect is active adds another application (e.g. second wine stacks penalties). Unchecked replaces the existing effect for this item.</small>
                 </div>
                 <div class="form-group" id="max-stack-group" style="${consumable?.stackable ? '' : 'display: none;'}">
                     <label for="consumable-max-stack">Max Stack *</label>
@@ -3387,16 +3411,19 @@ try {
             const name = document.getElementById('consumable-name').value.trim();
             const description = document.getElementById('consumable-description').value.trim();
             const icon = document.getElementById('consumable-icon').value.trim();
+            const delaySeconds = parseInt(document.getElementById('consumable-delay').value) || 0;
             const duration = parseInt(document.getElementById('consumable-duration').value) || 0;
-            const effectType = document.getElementById('consumable-effect-type').value;
-            const effectValue = parseInt(document.getElementById('consumable-effect-value').value) || 0;
+            const effectCategory = document.getElementById('consumable-effect-category').value;
+            const effectHealth = parseInt(document.getElementById('consumable-effect-health').value) || 0;
+            const effectStamina = parseInt(document.getElementById('consumable-effect-stamina').value) || 0;
+            const effectMana = parseInt(document.getElementById('consumable-effect-mana').value) || 0;
             const stackable = document.getElementById('consumable-stackable').checked;
             const maxStack = stackable ? (parseInt(document.getElementById('consumable-max-stack').value) || 1) : 1;
             const rpOnly = document.getElementById('consumable-rp-only').checked;
             const disabled = document.getElementById('consumable-disabled').checked;
             
             // Validation
-            if (!name || duration < 0 || maxStack < 1 || (stackable && maxStack < 1)) {
+            if (!name || delaySeconds < 0 || duration < 0 || maxStack < 1 || (stackable && maxStack < 1)) {
                 UI.showToast('Please fill in all required fields correctly', 'warning');
                 return;
             }
@@ -3408,9 +3435,14 @@ try {
                         name,
                         description,
                         icon,
+                        effect_category: effectCategory,
+                        effect_health: effectHealth,
+                        effect_stamina: effectStamina,
+                        effect_mana: effectMana,
+                        delay_seconds: delaySeconds,
                         duration_seconds: duration,
-                        effect_type: effectType,
-                        effect_value: effectValue,
+                        effect_type: effectCategory,
+                        effect_value: effectHealth || effectStamina || effectMana,
                         stackable,
                         max_stack: maxStack,
                         rp_only: rpOnly,
@@ -3422,9 +3454,14 @@ try {
                         name,
                         description,
                         icon,
+                        effect_category: effectCategory,
+                        effect_health: effectHealth,
+                        effect_stamina: effectStamina,
+                        effect_mana: effectMana,
+                        delay_seconds: delaySeconds,
                         duration_seconds: duration,
-                        effect_type: effectType,
-                        effect_value: effectValue,
+                        effect_type: effectCategory,
+                        effect_value: effectHealth || effectStamina || effectMana,
                         stackable,
                         max_stack: maxStack,
                         rp_only: rpOnly,

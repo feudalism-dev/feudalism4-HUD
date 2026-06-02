@@ -2722,6 +2722,50 @@ const API = {
     },
     
     // =========================== CONSUMABLES API ===========================
+
+  /**
+   * Normalize consumable document (legacy effect_type/value → category + per-resource amounts).
+   */
+  normalizeConsumableData(id, data) {
+    const raw = { id, ...data };
+    const legacyType = (raw.effect_type || '').toLowerCase();
+    let category = (raw.effect_category || '').toLowerCase();
+    if (!['healing', 'poison', 'alcohol', 'intoxicant'].includes(category)) {
+      const map = { heal: 'healing', healing: 'healing', poison: 'poison', alcohol: 'alcohol', intoxicant: 'intoxicant' };
+      category = map[legacyType] || 'healing';
+    }
+    let effect_health = raw.effect_health;
+    let effect_stamina = raw.effect_stamina;
+    let effect_mana = raw.effect_mana;
+    if (effect_health === undefined && effect_stamina === undefined && effect_mana === undefined) {
+      const v = raw.effect_value || 0;
+      if (legacyType === 'heal') effect_health = v;
+      else if (legacyType === 'stamina') effect_stamina = v;
+      else if (legacyType === 'mana') effect_mana = v;
+    }
+    return {
+      ...raw,
+      effect_category: category,
+      effect_health: effect_health ?? 0,
+      effect_stamina: effect_stamina ?? 0,
+      effect_mana: effect_mana ?? 0,
+      delay_seconds: raw.delay_seconds ?? 0,
+      duration_seconds: raw.duration_seconds ?? 0,
+      stackable: !!raw.stackable,
+      max_stack: raw.stackable ? (raw.max_stack || 1) : 1
+    };
+  },
+
+  formatConsumableEffectsSummary(c) {
+    const parts = [];
+    if (c.effect_health) parts.push(`HP ${c.effect_health > 0 ? '+' : ''}${c.effect_health}`);
+    if (c.effect_stamina) parts.push(`STA ${c.effect_stamina > 0 ? '+' : ''}${c.effect_stamina}`);
+    if (c.effect_mana) parts.push(`MP ${c.effect_mana > 0 ? '+' : ''}${c.effect_mana}`);
+    const amounts = parts.length ? parts.join(', ') : 'none';
+    const delay = c.delay_seconds ? `${c.delay_seconds}s delay` : 'instant';
+    const dur = c.duration_seconds ? `${c.duration_seconds}s` : 'instant';
+    return `${c.effect_category || 'healing'} — ${amounts} (${delay}, lasts ${dur})`;
+  },
     
     /**
      * Get all consumables from master registry
@@ -2735,10 +2779,7 @@ const API = {
             
             const consumables = [];
             snapshot.forEach(doc => {
-                consumables.push({
-                    id: doc.id,
-                    ...doc.data()
-                });
+                consumables.push(this.normalizeConsumableData(doc.id, doc.data()));
             });
             
             return { success: true, data: { consumables } };
@@ -2759,13 +2800,20 @@ const API = {
                 name: consumableData.name,
                 description: consumableData.description || '',
                 icon: consumableData.icon || '',
-                duration_seconds: consumableData.duration_seconds || 0,
-                effect_type: consumableData.effect_type || 'heal',
-                effect_value: consumableData.effect_value || 0,
+                effect_category: consumableData.effect_category || 'healing',
+                effect_health: consumableData.effect_health ?? 0,
+                effect_stamina: consumableData.effect_stamina ?? 0,
+                effect_mana: consumableData.effect_mana ?? 0,
+                delay_seconds: consumableData.delay_seconds ?? 0,
+                duration_seconds: consumableData.duration_seconds ?? 0,
                 stackable: consumableData.stackable || false,
                 max_stack: consumableData.stackable ? (consumableData.max_stack || 1) : 1,
                 rp_only: consumableData.rp_only || false,
-                disabled: consumableData.disabled || false
+                disabled: consumableData.disabled || false,
+                effect_type: consumableData.effect_type || consumableData.effect_category || 'healing',
+                effect_value: consumableData.effect_value ?? (
+                    consumableData.effect_health || consumableData.effect_stamina || consumableData.effect_mana || 0
+                )
             };
             
             await db.collection('feud4').doc('consumables')
@@ -2789,6 +2837,11 @@ const API = {
             if (consumableData.description !== undefined) updateData.description = consumableData.description;
             if (consumableData.icon !== undefined) updateData.icon = consumableData.icon;
             if (consumableData.duration_seconds !== undefined) updateData.duration_seconds = consumableData.duration_seconds;
+            if (consumableData.delay_seconds !== undefined) updateData.delay_seconds = consumableData.delay_seconds;
+            if (consumableData.effect_category !== undefined) updateData.effect_category = consumableData.effect_category;
+            if (consumableData.effect_health !== undefined) updateData.effect_health = consumableData.effect_health;
+            if (consumableData.effect_stamina !== undefined) updateData.effect_stamina = consumableData.effect_stamina;
+            if (consumableData.effect_mana !== undefined) updateData.effect_mana = consumableData.effect_mana;
             if (consumableData.effect_type !== undefined) updateData.effect_type = consumableData.effect_type;
             if (consumableData.effect_value !== undefined) updateData.effect_value = consumableData.effect_value;
             if (consumableData.stackable !== undefined) {
@@ -2871,12 +2924,19 @@ const API = {
                 
                 // Only include non-expired buffs
                 if (expiresAt && expiresAt > now) {
-                    buffs.push({
-                        id: doc.id,
+                    buffs.push(this.normalizeConsumableData(doc.id, {
+                        name: data.name || doc.id,
+                        icon: data.icon || '',
+                        effect_category: data.effect_category,
                         effect_type: data.effect_type,
                         effect_value: data.effect_value,
+                        effect_health: data.effect_health,
+                        effect_stamina: data.effect_stamina,
+                        effect_mana: data.effect_mana,
+                        delay_seconds: data.delay_seconds,
+                        duration_seconds: data.duration_seconds,
                         expires_at: expiresAt
-                    });
+                    }));
                 }
             });
             
@@ -2908,12 +2968,19 @@ const API = {
                     
                     // Only include non-expired buffs
                     if (expiresAt && expiresAt > now) {
-                        buffs.push({
-                            id: doc.id,
+                        buffs.push(this.normalizeConsumableData(doc.id, {
+                            name: data.name || doc.id,
+                            icon: data.icon || '',
+                            effect_category: data.effect_category,
                             effect_type: data.effect_type,
                             effect_value: data.effect_value,
+                            effect_health: data.effect_health,
+                            effect_stamina: data.effect_stamina,
+                            effect_mana: data.effect_mana,
+                            delay_seconds: data.delay_seconds,
+                            duration_seconds: data.duration_seconds,
                             expires_at: expiresAt
-                        });
+                        }));
                     }
                 });
                 
