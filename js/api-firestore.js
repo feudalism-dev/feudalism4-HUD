@@ -786,6 +786,16 @@ const API = {
             }
             
             const character = charResult.data.character;
+            const universeId = character.universe_id || 'default';
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            const universe = universeDoc.exists ? universeDoc.data() : null;
+            const classesResult = await this.getClasses();
+            const allClasses = classesResult.success ? (classesResult.data.classes || []) : [];
+            const canChange = this.canChangeToClass(character, classData, allClasses, { universe });
+            if (!canChange.canChange) {
+                return { success: false, error: canChange.reason || 'Cannot change to this class' };
+            }
+
             const currentClassId = character.class_id;
             // Support multiple prerequisites (array format)
             const prerequisites = Array.isArray(classData.prerequisites) ? classData.prerequisites : [];
@@ -874,12 +884,24 @@ const API = {
     },
     
     /**
+     * Whether this universe enforces class stat_minimums (default: true).
+     * @param {object|null} universe - Universe document data
+     */
+    enforceClassStatMinimums(universe) {
+        if (!universe) {
+            return true;
+        }
+        return universe.enforceClassStatMinimums !== false;
+    },
+
+    /**
      * Check if character can change to a class
      * @param {object} character - Character data
      * @param {object} classData - Class template data
      * @param {Array} allClasses - All class templates
+     * @param {object} options - { enforceStatMinimums?: boolean, universe?: object }
      */
-    canChangeToClass(character, classData, allClasses = []) {
+    canChangeToClass(character, classData, allClasses = [], options = {}) {
         const result = {
             canChange: false,
             isFreeAdvance: false,
@@ -914,8 +936,12 @@ const API = {
             }
         }
         
+        const enforceStatMinimums = options.enforceStatMinimums !== undefined
+            ? options.enforceStatMinimums
+            : this.enforceClassStatMinimums(options.universe);
+
         // Check minimum stat requirements
-        if (classData.stat_minimums) {
+        if (enforceStatMinimums && classData.stat_minimums) {
             const stats = character.stats || {};
             const missingStats = [];
             
@@ -1810,6 +1836,7 @@ const API = {
                 allowedSpecies: universeData.allowedSpecies || [],
                 allowedClasses: universeData.allowedClasses || [],
                 classOverrides: this.normalizeUniverseClassOverrides(universeData.classOverrides || {}),
+                enforceClassStatMinimums: universeData.enforceClassStatMinimums !== false,
                 allowedCareers: universeData.allowedCareers || [],
                 
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2487,7 +2514,8 @@ const API = {
                 data: { 
                     genders: allowedGenders,
                     species: allowedSpecies,
-                    classes: allowedClasses
+                    classes: allowedClasses,
+                    enforceClassStatMinimums: this.enforceClassStatMinimums(universe)
                 } 
             };
         } catch (error) {
@@ -2531,6 +2559,7 @@ const API = {
                     allowedSpecies: [],  // Empty = allow all
                     allowedClasses: [],  // Empty = allow all
                     classOverrides: {},
+                    enforceClassStatMinimums: true,
                     allowedCareers: [],  // Empty = allow all
                     
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),

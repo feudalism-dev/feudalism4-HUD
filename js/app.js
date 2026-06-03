@@ -156,6 +156,7 @@ try {
         species: [],
         classes: [],
         filteredClasses: [],
+        enforceClassStatMinimums: true,
         vocations: [],
         genders: [],
         currentSpecies: null,
@@ -1541,14 +1542,16 @@ try {
                 universeId,
                 genders: result.data.genders,
                 species: result.data.species,
-                classes: result.data.classes
+                classes: result.data.classes,
+                enforceClassStatMinimums: result.data.enforceClassStatMinimums !== false
             };
         }
         return {
             universeId,
             genders: this.state.genders,
             species: this.state.species,
-            classes: this.state.classes
+            classes: this.state.classes,
+            enforceClassStatMinimums: API.enforceClassStatMinimums(this.state.currentUniverse)
         };
     },
 
@@ -1566,12 +1569,24 @@ try {
             'witch', 'wizard'
         ];
         const hasMana = character?.has_mana === true;
+        const enforceStatMins = this.state.enforceClassStatMinimums !== false;
+        const allClasses = classes;
+        const classOptions = {
+            enforceStatMinimums: enforceStatMins,
+            universe: this.state.currentUniverse
+        };
         const beginner = classes.filter(cls => {
             if (manaRequiredClasses.includes(cls.id) && !hasMana) {
                 return false;
             }
             const prerequisites = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
-            return prerequisites.length === 0;
+            if (prerequisites.length !== 0) {
+                return false;
+            }
+            if (character && typeof API !== 'undefined' && API.canChangeToClass) {
+                return API.canChangeToClass(character, cls, allClasses, classOptions).canChange;
+            }
+            return true;
         });
         if (beginner.length > 0) {
             return beginner[0].id;
@@ -1752,6 +1767,7 @@ try {
                     filteredGenders = filteredResult.data.genders;
                     filteredSpecies = filteredResult.data.species;
                     filteredClasses = filteredResult.data.classes;
+                    this.state.enforceClassStatMinimums = filteredResult.data.enforceClassStatMinimums !== false;
                 } else {
                     filteredGenders = this.state.genders;
                     filteredSpecies = this.state.species;
@@ -4360,13 +4376,28 @@ try {
                 ${typeof window !== 'undefined' && window.HUD_BUILD_LABEL ? `(UI: ${window.HUD_BUILD_LABEL})` : ''}
             </p>
             
+            <div class="panel" style="padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-md);">
+                <label style="display: flex; align-items: flex-start; gap: var(--space-sm); cursor: pointer;">
+                    <input type="checkbox" id="universe-enforce-class-stat-mins"
+                        ${universe?.enforceClassStatMinimums !== false ? 'checked' : ''}
+                        style="margin-top: 3px;">
+                    <span>
+                        <strong>Enforce class stat minimums</strong>
+                        <span style="display: block; color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">
+                            When unchecked, players in this universe may select any allowed class without meeting
+                            minimum stat requirements (Setup HUD and class changes).
+                        </span>
+                    </span>
+                </label>
+            </div>
+
             <div id="universe-classes-builder"></div>
-            
+
             <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
                 <button class="btn btn-primary" id="btn-save-classes">Save Changes</button>
             </div>
         `;
-        
+
         container.innerHTML = html;
         this.currentUniverseClassRows = allClasses;
         this.currentUniverseClassOverrides = { ...(this.currentUniverseData?.classOverrides || {}) };
@@ -4387,15 +4418,21 @@ try {
                 this.currentUniverseClassOverrides = { ...(selectedUniverse.classOverrides || {}) };
                 this.initUniverseClassBuilderState(this.currentUniverseClassRows, selectedUniverse);
                 this.renderUniverseClassBuilderRows(this.currentUniverseClassRows, selectedUniverse);
+                const enforceCheckbox = document.getElementById('universe-enforce-class-stat-mins');
+                if (enforceCheckbox) {
+                    enforceCheckbox.checked = selectedUniverse.enforceClassStatMinimums !== false;
+                }
             }
         });
-        
+
         // Bind save button
         document.getElementById('btn-save-classes')?.addEventListener('click', async () => {
             const classConfig = this.collectUniverseClassBuilderState();
+            const enforceEl = document.getElementById('universe-enforce-class-stat-mins');
             const result = await API.updateUniverse(this.currentUniverseId, {
                 allowedClasses: classConfig.allowedClasses,
-                classOverrides: classConfig.classOverrides
+                classOverrides: classConfig.classOverrides,
+                enforceClassStatMinimums: enforceEl ? enforceEl.checked : true
             });
             if (result.success) {
                 UI.showToast('Classes updated!', 'success');
@@ -5032,6 +5069,7 @@ try {
                 allowedClasses = classConfig.allowedClasses;
                 classOverrides = classConfig.classOverrides;
             }
+            const enforceStatMinsEl = document.getElementById('universe-enforce-class-stat-mins');
             
             const universeData = {
                 name,
@@ -5053,7 +5091,10 @@ try {
                 allowedGenders: allowedGenders,
                 allowedSpecies: allowedSpecies,
                 allowedClasses: allowedClasses,
-                classOverrides: classOverrides
+                classOverrides: classOverrides,
+                ...(enforceStatMinsEl
+                    ? { enforceClassStatMinimums: enforceStatMinsEl.checked }
+                    : {})
             };
             
             const signupKey = pick('universe-signup-key', '') || '';
@@ -7285,6 +7326,18 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
 
     // Creation wizard: pick class locally, save via Save Progress / Finish (not changeClass)
     if (App.isInCreationFlow()) {
+        const allClasses = (App.state.filteredClasses && App.state.filteredClasses.length > 0)
+            ? App.state.filteredClasses
+            : (App.state.classes || []);
+        const classOptions = {
+            enforceStatMinimums: App.state.enforceClassStatMinimums !== false,
+            universe: App.state.currentUniverse
+        };
+        const canChange = API.canChangeToClass(App.state.character, classTemplate, allClasses, classOptions);
+        if (!canChange.canChange) {
+            UI.showToast(canChange.reason || 'Cannot select this class', 'warning', 3500);
+            return;
+        }
         App.state.character.class_id = classId;
         App.state.character.stats_at_class_start = { ...App.state.character.stats };
         App.state.character.class_started_at = new Date().toISOString();

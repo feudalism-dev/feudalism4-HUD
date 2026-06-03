@@ -681,6 +681,16 @@ const UI = {
         ];
         
         const hasMana = character?.has_mana === true;
+        const enforceStatMins = typeof App !== 'undefined' && App.state
+            ? App.state.enforceClassStatMinimums !== false
+            : true;
+        const allClasses = (typeof App !== 'undefined' && App.state?.filteredClasses?.length)
+            ? App.state.filteredClasses
+            : ((typeof App !== 'undefined' && App.state?.classes) || classes);
+        const classChangeOptions = {
+            enforceStatMinimums: enforceStatMins,
+            universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null
+        };
         
         return classes.map(cls => {
             // Check if this class requires mana and character doesn't have it
@@ -688,7 +698,13 @@ const UI = {
             const manaLocked = requiresMana && !hasMana;
             
             const isCurrent = cls.id === currentClassId;
-            const isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+            let isLocked = character ? !this.checkPrerequisites(cls, character) : false;
+            if (!isLocked && character && enforceStatMins && typeof API !== 'undefined' && API.canChangeToClass) {
+                const changeCheck = API.canChangeToClass(character, cls, allClasses, classChangeOptions);
+                if (!changeCheck.canChange && changeCheck.reason && changeCheck.reason.indexOf('Stat requirements') === 0) {
+                    isLocked = true;
+                }
+            }
             const isCompleted = !isCurrent && completedClasses.includes(cls.id);
             const wasVisited = !isCurrent && careerHistory.some(h => h.class_id === cls.id && !h.abandoned);
             const icon = cls.icon || this.classIcons[cls.id] || this.classIcons.default;
@@ -714,6 +730,13 @@ const UI = {
             let tooltip = cls.description || '';
             if (manaLocked) {
                 tooltip = '🔒 This class requires magical ability. Your species did not receive mana.';
+            } else if (isLocked && character && enforceStatMins && typeof API !== 'undefined' && API.canChangeToClass) {
+                const statCheck = API.canChangeToClass(character, cls, allClasses, classChangeOptions);
+                if (statCheck.reason && statCheck.reason.indexOf('Stat requirements') === 0) {
+                    tooltip = '🔒 ' + statCheck.reason;
+                } else {
+                    tooltip = '🔒 Prerequisites not met. ' + (tooltip || '');
+                }
             } else if (isLocked) {
                 tooltip = '🔒 Prerequisites not met. ' + (tooltip || '');
             } else if (isDisabled && !manaLocked) {
@@ -766,8 +789,15 @@ const UI = {
         // Check if player can change to this class
         const isBeginnerClass = !cls.prerequisite || cls.prerequisite === null;
         const defaultXpCost = isBeginnerClass ? 0 : (cls.xp_cost || 0);
+        const enforceStatMins = typeof App !== 'undefined' && App.state
+            ? App.state.enforceClassStatMinimums !== false
+            : true;
+        const classChangeOptions = {
+            enforceStatMinimums: enforceStatMins,
+            universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null
+        };
         const canChangeInfo = character && typeof API !== 'undefined' && API.canChangeToClass 
-            ? API.canChangeToClass(character, cls, allClasses)
+            ? API.canChangeToClass(character, cls, allClasses, classChangeOptions)
             : { canChange: true, isFreeAdvance: false, xpCost: defaultXpCost, reason: '' };
         
         // Check if player has completed this class before
