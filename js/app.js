@@ -221,6 +221,7 @@ try {
         // SECURITY: Check if UUID is present - if not, API.init() will show error page
         var params = new URLSearchParams(window.location.search);
         var uuid = params.get('uuid') || '';
+        var activeCharFromUrl = params.get('active_char') || '';
         
         DebugLog.log('UUID from URL: ' + uuid, 'debug');
         
@@ -295,6 +296,9 @@ try {
         
         // Detect per-universe admin assignments (may still have role player in users doc)
         await API.refreshUniverseManagementAccess();
+
+        // Restore last selected character (URL from LSL, session, or Firestore users.activeCharacter)
+        this.resolveInitialCharacterId(activeCharFromUrl);
 
         // Update UI based on role
         UI.updateRoleUI(API.role);
@@ -456,8 +460,8 @@ try {
                     // UX 2: Always load character selector (shows even with 1 character)
                     await this.loadCharacterSelector(characters);
                     
-                    // Load first character by default (or selected character)
-                    const characterId = this.state.selectedCharacterId || characters[0].id;
+                    // Load selected / active / first character
+                    const characterId = this.pickCharacterIdToLoad(characters);
                     const charResult = await API.getCharacterById(characterId);
                     
                     if (charResult.success) {
@@ -2237,7 +2241,7 @@ try {
                         return;
                     }
                 }
-                this.state.selectedCharacterId = value;
+                this.rememberSelectedCharacter(value);
                 this.state.dirty = false;
                 await this.loadData();
                 this.updateStepGuide();
@@ -2548,15 +2552,72 @@ try {
     },
     
     /**
+     * Storage key for last character chosen in Setup HUD (per avatar).
+     */
+    getActiveCharacterStorageKey() {
+        return 'f4_active_character_' + (API.uuid || '');
+    },
+
+    /**
+     * Resolve which character to load on MOAP open (not just first in list).
+     */
+    resolveInitialCharacterId(activeCharFromUrl) {
+        const storageKey = this.getActiveCharacterStorageKey();
+        let id = null;
+        if (activeCharFromUrl) {
+            id = activeCharFromUrl;
+        } else {
+            try {
+                id = sessionStorage.getItem(storageKey);
+            } catch (e) { /* MOAP may block storage */ }
+        }
+        if (!id && API.activeCharacterId) {
+            id = API.activeCharacterId;
+        }
+        if (id) {
+            this.state.selectedCharacterId = id;
+            console.log('[Character] Initial selection:', id);
+        }
+    },
+
+    /**
+     * Pick character document id when loading roster from Firestore.
+     */
+    pickCharacterIdToLoad(characters) {
+        if (!characters || characters.length === 0) {
+            return null;
+        }
+        const ids = characters.map(c => c.id);
+        const preferred = this.state.selectedCharacterId
+            || API.activeCharacterId
+            || null;
+        if (preferred && ids.indexOf(preferred) !== -1) {
+            return preferred;
+        }
+        return characters[0].id;
+    },
+
+    rememberSelectedCharacter(characterId) {
+        if (!characterId) {
+            return;
+        }
+        this.state.selectedCharacterId = characterId;
+        try {
+            sessionStorage.setItem(this.getActiveCharacterStorageKey(), characterId);
+        } catch (e) { /* ignore */ }
+    },
+
+    /**
      * Load a character into the Players HUD (LSD + meter) after Setup HUD selection or save.
+     * One LSL command only — MOAP runs fetch + SET_ACTIVE_CHARACTER + meter sync.
      */
     pushCharacterToPlayersHUD(characterId) {
         if (!characterId || !API.uuid) {
             return;
         }
-        console.log('[Players HUD Sync] Pushing character to HUD:', characterId);
+        this.rememberSelectedCharacter(characterId);
+        console.log('[Players HUD Sync] Switching HUD character:', characterId);
         this.sendToLSL('LOAD_CHARACTER', { characterId });
-        this.sendToLSL('SET_ACTIVE_CHARACTER', { userID: API.uuid, characterID: characterId });
     },
 
     /**

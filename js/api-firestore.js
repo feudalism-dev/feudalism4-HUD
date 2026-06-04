@@ -14,6 +14,8 @@ const API = {
     // User/role data
     role: 'player',
     user: null,
+    /** Firestore users/{uuid}.activeCharacter — last character chosen in Setup HUD */
+    activeCharacterId: null,
     /** True when user owns or appears in universes/{id}/admins (even if role is still player). */
     hasDelegatedUniverseAccess: false,
     
@@ -95,6 +97,7 @@ const API = {
             }
             
             this.role = this.user.role || 'player';
+            this.activeCharacterId = this.user.activeCharacter || null;
             
             // Update displayName from user document if available (UI display only, not used for identification)
             if (this.user.display_name) {
@@ -125,10 +128,13 @@ const API = {
             await userRef.set(newUser);
             this.user = newUser;
             this.role = isSuperAdmin ? 'sys_admin' : 'player';
+            this.activeCharacterId = null;
             // For new users, displayName is already set from URL params or default
         }
         
-        console.log('User synced:', this.role, '- Display:', this.displayName, isSuperAdmin ? '(Super Admin)' : '');
+        console.log('User synced:', this.role, '- Display:', this.displayName,
+            this.activeCharacterId ? (' activeChar:' + this.activeCharacterId) : '',
+            isSuperAdmin ? '(Super Admin)' : '');
     },
     
     // =========================== TEMPLATES (Public Read) ====================
