@@ -136,6 +136,30 @@ const API = {
             this.activeCharacterId ? (' activeChar:' + this.activeCharacterId) : '',
             isSuperAdmin ? '(Super Admin)' : '');
     },
+
+    /**
+     * Persist which character is active for this avatar (Setup HUD + meter).
+     */
+    async setActiveCharacter(characterId) {
+        if (!this.uuid || !characterId) {
+            return { success: false, error: 'Missing uuid or characterId' };
+        }
+        try {
+            await db.collection('users').doc(this.uuid).update({
+                activeCharacter: characterId,
+                updated_at: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.activeCharacterId = characterId;
+            if (this.user) {
+                this.user.activeCharacter = characterId;
+            }
+            console.log('[API] activeCharacter saved:', characterId);
+            return { success: true };
+        } catch (error) {
+            console.warn('[API] setActiveCharacter failed:', error);
+            return { success: false, error: error.message };
+        }
+    },
     
     // =========================== TEMPLATES (Public Read) ====================
     

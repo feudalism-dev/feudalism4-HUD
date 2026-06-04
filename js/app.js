@@ -1240,9 +1240,10 @@ try {
                 const option = document.createElement('option');
                 option.value = char.id;
                 option.textContent = char.name || 'Unnamed';
-                if (char.id === this.state.selectedCharacterId || (!this.state.selectedCharacterId && characters.indexOf(char) === 0)) {
+                if (char.id === this.state.selectedCharacterId) {
                     option.selected = true;
-                    this.state.selectedCharacterId = char.id;
+                } else if (!this.state.selectedCharacterId && characters.indexOf(char) === 0) {
+                    option.selected = true;
                 }
                 selector.appendChild(option);
             });
@@ -2602,9 +2603,15 @@ try {
             return;
         }
         this.state.selectedCharacterId = characterId;
+        API.activeCharacterId = characterId;
         try {
             sessionStorage.setItem(this.getActiveCharacterStorageKey(), characterId);
         } catch (e) { /* ignore */ }
+        if (API.setActiveCharacter) {
+            API.setActiveCharacter(characterId).catch(function (err) {
+                console.warn('[Character] Firestore activeCharacter save failed:', err);
+            });
+        }
     },
 
     /**
