@@ -539,6 +539,9 @@ try {
                             
                             console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
                             
+                            // Pull full character into HUD LSD + meter (identity, stats, resources)
+                            this.pushCharacterToPlayersHUD(this.state.character.id);
+
                             // Broadcast character data to Players HUD via Setup HUD
                             this.scheduleBroadcastToPlayersHUD(this.state.character);
                             
@@ -2545,6 +2548,18 @@ try {
     },
     
     /**
+     * Load a character into the Players HUD (LSD + meter) after Setup HUD selection or save.
+     */
+    pushCharacterToPlayersHUD(characterId) {
+        if (!characterId || !API.uuid) {
+            return;
+        }
+        console.log('[Players HUD Sync] Pushing character to HUD:', characterId);
+        this.sendToLSL('LOAD_CHARACTER', { characterId });
+        this.sendToLSL('SET_ACTIVE_CHARACTER', { userID: API.uuid, characterID: characterId });
+    },
+
+    /**
      * Send message to LSL via channel
      * Since JavaScript can't use llRegionSay directly, we use a workaround:
      * Update the URL with the command, and LSL will poll for it
@@ -2557,11 +2572,11 @@ try {
         
         console.log('[LSL] Sending command:', command, data);
         
-        // Build command message for LSL
+        // Build command message for LSL (pipe-separated — MOAP parses with llParseString2List(msg, ["|"], []))
         let message = command;
         if (data && Object.keys(data).length > 0) {
-            const dataStr = Object.entries(data).map(([k, v]) => k + ":" + v).join(",");
-            message += "|" + dataStr;
+            const parts = Object.entries(data).map(([k, v]) => k + ":" + v);
+            message += "|" + parts.join("|");
         }
         
         // Store command in URL so LSL can poll for it
