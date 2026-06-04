@@ -162,60 +162,63 @@ const API = {
     },
     
     // =========================== TEMPLATES (Public Read) ====================
-    
+
+    _templateCache: {},
+    _TEMPLATE_CACHE_TTL_MS: 30 * 60 * 1000,
+
+    _getCachedTemplate(cacheKey) {
+        const entry = this._templateCache[cacheKey];
+        if (entry && (Date.now() - entry.ts) < this._TEMPLATE_CACHE_TTL_MS) {
+            return entry.data;
+        }
+        return null;
+    },
+
+    _setCachedTemplate(cacheKey, data) {
+        this._templateCache[cacheKey] = { ts: Date.now(), data: data };
+    },
+
+    /** One collection read; filter enabled in memory (Spark read optimization). */
+    async _loadTemplateCollection(collectionName, seedFn, mapDoc) {
+        const cached = this._getCachedTemplate(collectionName);
+        if (cached) {
+            return cached;
+        }
+
+        let snapshot = await db.collection(collectionName).get();
+        if (snapshot.empty && seedFn) {
+            console.log('[API] Seeding empty collection:', collectionName);
+            await seedFn.call(this);
+            await new Promise(function (resolve) { setTimeout(resolve, 500); });
+            snapshot = await db.collection(collectionName).get();
+        }
+
+        const items = [];
+        snapshot.forEach(function (doc) {
+            const data = doc.data();
+            if (data.enabled === false) {
+                return;
+            }
+            items.push(mapDoc ? mapDoc(doc, data) : { id: doc.id, ...data });
+        });
+
+        const result = { success: true, data: items };
+        this._setCachedTemplate(collectionName, result);
+        return result;
+    },
+
     /**
-     * Get all species templates
+     * Get all species templates (single read + session cache)
      */
     async getSpecies() {
         try {
-            console.log('[DEBUG] getSpecies() called');
-            // Try with enabled filter first
-            console.log('[DEBUG] Querying species collection (enabled=true)...');
-            let snapshot = await db.collection('species').where('enabled', '==', true).get();
-            console.log('[DEBUG] Species query returned', snapshot.size, 'documents');
-            DebugLog.log(`Species query returned ${snapshot.size} documents`, 'debug');
-            
-            // If empty, check if collection exists at all (might be seeding)
-            if (snapshot.empty) {
-                const allSnapshot = await db.collection('species').limit(1).get();
-                if (allSnapshot.empty) {
-                    // No species at all - seed them
-                    console.log('No species found, seeding...');
-                    await this.seedDefaultSpecies();
-                    // Retry with a small delay
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    snapshot = await db.collection('species').where('enabled', '==', true).get();
-                } else {
-                    // Species exist but none are enabled - use all
-                    snapshot = await db.collection('species').get();
-                }
-            }
-            
-            const species = [];
-            snapshot.forEach(doc => {
-                species.push({ id: doc.id, ...doc.data() });
-            });
-            
-            console.log('[DEBUG] getSpecies() returning', species.length, 'species');
-            DebugLog.log(`getSpecies() returning ${species.length} species`, 'info');
-            return { success: true, data: { species } };
+            const loaded = await this._loadTemplateCollection('species', this.seedDefaultSpecies, null);
+            const species = loaded.data || [];
+            console.log('[API] getSpecies:', species.length, 'reads: 1 collection get (cached 30m)');
+            return { success: true, data: { species: species } };
         } catch (error) {
             console.error('getSpecies error:', error);
-            DebugLog.log('getSpecies error: ' + error.message, 'error');
-            // Fallback: try without enabled filter
-            try {
-                DebugLog.log('Trying species fallback (no filter)...', 'debug');
-                const snapshot = await db.collection('species').get();
-                const species = [];
-                snapshot.forEach(doc => {
-                    species.push({ id: doc.id, ...doc.data() });
-                });
-                DebugLog.log(`Species fallback returned ${species.length} species`, 'info');
-                return { success: true, data: { species } };
-            } catch (fallbackError) {
-                DebugLog.log('Species fallback also failed: ' + fallbackError.message, 'error');
-                return { success: false, error: error.message };
-            }
+            return { success: false, error: error.message };
         }
     },
     
@@ -239,76 +242,24 @@ const API = {
     },
 
     /**
-     * Get all class templates
+     * Get all class templates (single read + session cache)
      */
     async getClasses() {
         try {
-            console.log('[DEBUG] getClasses() called');
-            console.log('[DEBUG] Querying classes collection (enabled=true)...');
-            let snapshot = await db.collection('classes').where('enabled', '==', true).get();
-            console.log('[DEBUG] Classes query returned', snapshot.size, 'documents');
-            
-            if (snapshot.empty) {
-                const allSnapshot = await db.collection('classes').limit(1).get();
-                if (allSnapshot.empty) {
-                    await this.seedDefaultClasses();
-                    return this.getClasses();
-                }
-                snapshot = await db.collection('classes').get();
-            } else {
-                // Include enabled templates that omit the enabled flag (common on cloned classes)
-                const allSnapshot = await db.collection('classes').get();
-                if (allSnapshot.size > snapshot.size) {
-                    const enabledIds = new Set();
-                    snapshot.forEach((doc) => enabledIds.add(doc.id));
-                    allSnapshot.forEach((doc) => {
-                        const data = doc.data();
-                        if (!enabledIds.has(doc.id) && data.enabled !== false) {
-                            enabledIds.add(doc.id);
-                        }
-                    });
-                    if (enabledIds.size > snapshot.size) {
-                        snapshot = await db.collection('classes').get();
-                    }
-                }
-            }
-            
-            const classes = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                if (data.enabled === false) {
-                    return;
-                }
-                classes.push({
+            const self = this;
+            const loaded = await this._loadTemplateCollection('classes', this.seedDefaultClasses, function (doc, data) {
+                return {
                     id: doc.id,
                     ...data,
-                    image: this.normalizeClassImagePath(doc.id, data.image)
-                });
+                    image: self.normalizeClassImagePath(doc.id, data.image)
+                };
             });
-            
-            console.log('[DEBUG] getClasses() returning', classes.length, 'classes');
-            DebugLog.log(`getClasses() returning ${classes.length} classes`, 'info');
-            return { success: true, data: { classes } };
+            const classes = loaded.data || [];
+            console.log('[API] getClasses:', classes.length, 'reads: 1 collection get (cached 30m)');
+            return { success: true, data: { classes: classes } };
         } catch (error) {
             console.error('getClasses error:', error);
-            try {
-                const snapshot = await db.collection('classes').get();
-                const classes = [];
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.enabled === false) {
-                        return;
-                    }
-                    classes.push({
-                        id: doc.id,
-                        ...data,
-                        image: this.normalizeClassImagePath(doc.id, data.image)
-                    });
-                });
-                return { success: true, data: { classes } };
-            } catch (fallbackError) {
-                return { success: false, error: error.message };
-            }
+            return { success: false, error: error.message };
         }
     },
 
@@ -418,19 +369,9 @@ const API = {
      */
     async getVocations() {
         try {
-            const snapshot = await db.collection('vocations').get();
-            
-            if (snapshot.empty) {
-                await this.seedDefaultVocations();
-                return this.getVocations();
-            }
-            
-            const vocations = [];
-            snapshot.forEach(doc => {
-                vocations.push({ id: doc.id, ...doc.data() });
-            });
-            
-            return { success: true, data: { vocations } };
+            const loaded = await this._loadTemplateCollection('vocations', this.seedDefaultVocations, null);
+            const vocations = loaded.data || [];
+            return { success: true, data: { vocations: vocations } };
         } catch (error) {
             console.error('getVocations error:', error);
             return { success: false, error: error.message };
@@ -1202,49 +1143,13 @@ const API = {
     
     async getGenders() {
         try {
-            console.log('[DEBUG] getGenders() called');
-            // Try with enabled filter first
-            console.log('[DEBUG] Querying genders collection (enabled=true)...');
-            let snapshot = await db.collection('genders').where('enabled', '==', true).get();
-            console.log('[DEBUG] Genders query returned', snapshot.size, 'documents');
-            
-            // If empty, check if collection exists at all (might be seeding)
-            if (snapshot.empty) {
-                const allSnapshot = await db.collection('genders').limit(1).get();
-                if (allSnapshot.empty) {
-                    // No genders at all - seed them
-                    console.log('No genders found, seeding...');
-                    await this.seedDefaultGenders();
-                    // Retry with a small delay
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    snapshot = await db.collection('genders').where('enabled', '==', true).get();
-                } else {
-                    // Genders exist but none are enabled - use all
-                    snapshot = await db.collection('genders').get();
-                }
-            }
-            
-            const genders = [];
-            snapshot.forEach(doc => {
-                genders.push({ id: doc.id, ...doc.data() });
-            });
-            
-            console.log('[DEBUG] getGenders() returning', genders.length, 'genders');
-            DebugLog.log(`getGenders() returning ${genders.length} genders`, 'info');
-            return { success: true, data: { genders } };
+            const loaded = await this._loadTemplateCollection('genders', this.seedDefaultGenders, null);
+            const genders = loaded.data || [];
+            console.log('[API] getGenders:', genders.length, 'reads: 1 collection get (cached 30m)');
+            return { success: true, data: { genders: genders } };
         } catch (error) {
             console.error('getGenders error:', error);
-            // Fallback: try without enabled filter
-            try {
-                const snapshot = await db.collection('genders').get();
-                const genders = [];
-                snapshot.forEach(doc => {
-                    genders.push({ id: doc.id, ...doc.data() });
-                });
-                return { success: true, data: { genders } };
-            } catch (fallbackError) {
-                return { success: false, error: error.message };
-            }
+            return { success: false, error: error.message };
         }
     },
     
@@ -2659,47 +2564,53 @@ const API = {
      * Returns array of { id, qty } objects
      * @param {string} characterId - The character document ID
      */
-    async getInventory(characterId) {
-        console.log('[getInventory] Fetching Inventory v2 for character:', characterId);
+    /**
+     * Paginated inventory (Inventory v2) — one Firestore page per call, not full subcollection.
+     * @param {string} characterId
+     * @param {number|string} pageOrCursor - page 1 for first load, or last item doc id for next page
+     * @param {number} pageSize
+     * @returns {Promise<{ items, page, totalPages, hasMore, cursor }>}
+     */
+    async getInventoryPage(characterId, pageOrCursor = 1, pageSize = 50) {
+        if (!characterId) {
+            return { items: [], page: 1, totalPages: 0, hasMore: false, cursor: null };
+        }
 
-        const url = `https://firestore.googleapis.com/v1/projects/feudalism4-rpg/databases/(default)/documents/characters/${characterId}/inventory`;
-        const response = await fetch(url);
-        const json = await response.json();
+        const col = db.collection('characters').doc(characterId).collection('inventory');
+        let query = col.orderBy(firebase.firestore.FieldPath.documentId()).limit(pageSize);
 
-        const items = [];
-        if (json.documents) {
-            for (const doc of json.documents) {
-                const id = doc.name.split('/').pop();
-                const qty = parseInt(doc.fields?.qty?.integerValue || "0", 10);
-                items.push({ id, qty });
+        const useCursor = typeof pageOrCursor === 'string' && pageOrCursor.length > 0 && pageOrCursor !== '1';
+        if (useCursor) {
+            const cursorRef = col.doc(pageOrCursor);
+            const cursorSnap = await cursorRef.get();
+            if (cursorSnap.exists) {
+                query = col.orderBy(firebase.firestore.FieldPath.documentId()).startAfter(cursorSnap).limit(pageSize);
             }
         }
 
-        console.log('[getInventory] Inventory items:', items.length);
-        return items;
-    },
+        const snapshot = await query.get();
+        const items = [];
+        let lastId = null;
+        snapshot.forEach(function (doc) {
+            const data = doc.data();
+            items.push({
+                id: doc.id,
+                qty: data.qty != null ? data.qty : 0
+            });
+            lastId = doc.id;
+        });
 
-    /**
-     * Get paginated inventory (Inventory v2)
-     * @param {string} characterId
-     * @param {number} page - 1-based page number
-     * @param {number} pageSize
-     * @returns {Promise<{ items: Array<{id, qty}>, page: number, totalPages: number }>}
-     */
-    async getInventoryPage(characterId, page = 1, pageSize = 50) {
-        console.log('[getInventoryPage] Fetching Inventory v2 page', page, 'for character:', characterId);
+        const hasMore = snapshot.size >= pageSize;
+        const pageNum = useCursor ? 0 : (typeof pageOrCursor === 'number' ? pageOrCursor : 1);
+        console.log('[getInventoryPage] character:', characterId, 'items:', items.length, 'hasMore:', hasMore, 'reads:', snapshot.size);
 
-        // Simple implementation: use the same subcollection fetch and slice locally
-        const allItems = await this.getInventory(characterId);
-
-        const start = (page - 1) * pageSize;
-        const end = start + pageSize;
-        const items = allItems.slice(start, end);
-
-        const totalPages = Math.max(1, Math.ceil(allItems.length / pageSize));
-
-        console.log('[getInventoryPage] Items:', items.length, 'Page:', page, 'TotalPages:', totalPages);
-        return { items, page, totalPages };
+        return {
+            items: items,
+            page: pageNum,
+            totalPages: hasMore ? 0 : 1,
+            hasMore: hasMore,
+            cursor: lastId
+        };
     },    
     /**
      * Get quantity of a specific item (v2: queries subcollection document directly)

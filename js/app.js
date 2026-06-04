@@ -159,6 +159,7 @@ try {
         enforceClassStatMinimums: true,
         vocations: [],
         genders: [],
+        templatesLoaded: false,
         currentSpecies: null,
         currentClass: null,
         currentVocation: null,
@@ -348,6 +349,56 @@ try {
     },
     
     /**
+     * Load species/classes/vocations/genders once per session (API layer caches 30m).
+     */
+    async ensureTemplatesLoaded(forceReload) {
+        if (!forceReload && this.state.templatesLoaded && this.state.species.length > 0 && this.state.classes.length > 0) {
+            return { success: true, cached: true };
+        }
+
+        let speciesResult, classesResult, vocationsResult, gendersResult;
+        if (window.IS_SL_BROWSER) {
+            speciesResult = await API.getSpecies();
+            classesResult = await API.getClasses();
+            vocationsResult = await API.getVocations();
+            gendersResult = await API.getGenders();
+        } else {
+            [speciesResult, classesResult, vocationsResult, gendersResult] = await Promise.all([
+                API.getSpecies(),
+                API.getClasses(),
+                API.getVocations(),
+                API.getGenders()
+            ]);
+        }
+
+        if (!speciesResult.success || !classesResult.success || !gendersResult.success) {
+            return { success: false };
+        }
+
+        this.state.species = speciesResult.data?.species || [];
+        this.state.classes = classesResult.data?.classes || [];
+        this.state.vocations = vocationsResult.data?.vocations || [];
+        this.state.genders = gendersResult.data?.genders || [];
+        this.state.templatesLoaded = true;
+        return { success: true, cached: false };
+    },
+
+    /**
+     * Use character row from listCharacters() when it already has full document fields.
+     */
+    characterFromList(characters, characterId) {
+        if (!characters || !characterId) {
+            return null;
+        }
+        for (let i = 0; i < characters.length; i++) {
+            if (characters[i].id === characterId) {
+                return characters[i];
+            }
+        }
+        return null;
+    },
+
+    /**
      * Load all necessary data from server
      */
     async loadData() {
@@ -358,58 +409,14 @@ try {
             DebugLog.log('Starting API calls...', 'debug');
             const startTime = Date.now();
             
-            // SL browser compatibility: Use sequential calls instead of Promise.all
-            // Promise.all() may not work reliably in SL's embedded browser
-            let speciesResult, classesResult, vocationsResult, gendersResult;
-            
-            if (window.IS_SL_BROWSER) {
-                DebugLog.log('Using sequential API calls for SL browser compatibility', 'debug');
-                DebugLog.log('Loading species...', 'info');
-                speciesResult = await API.getSpecies();
-                DebugLog.log('Loading classes...', 'info');
-                classesResult = await API.getClasses();
-                DebugLog.log('Loading vocations...', 'info');
-                vocationsResult = await API.getVocations();
-                DebugLog.log('Loading genders...', 'info');
-                gendersResult = await API.getGenders();
-            } else {
-                DebugLog.log('Using parallel API calls (Promise.all)', 'debug');
-                // Load templates in parallel for regular browsers
-                [speciesResult, classesResult, vocationsResult, gendersResult] = await Promise.all([
-                    API.getSpecies(),
-                    API.getClasses(),
-                    API.getVocations(),
-                    API.getGenders()
-                ]);
+            const templateLoad = await this.ensureTemplatesLoaded(false);
+            if (!templateLoad.success) {
+                UI.showToast('Failed to load game templates', 'error');
+                return;
             }
-            
-            const loadTime = Date.now() - startTime;
-            DebugLog.log(`API calls completed in ${loadTime}ms`, 'debug');
-            DebugLog.log(`Species: ${speciesResult.success ? 'OK' : 'FAIL'} (${speciesResult.data?.species?.length || 0} items)`, speciesResult.success ? 'info' : 'error');
-            DebugLog.log(`Classes: ${classesResult.success ? 'OK' : 'FAIL'} (${classesResult.data?.classes?.length || 0} items)`, classesResult.success ? 'info' : 'error');
-            DebugLog.log(`Genders: ${gendersResult.success ? 'OK' : 'FAIL'} (${gendersResult.data?.genders?.length || 0} items)`, gendersResult.success ? 'info' : 'error');
-            if (speciesResult.error) DebugLog.log('Species error: ' + speciesResult.error, 'error');
-            if (classesResult.error) DebugLog.log('Classes error: ' + classesResult.error, 'error');
-            if (gendersResult.error) DebugLog.log('Genders error: ' + gendersResult.error, 'error');
-            
-            // Check for errors
-            if (!speciesResult.success) {
-                console.error('Failed to load species:', speciesResult.error);
+            if (templateLoad.cached) {
+                console.log('[loadData] Templates from session cache');
             }
-            if (!classesResult.success) {
-                console.error('Failed to load classes:', classesResult.error);
-            }
-            if (!vocationsResult.success) {
-                console.error('Failed to load vocations:', vocationsResult.error);
-            }
-            if (!gendersResult.success) {
-                console.error('Failed to load genders:', gendersResult.error);
-            }
-            
-            this.state.species = speciesResult.data?.species || [];
-            this.state.classes = classesResult.data?.classes || [];
-            this.state.vocations = vocationsResult.data?.vocations || [];
-            this.state.genders = gendersResult.data?.genders || [];
             
             console.log('Templates loaded:', {
                 species: this.state.species.length,
@@ -462,10 +469,19 @@ try {
                     
                     // Load selected / active / first character
                     const characterId = this.pickCharacterIdToLoad(characters);
-                    const charResult = await API.getCharacterById(characterId);
+                    let character = this.characterFromList(characters, characterId);
+                    if (!character) {
+                        const charResult = await API.getCharacterById(characterId);
+                        if (!charResult.success) {
+                            UI.showToast('Failed to load character', 'error');
+                            return;
+                        }
+                        character = charResult.data.character;
+                    } else {
+                        console.log('[loadData] Using character from listCharacters (saved 1 doc read)');
+                    }
                     
-                    if (charResult.success) {
-                        const character = charResult.data.character;
+                    if (character) {
                         
                         // SECURITY: Double-check ownership before using character data
                         if (character.owner_uuid !== API.uuid) {
@@ -538,6 +554,8 @@ try {
                             this.state.inventoryPagination = {
                                 page: result.page || page,
                                 totalPages: result.totalPages || 0,
+                                hasMore: !!result.hasMore,
+                                cursor: result.cursor || null,
                                 items: items
                             };
                             
@@ -1931,7 +1949,7 @@ try {
     /**
      * Load and display inventory (read-only) for the current character's universe
      */
-    async loadInventory(page = 1, append = false) {
+    async loadInventory(pageOrCursor = 1, append = false) {
         try {
             // Get character ID from current character
             const characterId = this.state.character?.id;
@@ -1949,13 +1967,18 @@ try {
                 this.state.inventoryPagination = {
                     page: 1,
                     totalPages: 0,
+                    hasMore: false,
+                    cursor: null,
                     items: []
                 };
             }
             
             const pageSize = 50;
-            console.log('[loadInventory] Calling API.getInventoryPage() for character:', characterId, 'page:', page);
-            const result = await API.getInventoryPage(characterId, page, pageSize);
+            const queryArg = append && this.state.inventoryPagination.cursor
+                ? this.state.inventoryPagination.cursor
+                : 1;
+            console.log('[loadInventory] getInventoryPage character:', characterId, 'cursor:', queryArg, 'append:', append);
+            const result = await API.getInventoryPage(characterId, queryArg, pageSize);
             console.log('[loadInventory] Result:', result);
             
             const items = result.items || [];
@@ -1968,8 +1991,12 @@ try {
                 // Replace items (new load)
                 this.state.inventoryPagination.items = items;
             }
-            this.state.inventoryPagination.page = result.page || page;
+            this.state.inventoryPagination.page = append
+                ? (this.state.inventoryPagination.page + 1)
+                : 1;
             this.state.inventoryPagination.totalPages = result.totalPages || 0;
+            this.state.inventoryPagination.hasMore = !!result.hasMore;
+            this.state.inventoryPagination.cursor = result.cursor || null;
             
             // Update main inventory state
             this.state.inventory = this.state.inventoryPagination.items;
