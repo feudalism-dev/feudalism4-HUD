@@ -2615,16 +2615,86 @@ try {
     },
 
     /**
+     * Build pipe-safe payload from loaded Firestore character (MOAP → LSL).
+     * LSL bridge HTTP cannot use Firebase auth; MOAP must push identity and pools.
+     */
+    buildCharacterSyncPayload(characterId) {
+        const data = { characterId: characterId };
+        const char = this.state.character;
+        if (!char || char.id !== characterId) {
+            return data;
+        }
+        if (char.name) {
+            data.name = char.name;
+        }
+        if (char.title) {
+            data.title = char.title;
+        }
+        if (char.gender) {
+            data.gender = char.gender;
+        }
+        if (char.species_id) {
+            data.species_id = char.species_id;
+        }
+        if (char.class_id) {
+            data.class_id = char.class_id;
+        }
+        if (char.mode) {
+            data.mode = char.mode;
+        }
+        const statNames = [
+            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+            'stealth', 'survival', 'thievery', 'will', 'wisdom'
+        ];
+        if (char.stats) {
+            data.stats = statNames.map(function (s) {
+                return char.stats[s] != null ? char.stats[s] : 2;
+            }).join(',');
+        }
+        const pool = function (p) {
+            if (!p) {
+                return null;
+            }
+            const cur = p.current != null ? p.current : 0;
+            const base = p.base != null ? p.base : cur;
+            const max = p.max != null ? p.max : base;
+            return cur + '|' + base + '|' + max;
+        };
+        const healthStr = pool(char.health);
+        if (healthStr) {
+            data.health = healthStr;
+        }
+        const staminaStr = pool(char.stamina);
+        if (staminaStr) {
+            data.stamina = staminaStr;
+        }
+        const manaStr = pool(char.mana);
+        if (manaStr) {
+            data.mana = manaStr;
+        }
+        return data;
+    },
+
+    /**
      * Load a character into the Players HUD (LSD + meter) after Setup HUD selection or save.
-     * One LSL command only — MOAP runs fetch + SET_ACTIVE_CHARACTER + meter sync.
      */
     pushCharacterToPlayersHUD(characterId) {
         if (!characterId || !API.uuid) {
             return;
         }
+        if (!this.lsl.channel) {
+            console.error('[Players HUD Sync] No HUD channel — re-open Setup HUD from the attachment');
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('HUD channel missing. Close and reopen Setup HUD.', 'error');
+            }
+            return;
+        }
         this.rememberSelectedCharacter(characterId);
-        console.log('[Players HUD Sync] Switching HUD character:', characterId);
-        this.sendToLSL('LOAD_CHARACTER', { characterId });
+        const payload = this.buildCharacterSyncPayload(characterId);
+        console.log('[Players HUD Sync] Switching HUD character:', payload);
+        this.sendToLSL('LOAD_CHARACTER', payload);
     },
 
     /**
@@ -2643,7 +2713,9 @@ try {
         // Build command message for LSL (pipe-separated — MOAP parses with llParseString2List(msg, ["|"], []))
         let message = command;
         if (data && Object.keys(data).length > 0) {
-            const parts = Object.entries(data).map(([k, v]) => k + ":" + v);
+            const parts = Object.entries(data).map(function (entry) {
+                return entry[0] + ":" + encodeURIComponent(String(entry[1]));
+            });
             message += "|" + parts.join("|");
         }
         
