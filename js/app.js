@@ -544,7 +544,7 @@ try {
                             console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
                             
                             // Pull full character into HUD LSD + meter (identity, stats, resources)
-                            this.pushCharacterToPlayersHUD(this.state.character.id);
+                            await this.pushCharacterToPlayersHUD(this.state.character.id);
 
                             // Broadcast character data to Players HUD via Setup HUD
                             this.scheduleBroadcastToPlayersHUD(this.state.character);
@@ -2242,9 +2242,12 @@ try {
                         return;
                     }
                 }
-                this.rememberSelectedCharacter(value);
+                await this.rememberSelectedCharacter(value);
                 this.state.dirty = false;
                 await this.loadData();
+                if (this.state.character && this.state.character.id === value) {
+                    await this.pushCharacterToPlayersHUD(value);
+                }
                 this.updateStepGuide();
                 this.updateDeleteButtonVisibility();
             }
@@ -2598,7 +2601,7 @@ try {
         return characters[0].id;
     },
 
-    rememberSelectedCharacter(characterId) {
+    async rememberSelectedCharacter(characterId) {
         if (!characterId) {
             return;
         }
@@ -2608,9 +2611,10 @@ try {
             sessionStorage.setItem(this.getActiveCharacterStorageKey(), characterId);
         } catch (e) { /* ignore */ }
         if (API.setActiveCharacter) {
-            API.setActiveCharacter(characterId).catch(function (err) {
-                console.warn('[Character] Firestore activeCharacter save failed:', err);
-            });
+            const result = await API.setActiveCharacter(characterId);
+            if (!result.success) {
+                console.warn('[Character] Firestore activeCharacter save failed:', result.error);
+            }
         }
     },
 
@@ -2624,10 +2628,10 @@ try {
         if (!char || char.id !== characterId) {
             return data;
         }
-        if (char.name) {
+        if (char.name != null && char.name !== '') {
             data.name = char.name;
         }
-        if (char.title) {
+        if (char.title != null) {
             data.title = char.title;
         }
         if (char.gender) {
@@ -2680,7 +2684,7 @@ try {
     /**
      * Load a character into the Players HUD (LSD + meter) after Setup HUD selection or save.
      */
-    pushCharacterToPlayersHUD(characterId) {
+    async pushCharacterToPlayersHUD(characterId) {
         if (!characterId || !API.uuid) {
             return;
         }
@@ -2691,7 +2695,7 @@ try {
             }
             return;
         }
-        this.rememberSelectedCharacter(characterId);
+        await this.rememberSelectedCharacter(characterId);
         const payload = this.buildCharacterSyncPayload(characterId);
         console.log('[Players HUD Sync] Switching HUD character:', payload);
         this.sendToLSL('LOAD_CHARACTER', payload);
