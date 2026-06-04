@@ -14,6 +14,8 @@ const API = {
     // User/role data
     role: 'player',
     user: null,
+    /** True when user owns or appears in universes/{id}/admins (even if role is still player). */
+    hasDelegatedUniverseAccess: false,
     
     /**
      * Initialize API - sign in anonymously using SL UUID as identifier
@@ -1689,6 +1691,56 @@ const API = {
     isUniverseAdmin() {
         return this.role === 'universe_admin';
     },
+
+    /**
+     * Scan Firestore for universes this UUID can manage (owner or admins subcollection).
+     * Sets hasDelegatedUniverseAccess for players assigned on a universe without global role.
+     */
+    async refreshUniverseManagementAccess() {
+        this.hasDelegatedUniverseAccess = false;
+        if (!this.uuid) {
+            return false;
+        }
+        if (this.uuid === this.SUPER_ADMIN_UUID || this.role === 'sys_admin' || this.role === 'sim_admin') {
+            this.hasDelegatedUniverseAccess = true;
+            return true;
+        }
+        if (this.role === 'universe_admin') {
+            return true;
+        }
+        try {
+            const ownedSnapshot = await db.collection('universes')
+                .where('ownerAdminId', '==', this.uuid)
+                .where('deleted', '==', false)
+                .limit(1)
+                .get();
+            if (!ownedSnapshot.empty) {
+                this.hasDelegatedUniverseAccess = true;
+                return true;
+            }
+            const allSnapshot = await db.collection('universes')
+                .where('deleted', '==', false)
+                .get();
+            for (const doc of allSnapshot.docs) {
+                const adminDoc = await db.collection('universes').doc(doc.id)
+                    .collection('admins').doc(this.uuid).get();
+                if (adminDoc.exists) {
+                    this.hasDelegatedUniverseAccess = true;
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.error('refreshUniverseManagementAccess error:', error);
+        }
+        return false;
+    },
+
+    /**
+     * May open Universe Management (global universe_admin, sys roles, or per-universe admin).
+     */
+    canAccessUniverseManagement() {
+        return this.canCreateUniverse() || this.hasDelegatedUniverseAccess;
+    },
     
     /**
      * Check if user can create universes
@@ -1707,29 +1759,23 @@ const API = {
         if (this.uuid === this.SUPER_ADMIN_UUID || this.role === 'sys_admin') {
             return true;
         }
-        
-        // Universe Admin: owner or explicit entry in universes/{id}/admins/{uuid}
-        if (this.role === 'universe_admin') {
-            // Fetch universe if not provided
-            if (!universe) {
-                const universeDoc = await db.collection('universes').doc(universeId).get();
-                if (!universeDoc.exists) {
-                    return false;
-                }
-                universe = universeDoc.data();
+
+        if (!universe) {
+            const universeDoc = await db.collection('universes').doc(universeId).get();
+            if (!universeDoc.exists) {
+                return false;
             }
-            
-            // Check if user is the owner
-            if (universe.ownerAdminId === this.uuid) {
-                return true;
-            }
-            
-            // Check if user is in the admins subcollection
-            const adminDoc = await db.collection('universes').doc(universeId)
-                .collection('admins').doc(this.uuid).get();
-            if (adminDoc.exists) {
-                return true;
-            }
+            universe = universeDoc.data();
+        }
+
+        if (universe.ownerAdminId === this.uuid) {
+            return true;
+        }
+
+        const adminDoc = await db.collection('universes').doc(universeId)
+            .collection('admins').doc(this.uuid).get();
+        if (adminDoc.exists) {
+            return true;
         }
         
         return false;
@@ -1778,12 +1824,7 @@ const API = {
             return true;
         }
         
-        // Universe Admin may assign/remove admins on any universe they can edit (owner or delegated admin)
-        if (this.role === 'universe_admin') {
-            return await this.canEditUniverse(universeId);
-        }
-        
-        return false;
+        return await this.canEditUniverse(universeId);
     },
     
     /**
@@ -2064,28 +2105,21 @@ const API = {
                 snapshot.forEach(doc => {
                     universes.push({ id: doc.id, ...doc.data() });
                 });
-            } else if (this.role === 'universe_admin') {
-                // Universe Admin can only see universes they own or are admin of
-                // First, get universes where user is owner
+            } else if (this.role === 'universe_admin' || this.hasDelegatedUniverseAccess) {
                 const ownedSnapshot = await db.collection('universes')
                     .where('ownerAdminId', '==', this.uuid)
                     .where('deleted', '==', false).get();
                 ownedSnapshot.forEach(doc => {
                     universes.push({ id: doc.id, ...doc.data() });
                 });
-                
-                // Then, get universes where user is in admins subcollection
-                // (This requires a different approach - get all universes and filter)
+
                 const allSnapshot = await db.collection('universes')
                     .where('deleted', '==', false).get();
-                
+
                 for (const doc of allSnapshot.docs) {
-                    // Skip if already added (from owner query)
                     if (universes.find(u => u.id === doc.id)) {
                         continue;
                     }
-                    
-                    // Check if user is admin
                     const adminDoc = await db.collection('universes').doc(doc.id)
                         .collection('admins').doc(this.uuid).get();
                     if (adminDoc.exists) {

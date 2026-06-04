@@ -293,6 +293,9 @@ try {
         // Update header with player name
         this.updatePlayerInfo();
         
+        // Detect per-universe admin assignments (may still have role player in users doc)
+        await API.refreshUniverseManagementAccess();
+
         // Update UI based on role
         UI.updateRoleUI(API.role);
         
@@ -3789,11 +3792,12 @@ try {
         const adminContent = UI.elements.adminContent;
         if (!adminContent) return;
         
-        // Check permissions
-        if (!API.canCreateUniverse()) {
+        if (!API.canAccessUniverseManagement()) {
             UI.showError(adminContent, 'Unauthorized: You do not have permission to manage universes.');
             return;
         }
+
+        const canCreateNew = API.canCreateUniverse();
         
         UI.showLoading(adminContent, 'Loading universes...');
         
@@ -3809,7 +3813,7 @@ try {
             let html = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
                     <h2>Universe Management</h2>
-                    <button class="btn btn-primary" id="btn-create-universe">➕ Create Universe</button>
+                    ${canCreateNew ? '<button class="btn btn-primary" id="btn-create-universe">➕ Create Universe</button>' : ''}
                 </div>
                 <div class="admin-table-container" style="overflow-x: auto;">
                     <table class="admin-table" style="width: 100%; border-collapse: collapse;">

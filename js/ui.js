@@ -285,6 +285,32 @@ const UI = {
                 }
             }
         }
+
+        if (tabId === 'admin') {
+            this.openDefaultAdminPanel();
+        }
+    },
+
+    /**
+     * Open the default admin panel for the current role (universe admins no longer land on empty placeholder).
+     */
+    openDefaultAdminPanel() {
+        if (typeof App === 'undefined' || !App.showAdminPanel || typeof API === 'undefined') {
+            return;
+        }
+        const isSysLevel = API.role === 'sim_admin' || API.role === 'sys_admin'
+            || API.uuid === API.SUPER_ADMIN_UUID;
+        const isUniverseScoped = API.role === 'universe_admin' || API.hasDelegatedUniverseAccess;
+        if (isUniverseScoped && !isSysLevel) {
+            document.querySelectorAll('.admin-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.admin === 'universes');
+            });
+            App.showAdminPanel('universes');
+            return;
+        }
+        if (isSysLevel) {
+            App.showAdminPanel('users');
+        }
     },
     
     /**
@@ -294,26 +320,33 @@ const UI = {
     updateRoleUI(role) {
         const isUniverseAdmin = role === 'universe_admin';
         const isSysLevelAdmin = role === 'sim_admin' || role === 'sys_admin';
-        const isAdmin = isSysLevelAdmin || isUniverseAdmin;
+        const hasDelegatedUniverse = typeof API !== 'undefined' && API.hasDelegatedUniverseAccess;
+        const isUniverseScopedAdmin = isUniverseAdmin || hasDelegatedUniverse;
+        const isAdmin = isSysLevelAdmin || isUniverseScopedAdmin;
         
         // Show/hide admin tab
         if (this.elements.adminTab) {
             this.elements.adminTab.classList.toggle('hidden', !isAdmin);
         }
         
-        // Universe admins: universes only (allowlists per universe, not global template CRUD)
+        // Universe-scoped admins: universes only (allowlists per universe, not global template CRUD)
         document.querySelectorAll('.admin-btn').forEach(btn => {
             const panel = btn.dataset.admin;
             let show = isSysLevelAdmin;
-            if (isUniverseAdmin) {
+            if (isUniverseScopedAdmin && !isSysLevelAdmin) {
                 show = panel === 'universes';
             }
             btn.classList.toggle('hidden', !show);
+            btn.classList.toggle('active', false);
         });
         
         // Update role badge
         if (this.elements.userRole) {
-            this.elements.userRole.textContent = this.formatRole(role);
+            let badge = this.formatRole(role);
+            if (hasDelegatedUniverse && role === 'player') {
+                badge = 'Universe Admin';
+            }
+            this.elements.userRole.textContent = badge;
             this.elements.userRole.classList.toggle('admin', isAdmin);
         }
     },
