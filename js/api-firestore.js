@@ -71,21 +71,86 @@ const API = {
     /**
      * Sync user data with Firestore
      */
+    _userSessionKey() {
+        return 'f4_user_' + (this.uuid || '');
+    },
+
+    _loadUserSession() {
+        try {
+            const raw = sessionStorage.getItem(this._userSessionKey());
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.data || (Date.now() - parsed.ts) > this._USER_SESSION_TTL_MS) {
+                return null;
+            }
+            return parsed.data;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    _saveUserSession() {
+        try {
+            sessionStorage.setItem(this._userSessionKey(), JSON.stringify({
+                ts: Date.now(),
+                data: {
+                    user: this.user,
+                    role: this.role,
+                    activeCharacter: this.activeCharacterId
+                }
+            }));
+        } catch (e) { /* quota / private mode */ }
+    },
+
+    _maybeUpdateLastLoginThrottled(userRef) {
+        const key = 'f4_last_login_write_' + this.uuid;
+        let last = 0;
+        try {
+            last = parseInt(localStorage.getItem(key) || '0', 10);
+        } catch (e) { /* ignore */ }
+        if (Date.now() - last < this._LAST_LOGIN_WRITE_INTERVAL_MS) {
+            return;
+        }
+        userRef.update({
+            last_login: firebase.firestore.FieldValue.serverTimestamp(),
+            firebase_uid: auth.currentUser?.uid || null,
+            username: this.username || (this.user && this.user.username),
+            display_name: this.displayName || (this.user && this.user.display_name)
+        }).then(function () {
+            try {
+                localStorage.setItem(key, String(Date.now()));
+            } catch (e) { /* ignore */ }
+        }).catch(function (err) {
+            console.warn('[API] throttled last_login update failed:', err);
+        });
+    },
+
     async syncUser() {
         if (!this.uuid) return;
-        
-        // IMPORTANT: UUID is the unique identifier - used as the Firestore document ID
-        // Display name is ONLY for UI display purposes, never used for identification
+
+        const cached = this._loadUserSession();
+        if (cached && cached.user) {
+            this.user = cached.user;
+            this.role = cached.role || 'player';
+            this.activeCharacterId = cached.activeCharacter || null;
+            if (this.user.display_name) {
+                this.displayName = this.user.display_name;
+            }
+            console.log('[API] User from session cache (0 reads):', this.role,
+                this.activeCharacterId ? (' activeChar:' + this.activeCharacterId) : '');
+            this._maybeUpdateLastLoginThrottled(db.collection('users').doc(this.uuid));
+            return;
+        }
+
         const userRef = db.collection('users').doc(this.uuid);
         const userDoc = await userRef.get();
-        
-        // Check if this is the super admin
         const isSuperAdmin = this.uuid === this.SUPER_ADMIN_UUID;
-        
+
         if (userDoc.exists) {
             this.user = userDoc.data();
-            
-            // Ensure super admin always has sys_admin role
+
             if (isSuperAdmin && this.user.role !== 'sys_admin') {
                 await userRef.update({
                     role: 'sys_admin',
@@ -95,24 +160,16 @@ const API = {
                 this.user.role = 'sys_admin';
                 this.user.is_super_admin = true;
             }
-            
+
             this.role = this.user.role || 'player';
             this.activeCharacterId = this.user.activeCharacter || null;
-            
-            // Update displayName from user document if available (UI display only, not used for identification)
+
             if (this.user.display_name) {
                 this.displayName = this.user.display_name;
             }
-            
-            // Update last login and refresh name from LSL
-            await userRef.update({
-                last_login: firebase.firestore.FieldValue.serverTimestamp(),
-                firebase_uid: auth.currentUser?.uid || null,
-                username: this.username || this.user.username,
-                display_name: this.displayName || this.user.display_name
-            });
+
+            this._maybeUpdateLastLoginThrottled(userRef);
         } else {
-            // Create new user
             const newUser = {
                 uuid: this.uuid,
                 username: this.username || this.uuid,
@@ -124,14 +181,17 @@ const API = {
                 firebase_uid: auth.currentUser?.uid || null,
                 banned: false
             };
-            
+
             await userRef.set(newUser);
             this.user = newUser;
             this.role = isSuperAdmin ? 'sys_admin' : 'player';
             this.activeCharacterId = null;
-            // For new users, displayName is already set from URL params or default
+            try {
+                localStorage.setItem('f4_last_login_write_' + this.uuid, String(Date.now()));
+            } catch (e) { /* ignore */ }
         }
-        
+
+        this._saveUserSession();
         console.log('User synced:', this.role, '- Display:', this.displayName,
             this.activeCharacterId ? (' activeChar:' + this.activeCharacterId) : '',
             isSuperAdmin ? '(Super Admin)' : '');
@@ -153,6 +213,7 @@ const API = {
             if (this.user) {
                 this.user.activeCharacter = characterId;
             }
+            this._saveUserSession();
             console.log('[API] activeCharacter saved:', characterId);
             return { success: true };
         } catch (error) {
@@ -163,8 +224,18 @@ const API = {
     
     // =========================== TEMPLATES (Public Read) ====================
 
+    /** When true, species/classes/genders/vocations load from bundled seed-data.js (0 Firestore reads). */
+    _USE_STATIC_TEMPLATES: true,
+    _forceFirestoreTemplates: false,
+
     _templateCache: {},
     _TEMPLATE_CACHE_TTL_MS: 30 * 60 * 1000,
+
+    _USER_SESSION_TTL_MS: 30 * 60 * 1000,
+    _LAST_LOGIN_WRITE_INTERVAL_MS: 60 * 60 * 1000,
+    _LIST_CHARACTERS_TTL_MS: 5 * 60 * 1000,
+    _listCharactersCache: null,
+    _listCharactersCacheTs: 0,
 
     _getCachedTemplate(cacheKey) {
         const entry = this._templateCache[cacheKey];
@@ -178,11 +249,75 @@ const API = {
         this._templateCache[cacheKey] = { ts: Date.now(), data: data };
     },
 
-    /** One collection read; filter enabled in memory (Spark read optimization). */
+    _staticVocationList() {
+        return [
+            { id: 'combat', name: 'Combat Training', primary_stat: 'fighting', secondary_stat: 'endurance', applies_to: ['fighting', 'athletics'] },
+            { id: 'stealth', name: 'Shadow Arts', primary_stat: 'stealth', secondary_stat: 'agility', applies_to: ['stealth', 'thievery'] },
+            { id: 'magic', name: 'Arcane Studies', primary_stat: 'intelligence', secondary_stat: 'will', applies_to: ['knowledge', 'wisdom'] },
+            { id: 'crafting', name: 'Master Crafting', primary_stat: 'crafting', secondary_stat: 'intelligence', applies_to: ['crafting', 'knowledge'] },
+            { id: 'faith', name: 'Divine Calling', primary_stat: 'will', secondary_stat: 'wisdom', applies_to: ['healing', 'influence'] },
+            { id: 'commerce', name: 'Trade Mastery', primary_stat: 'persuasion', secondary_stat: 'awareness', applies_to: ['persuasion', 'deception'] },
+            { id: 'survival', name: 'Wilderness Lore', primary_stat: 'survival', secondary_stat: 'awareness', applies_to: ['survival', 'animal_handling'] },
+            { id: 'entertainment', name: 'Performance Arts', primary_stat: 'entertaining', secondary_stat: 'persuasion', applies_to: ['entertaining', 'influence'] },
+            { id: 'crime', name: 'Criminal Expertise', primary_stat: 'thievery', secondary_stat: 'deception', applies_to: ['thievery', 'stealth', 'deception'] },
+            { id: 'healing', name: 'Healing Arts', primary_stat: 'healing', secondary_stat: 'knowledge', applies_to: ['healing', 'awareness'] },
+            { id: 'hunting', name: 'Hunter\'s Instinct', primary_stat: 'marksmanship', secondary_stat: 'awareness', applies_to: ['marksmanship', 'survival'] },
+            { id: 'scholarship', name: 'Academic Knowledge', primary_stat: 'knowledge', secondary_stat: 'intelligence', applies_to: ['knowledge', 'wisdom'] },
+            { id: 'exploration', name: 'Wanderer\'s Path', primary_stat: 'awareness', secondary_stat: 'agility', applies_to: ['awareness', 'athletics', 'survival'] },
+            { id: 'protection', name: 'Guardian\'s Duty', primary_stat: 'fighting', secondary_stat: 'awareness', applies_to: ['fighting', 'awareness'] },
+            { id: 'dark_magic', name: 'Forbidden Arts', primary_stat: 'intelligence', secondary_stat: 'will', applies_to: ['knowledge', 'deception'] },
+            { id: 'law', name: 'Legal Authority', primary_stat: 'influence', secondary_stat: 'knowledge', applies_to: ['influence', 'persuasion'] },
+            { id: 'nobility', name: 'Noble Bearing', primary_stat: 'influence', secondary_stat: 'awareness', applies_to: ['influence', 'persuasion', 'entertaining'] },
+            { id: 'general', name: 'Jack of All Trades', primary_stat: 'awareness', secondary_stat: 'will', applies_to: ['awareness', 'survival'] }
+        ];
+    },
+
+    _loadTemplatesFromSeed(collectionName, mapDoc) {
+        if (typeof F4_SEED_DATA === 'undefined') {
+            return null;
+        }
+        let items = [];
+        if (collectionName === 'species') {
+            items = F4_SEED_DATA.getFullSpeciesData();
+        } else if (collectionName === 'classes') {
+            items = F4_SEED_DATA.getFullClassData();
+        } else if (collectionName === 'genders') {
+            items = F4_SEED_DATA.getGenderData();
+        } else if (collectionName === 'vocations') {
+            items = this._staticVocationList();
+        } else {
+            return null;
+        }
+        items = items.filter(function (row) {
+            return row && row.enabled !== false;
+        });
+        if (mapDoc) {
+            items = items.map(function (row) {
+                return mapDoc({ id: row.id }, row);
+            });
+        } else {
+            items = items.map(function (row) {
+                return { id: row.id, ...row };
+            });
+        }
+        return { success: true, data: items };
+    },
+
+    /** Static seed-data.js first; Firestore only when admin forces or seed missing. */
     async _loadTemplateCollection(collectionName, seedFn, mapDoc) {
         const cached = this._getCachedTemplate(collectionName);
         if (cached) {
             return cached;
+        }
+
+        if (this._USE_STATIC_TEMPLATES && !this._forceFirestoreTemplates) {
+            const seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
+            if (seeded && seeded.data && seeded.data.length > 0) {
+                const result = { success: true, data: seeded.data };
+                this._setCachedTemplate(collectionName, result);
+                console.log('[API] ' + collectionName + ' from seed-data.js (0 Firestore reads)');
+                return result;
+            }
         }
 
         let snapshot = await db.collection(collectionName).get();
@@ -383,9 +518,15 @@ const API = {
     /**
      * List all characters for current user
      */
-    async listCharacters() {
+    async listCharacters(forceRefresh) {
         if (!this.uuid) {
             return { success: false, error: 'No UUID - access denied' };
+        }
+
+        if (!forceRefresh && this._listCharactersCache &&
+            (Date.now() - this._listCharactersCacheTs) < this._LIST_CHARACTERS_TTL_MS) {
+            console.log('[listCharacters] session cache:', this._listCharactersCache.length, '(0 reads)');
+            return { success: true, data: { characters: this._listCharactersCache }, cached: true };
         }
         
         try {
@@ -469,6 +610,8 @@ const API = {
                 });
             }
             
+            this._listCharactersCache = characters;
+            this._listCharactersCacheTs = Date.now();
             console.log(`[listCharacters] Found ${characters.length} character(s) for UUID: ${this.uuid}`);
             return { success: true, data: { characters } };
         } catch (error) {
@@ -701,37 +844,52 @@ const API = {
         
         try {
             const docRef = db.collection('characters').doc(targetId);
-            const doc = await docRef.get();
-            
-            if (!doc.exists) {
-                return { success: false, error: 'Character not found' };
+            let existing = null;
+
+            if (this._listCharactersCache) {
+                for (let i = 0; i < this._listCharactersCache.length; i++) {
+                    if (this._listCharactersCache[i].id === targetId) {
+                        existing = this._listCharactersCache[i];
+                        break;
+                    }
+                }
             }
-            
-            const existing = doc.data();
+
+            if (!existing) {
+                const doc = await docRef.get();
+                if (!doc.exists) {
+                    return { success: false, error: 'Character not found' };
+                }
+                existing = { id: doc.id, ...doc.data() };
+            }
+
             if (existing.owner_uuid !== this.uuid) {
                 return { success: false, error: 'Access denied - not your character' };
             }
-            
+
             const updateData = {
                 ...charData,
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
             };
-            
-            // Don't allow changing owner_uuid or document id
+
             delete updateData.owner_uuid;
             delete updateData.id;
-            
+
             await docRef.update(updateData);
-            
-            const updatedDoc = await docRef.get();
-            const updatedCharacter = { id: updatedDoc.id, ...updatedDoc.data() };
-            
-            return { 
-                success: true, 
-                data: { 
+
+            const updatedCharacter = { ...existing, ...charData, id: targetId };
+            if (this._listCharactersCache) {
+                this._listCharactersCache = this._listCharactersCache.map(function (c) {
+                    return c.id === targetId ? updatedCharacter : c;
+                });
+            }
+
+            return {
+                success: true,
+                data: {
                     character: updatedCharacter,
-                    message: 'Character saved!' 
-                } 
+                    message: 'Character saved!'
+                }
             };
         } catch (error) {
             console.error('updateCharacter error:', error);
@@ -1396,6 +1554,9 @@ const API = {
      */
     async saveTemplate(type, id, templateData, isNew = false) {
         try {
+            this._forceFirestoreTemplates = true;
+            delete this._templateCache[type];
+
             if (!this.canManageGlobalTemplates()) {
                 return { success: false, error: 'Unauthorized: Only system administrators can add or edit global templates' };
             }
