@@ -2145,10 +2145,6 @@ try {
         // Refresh button
         UI.elements.btnRefresh?.addEventListener('click', () => this.loadData());
         
-        // Players HUD buttons
-        UI.elements.btnRest?.addEventListener('click', () => this.handleRest());
-        UI.elements.btnReset?.addEventListener('click', () => this.handleResetResources());
-        UI.elements.btnMode?.addEventListener('click', () => this.showModeDialog());
         UI.elements.btnAddActionSlot?.addEventListener('click', () => {
             // Find first empty slot
             const slots = this.state.character?.action_slots || [];
@@ -2305,19 +2301,6 @@ try {
         document.getElementById('btn-hide-bars')?.addEventListener('click', () => {
             this.handleHideBars();
         });
-        
-        // Quick actions
-        document.getElementById('btn-ooc-reset')?.addEventListener('click', () => {
-            this.handleOOCReset();
-        });
-        
-        document.getElementById('btn-ic-rest')?.addEventListener('click', () => {
-            this.handleICRest();
-        });
-        
-        document.getElementById('btn-stop-resting')?.addEventListener('click', () => {
-            this.handleStopResting();
-        });
     },
     
     // exitSetupHUD() and sendCloseSetupMessage() removed - exit button no longer exists
@@ -2393,91 +2376,6 @@ try {
     },
     
     /**
-     * Handle Rest action (restore health/stamina over time)
-     */
-    handleRest() {
-        if (!this.state.character) return;
-        
-        UI.showToast('Resting... (+1 Health/Stamina every 5 seconds)', 'info');
-        
-        // TODO: Implement actual rest mechanics with timer
-        // For now, just restore a small amount
-        if (this.state.character.health.current < this.state.character.health.max) {
-            this.state.character.health.current = Math.min(
-                this.state.character.health.max,
-                this.state.character.health.current + 10
-            );
-        }
-        if (this.state.character.stamina.current < this.state.character.stamina.max) {
-            this.state.character.stamina.current = Math.min(
-                this.state.character.stamina.max,
-                this.state.character.stamina.current + 10
-            );
-        }
-        
-        UI.renderResourceBars(this.state.character);
-    },
-    
-    /**
-     * Handle Reset Resources action (full restore)
-     */
-    async handleResetResources() {
-        if (!this.state.character) return;
-        
-        const confirmed = await UI.showConfirmDialog({
-            title: 'Reset resources?',
-            message: 'Reset all resources to maximum? This will restore Health, Stamina, and Mana to full.',
-            confirmLabel: 'Reset'
-        });
-        if (!confirmed) return;
-        
-        this.state.character.health.current = this.state.character.health.max;
-        this.state.character.stamina.current = this.state.character.stamina.max;
-        this.state.character.mana.current = this.state.character.mana.max;
-        
-        UI.renderResourceBars(this.state.character);
-        UI.showToast('Resources reset to maximum', 'success');
-    },
-    
-    /**
-     * Show mode selection dialog
-     */
-    showModeDialog() {
-        const currentMode = this.state.character?.mode || 'roleplay';
-        const modes = [
-            { id: 'roleplay', name: 'Roleplay', icon: '🎭' },
-            { id: 'tournament', name: 'Tournament', icon: '⚔️' },
-            { id: 'ooc', name: 'OOC', icon: '💬' },
-            { id: 'afk', name: 'AFK', icon: '😴' }
-        ];
-        
-        const content = `
-            <h2>Change Mode</h2>
-            <div class="mode-selection">
-                ${modes.map(mode => `
-                    <button class="action-btn ${currentMode === mode.id ? 'primary' : ''}" 
-                            data-mode="${mode.id}" 
-                            style="width: 100%; margin-bottom: var(--space-sm);">
-                        ${mode.icon} ${mode.name}
-                    </button>
-                `).join('')}
-            </div>
-        `;
-        
-        UI.showModal(content);
-        
-        document.querySelectorAll('[data-mode]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const mode = btn.dataset.mode;
-                this.state.character.mode = mode;
-                this.state.pendingChanges.mode = mode;
-                UI.hideModal();
-                UI.showToast(`Mode changed to ${modes.find(m => m.id === mode)?.name}`, 'success');
-            });
-        });
-    },
-    
-    /**
      * Handle mode change from Options tab
      */
     async handleModeChange(mode) {
@@ -2534,36 +2432,6 @@ try {
     handleHideBars() {
         this.sendToLSL('HIDE_BARS', {});
         UI.showToast('Health and stamina bars will be hidden', 'success');
-    },
-    
-    /**
-     * Handle OOC reset
-     */
-    async handleOOCReset() {
-        const confirmed = await UI.showConfirmDialog({
-            title: 'Reset resources?',
-            message: 'Reset character resources? This will restore Health, Stamina, and Mana to maximum.',
-            confirmLabel: 'Reset'
-        });
-        if (!confirmed) return;
-        this.sendToLSL('OOC_RESET', {});
-        UI.showToast('Character resources reset', 'success');
-    },
-    
-    /**
-     * Handle IC rest
-     */
-    handleICRest() {
-        this.sendToLSL('IC_REST', {});
-        UI.showToast('Resting...', 'info');
-    },
-    
-    /**
-     * Handle stop resting
-     */
-    handleStopResting() {
-        this.sendToLSL('STOP_RESTING', {});
-        UI.showToast('Stopped resting', 'info');
     },
     
     /**

@@ -189,9 +189,6 @@ const UI = {
             manaValue: document.getElementById('mana-value'),
             actionSlots: document.getElementById('action-slots'),
             btnAddActionSlot: document.getElementById('btn-add-action-slot'),
-            btnRest: document.getElementById('btn-rest'),
-            btnReset: document.getElementById('btn-reset'),
-            btnMode: document.getElementById('btn-mode'),
             
             // Inventory tab
             currencyAmount: document.getElementById('currency-amount'),
