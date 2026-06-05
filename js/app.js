@@ -2649,10 +2649,16 @@ try {
      * Build pipe-safe payload from loaded Firestore character (MOAP → LSL).
      * LSL bridge HTTP cannot use Firebase auth; MOAP must push identity and pools.
      */
-    buildCharacterSyncPayload(characterId) {
+    buildCharacterSyncPayload(characterId, charOverride) {
         const data = { characterId: characterId };
-        const char = this.state.character;
-        if (!char || char.id !== characterId) {
+        let char = charOverride;
+        if (!char && this.state.character && this.state.character.id === characterId) {
+            char = this.state.character;
+        }
+        if (!char && API._listCharactersCache) {
+            char = this.characterFromList(API._listCharactersCache, characterId);
+        }
+        if (!char) {
             return data;
         }
         if (char.name != null && char.name !== '') {
@@ -2723,7 +2729,19 @@ try {
             return;
         }
         await this.rememberSelectedCharacter(characterId);
-        const payload = this.buildCharacterSyncPayload(characterId);
+        let char = (this.state.character && this.state.character.id === characterId)
+            ? this.state.character
+            : this.characterFromList(API._listCharactersCache || [], characterId);
+        if (!char || !char.name) {
+            const charResult = await API.getCharacterById(characterId);
+            if (charResult.success && charResult.data && charResult.data.character) {
+                char = charResult.data.character;
+            }
+        }
+        const payload = this.buildCharacterSyncPayload(characterId, char);
+        if (!payload.name) {
+            console.warn('[Players HUD Sync] LOAD_CHARACTER missing name — meter may show Loading until Bridge fetch');
+        }
         console.log('[Players HUD Sync] Switching HUD character:', payload);
         this.sendToLSL('LOAD_CHARACTER', payload);
     },
