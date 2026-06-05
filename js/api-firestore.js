@@ -766,17 +766,17 @@ const API = {
             };
             
             const docRef = await db.collection('characters').add(character);
-            
-            // Fetch the created document to get actual server timestamp values
-            const createdDoc = await docRef.get();
-            const createdCharacter = { id: createdDoc.id, ...createdDoc.data() };
-            
-            return { 
-                success: true, 
-                data: { 
+            this._listCharactersCache = null;
+            this._listCharactersCacheTs = 0;
+
+            const createdCharacter = { id: docRef.id, ...character };
+
+            return {
+                success: true,
+                data: {
                     character: createdCharacter,
-                    message: 'Character created!' 
-                } 
+                    message: 'Character created!'
+                }
             };
         } catch (error) {
             console.error('createCharacter error:', error);
@@ -811,9 +811,10 @@ const API = {
                 return { success: false, error: 'Access denied - not your character' };
             }
             
-            // Delete the character document
             await docRef.delete();
-            
+            this._listCharactersCache = null;
+            this._listCharactersCacheTs = 0;
+
             return {
                 success: true,
                 data: {
