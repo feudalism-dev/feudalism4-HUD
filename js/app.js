@@ -2744,6 +2744,16 @@ try {
         }
         console.log('[Players HUD Sync] Switching HUD character:', payload);
         this.sendToLSL('LOAD_CHARACTER', payload);
+        try {
+            const currentUrl = new URL(window.location.href);
+            if (char && char.name) {
+                currentUrl.searchParams.set('char_name', char.name);
+            }
+            if (char && char.title != null) {
+                currentUrl.searchParams.set('char_title', char.title);
+            }
+            this.safeHistoryReplaceState(currentUrl.toString());
+        } catch (e) { /* ignore */ }
     },
 
     /**
@@ -7231,63 +7241,14 @@ try {
      * This allows the Players HUD to sync its local data with Firestore
      */
     broadcastCharacterToPlayersHUD(character) {
-        if (!character || !this.lsl.channel) {
-            return; // No character or no channel available
+        if (!character || !character.id) {
+            return;
         }
-        
         if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
             this.scheduleBroadcastToPlayersHUD(character);
             return;
         }
-        
-        // Build character data as JSON object
-        // Get class_id - check both character.class_id and currentClass.id
-        let classId = character.class_id || "";
-        if (!classId && this.state.currentClass) {
-            classId = this.state.currentClass.id || "";
-            console.log('[Broadcast] Using currentClass.id as fallback: ' + classId);
-        }
-        if (!classId) {
-            console.warn('[Broadcast] WARNING: class_id is empty! character.class_id=' + character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-        } else {
-            console.log('[Broadcast] Including class in JSON: ' + classId);
-        }
-        
-        // Create JSON object with all character data
-        const characterJSON = {
-            class_id: classId,
-            stats: character.stats || {},
-            health: character.health || { current: 0, base: 0, max: 0 },
-            stamina: character.stamina || { current: 0, base: 0, max: 0 },
-            mana: character.mana || { current: 0, base: 0, max: 0 },
-            xp_total: character.xp_total || 0,
-            has_mana: character.has_mana || false,
-            species_factors: character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
-        };
-        
-        // Convert to JSON string
-        const jsonString = JSON.stringify(characterJSON);
-        console.log('[Players HUD Sync] Broadcasting character data as JSON:', jsonString);
-        
-        // Encode JSON in URL so LSL can read it via llGetPrimMediaParams
-        // LSL will poll the MOAP URL and extract the data
-        try {
-            const currentUrl = new URL(window.location.href);
-            // Encode the JSON (URL-encode it)
-            const encodedData = encodeURIComponent(jsonString);
-            currentUrl.searchParams.set('char_data', encodedData);
-            currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-            
-            if (this.safeHistoryReplaceState(currentUrl.toString())) {
-                console.log('[Players HUD Sync] Character data encoded in URL for LSL to read');
-            } else {
-                console.log('[Players HUD Sync] URL sync skipped — form field focused');
-            }
-        } catch (e) {
-            console.log('[Players HUD Sync] URL update failed:', e);
-        }
-        
-        console.log('[Players HUD Sync] Character data ready - LSL will retrieve via URL polling');
+        this.pushCharacterToPlayersHUD(character.id);
     }
 };  // End of App object
 
