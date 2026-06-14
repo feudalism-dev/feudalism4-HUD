@@ -1,0 +1,53 @@
+/* Feudalism 4 Guide — light medieval polish on top of Material */
+
+:root {
+  --md-primary-fg-color: #6b4423;
+  --md-primary-fg-color--light: #8a5a2b;
+  --md-primary-fg-color--dark: #4a2f18;
+  --md-accent-fg-color: #c8941f;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #5a3a1e;
+  --md-accent-fg-color: #e0a93a;
+}
+
+/* Hero block for the home page */
+.f4-hero {
+  border-radius: 0.6rem;
+  padding: 2.4rem 1.8rem;
+  margin: 0 0 1.6rem 0;
+  background:
+    linear-gradient(135deg, rgba(74, 47, 24, 0.92), rgba(107, 68, 35, 0.86)),
+    radial-gradient(circle at 80% 20%, rgba(200, 148, 31, 0.35), transparent 60%);
+  color: #f5efe2;
+}
+
+.f4-hero h1 {
+  color: #f8e9c8;
+  margin-top: 0;
+  font-size: 2.1rem;
+}
+
+.f4-hero p {
+  font-size: 0.95rem;
+  max-width: 48rem;
+}
+
+/* Card grid (uses Material's grid cards) */
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-typeset .grid > .card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+}
+
+/* Make tables a touch denser and readable for long reference pages */
+.md-typeset table:not([class]) {
+  font-size: 0.74rem;
+}
+
+/* "Player steps" callouts read as a numbered quest log */
+.md-typeset .admonition.quest > .admonition-title::before {
+  -webkit-mask-image: var(--md-admonition-icon--note);
+  mask-image: var(--md-admonition-icon--note);
+}
