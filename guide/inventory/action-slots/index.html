@@ -1347,10 +1347,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-auto-registers" class="md-nav__link">
+  <a href="#preferred-slots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What auto-registers
+        Preferred slots
       
     </span>
   </a>
@@ -1358,10 +1358,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-many-can-you-wear" class="md-nav__link">
+  <a href="#storage-pouches-on-action-slots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How many can you wear?
+        Storage pouches on action slots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drink-skin-and-bucket-slots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drink skin and bucket slots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#planning-your-loadout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Planning your loadout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
       
     </span>
   </a>
@@ -2582,10 +2615,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-auto-registers" class="md-nav__link">
+  <a href="#preferred-slots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What auto-registers
+        Preferred slots
       
     </span>
   </a>
@@ -2593,10 +2626,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-many-can-you-wear" class="md-nav__link">
+  <a href="#storage-pouches-on-action-slots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How many can you wear?
+        Storage pouches on action slots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drink-skin-and-bucket-slots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drink skin and bucket slots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#planning-your-loadout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Planning your loadout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
       
     </span>
   </a>
@@ -2621,8 +2687,8 @@
 
 
 <h1 id="action-slots-worn-tools">Action Slots &amp; Worn Tools<a class="headerlink" href="#action-slots-worn-tools" title="Permanent link">&para;</a></h1>
-<p><strong>Action slots</strong> are quick-use buttons on your HUD that link to <strong>tools you wear</strong> — your pouch, a water
-bucket, a drink skin, and buffs — so you can use them without digging through menus.</p>
+<p><strong>Action slots</strong> are quick-use buttons on your HUD that link to <strong>tools you wear</strong> — pouches, a water bucket,
+a drink skin, drinking vessels, and buffs — so you can use them without digging through menus.</p>
 <h2 id="the-slot-layout">The slot layout<a class="headerlink" href="#the-slot-layout" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2637,65 +2703,115 @@ bucket, a drink skin, and buffs — so you can use them without digging through 
 <td>Primary and secondary weapons — draw/sheath. See <a href="../../combat/weapons-armor/">Weapons &amp; Armor</a>.</td>
 </tr>
 <tr>
-<td><strong>Action slots</strong> (9)</td>
-<td>Worn tools and actions: pouches, buckets, skins, vessels, buffs.</td>
+<td><strong>Action slots</strong> (9, numbered <strong>2–10</strong> on the bar)</td>
+<td>Worn tools: pouches, bucket, skin, vessels, buffs.</td>
 </tr>
 </tbody>
 </table>
-<p>When you attach a recognized tool, the HUD detects it within about a second and lights up a slot. Touch the
-lit slot to <strong>use</strong> that tool.</p>
-<h2 id="what-auto-registers">What auto-registers<a class="headerlink" href="#what-auto-registers" title="Permanent link">&para;</a></h2>
-<p>The HUD recognizes tools by their name:</p>
+<p>When you attach a recognized tool, the HUD detects it within about <strong>one second</strong> and lights up a slot. Touch
+the lit slot to use that tool.</p>
+<h2 id="preferred-slots">Preferred slots<a class="headerlink" href="#preferred-slots" title="Permanent link">&para;</a></h2>
+<p>The HUD tries to put common tools in fixed positions (left to right on the bar):</p>
 <table>
 <thead>
 <tr>
 <th>Tool</th>
-<th>Recognized by</th>
+<th>Recognized by object name</th>
 <th>Preferred slot</th>
+<th>Slot click opens</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Pouch</strong></td>
-<td>name contains "pouch"</td>
-<td>10</td>
+<td><strong>Storage pouch</strong></td>
+<td>name contains <code>pouch</code> (PI2 product)</td>
+<td><strong>10</strong></td>
+<td><strong>That pouch's menu</strong> only</td>
 </tr>
 <tr>
 <td><strong>Water bucket</strong></td>
-<td>name contains "bucket"</td>
-<td>9</td>
+<td>name contains <code>bucket</code> (not a skin)</td>
+<td><strong>9</strong></td>
+<td>Personal inventory — <strong>water</strong> filter</td>
 </tr>
 <tr>
 <td><strong>Drink skin / waterskin / wineskin</strong></td>
-<td>name contains "skin"</td>
-<td>8</td>
+<td>name contains <code>skin</code></td>
+<td><strong>8</strong></td>
+<td>Personal inventory — <strong>brewing liquids</strong> filter</td>
 </tr>
 <tr>
 <td><strong>Flasks, horns, mugs, goblets, vials</strong></td>
-<td>matching names</td>
+<td>matching keywords</td>
 <td>next free slot</td>
+<td>Drink / vessel action for that prop</td>
 </tr>
 </tbody>
 </table>
-<p>If a preferred slot is taken, the HUD assigns the next free slot to the left.</p>
+<p>If the preferred slot is already taken by another tool, the HUD assigns the <strong>next free slot to the left</strong>
+(7, 6, 5, …), then to the right if needed.</p>
+<h2 id="storage-pouches-on-action-slots">Storage pouches on action slots<a class="headerlink" href="#storage-pouches-on-action-slots" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Each <strong>PI2 storage pouch</strong> registers with the HUD when you attach it and claims one action slot.</li>
+<li>You may wear <strong>at most two</strong> storage pouches. A third will <strong>not</strong> get a slot and should detach automatically.</li>
+<li>Set the pouch <strong>Description</strong> to a short label so chat messages and slot clicks name the right bag.</li>
+<li>Touching a pouch's slot sends <code>openPouchMenu</code> to <strong>that pouch only</strong> — not the full HUD <strong>I</strong> menu.</li>
+</ul>
 <div class="admonition quote">
 <p class="admonition-title">Player steps</p>
 <ol>
 <li>Attach your pouch, bucket, or skin as normal Second Life attachments.</li>
-<li>Wait about a second for the HUD to detect them (slots light up).</li>
+<li>Wait about <strong>one second</strong> after attaching the HUD or a tool (slots light up).</li>
 <li>Touch the matching action slot to open or use that tool.</li>
-<li>Slot still empty? Re-attach the tool, or check its name matches the patterns above.</li>
+<li>Slot still empty? Re-attach the tool, touch the pouch once to register, or check the object name matches
+   the patterns above.</li>
 </ol>
 </div>
-<h2 id="how-many-can-you-wear">How many can you wear?<a class="headerlink" href="#how-many-can-you-wear" title="Permanent link">&para;</a></h2>
-<p>You can wear <strong>as many tools as you have open action slots</strong> (up to 9). This is what lets you stack multiple
-<strong><a href="../personal-inventory/">pouches</a></strong> to expand your inventory — each worn pouch occupies one action slot and
-adds its own storage to your searchable total.</p>
-<div class="admonition tip">
-<p class="admonition-title">Plan your loadout</p>
-<p>If you craft a lot, you might run a pouch (slot 10), a drink skin (slot 8), and one or two extra pouches
-in the remaining slots. If you fight a lot, you may prefer fewer tools and quicker access.</p>
-</div>
+<h2 id="drink-skin-and-bucket-slots">Drink skin and bucket slots<a class="headerlink" href="#drink-skin-and-bucket-slots" title="Permanent link">&para;</a></h2>
+<p>Under the personal inventory model, skins and buckets <strong>do not store liquid on the attachment</strong>. They register
+with the HUD so stations know you're wearing them, and the slot opens a <strong>filtered inventory view</strong>:</p>
+<ul>
+<li><strong>Slot 8 (skin)</strong> — items like <code>wine</code>, <code>must</code>, <code>mash</code> in your character inventory.</li>
+<li><strong>Slot 9 (bucket)</strong> — <code>water</code> in your character inventory (wells fill through the worn bucket).</li>
+</ul>
+<p>You can also <strong>touch</strong> the skin or bucket directly for the same menus.</p>
+<h2 id="planning-your-loadout">Planning your loadout<a class="headerlink" href="#planning-your-loadout" title="Permanent link">&para;</a></h2>
+<p>Nine action slots sounds like a lot, but weapons and buffs compete with tools. A typical crafter might run:</p>
+<ul>
+<li>Slot <strong>10</strong> — main pouch (<code>Mining</code>)</li>
+<li>Slot <strong>9</strong> — water bucket</li>
+<li>Slot <strong>8</strong> — drink skin</li>
+<li>Slot <strong>7</strong> — second pouch (<code>Cooking</code>)</li>
+</ul>
+<p>Fighters may leave several slots empty for quicker access to weapons and buffs.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Things to check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Slot never lights up</td>
+<td>HUD attached? Wait ~1 s after wear. Object name matches table above?</td>
+</tr>
+<tr>
+<td>Third pouch won't stay</td>
+<td><strong>Two-pouch limit</strong> — detach one storage pouch first.</td>
+</tr>
+<tr>
+<td>Slot click opens wrong pouch</td>
+<td>Set unique <strong>Description</strong> labels on each pouch.</td>
+</tr>
+<tr>
+<td>Bucket/skin slot empty</td>
+<td>Liquids live in <strong>personal inventory</strong> — gather or fill at a well first.</td>
+</tr>
+</tbody>
+</table>
+<p>See also: <strong><a href="../personal-inventory/">Personal Inventory &amp; Pouches</a></strong> · <strong><a href="../storage-chests/">Storage Chests</a></strong></p>
 
 
 

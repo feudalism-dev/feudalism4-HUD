@@ -2520,7 +2520,7 @@
 <tbody>
 <tr>
 <td><strong>Action slot</strong></td>
-<td>One of the 9 quick-use buttons on the HUD that link to worn tools (pouch, bucket, skin).</td>
+<td>One of the 9 quick-use buttons on the HUD (slots 2–10) that link to worn tools (pouch, bucket, skin).</td>
 </tr>
 <tr>
 <td><strong>Available Points</strong></td>
@@ -2536,7 +2536,7 @@
 </tr>
 <tr>
 <td><strong>Drink skin</strong></td>
-<td>A worn liquid container (water, must, wine). Holds one liquid type at a time.</td>
+<td>Worn doorway for <strong>brewing liquids</strong> (<code>wine</code>, <code>must</code>, …) stored in personal inventory; preferred action slot <strong>8</strong>.</td>
 </tr>
 <tr>
 <td><strong>Experience (SL)</strong></td>
@@ -2556,7 +2556,7 @@
 </tr>
 <tr>
 <td><strong>Liquid (<code>*</code>)</strong></td>
-<td>In recipe data, liquids end with <code>*</code> and use the drink skin/bucket; players never see the <code>*</code>.</td>
+<td>In recipe data, liquids end with <code>*</code> and route through the drink skin/bucket; players never see the <code>*</code>.</td>
 </tr>
 <tr>
 <td><strong>Meter</strong></td>
@@ -2568,11 +2568,15 @@
 </tr>
 <tr>
 <td><strong>Personal inventory</strong></td>
-<td>Your character's items. Tied to the <strong>character</strong>, not the avatar.</td>
+<td>Your character's items on the HUD (<code>pinv_*</code>). Tied to the <strong>character</strong>, not the avatar.</td>
+</tr>
+<tr>
+<td><strong>PI2 pouch</strong></td>
+<td>A storage pouch whose items live on the attachment; up to <strong>two</strong> may be worn; contents travel with the pouch.</td>
 </tr>
 <tr>
 <td><strong>Pouch</strong></td>
-<td>A worn container that holds items and expands your inventory; rezzed, it acts like a chest.</td>
+<td>A worn container for items; on F4 builds, storage pouches expand capacity and rezzed act like chests.</td>
 </tr>
 <tr>
 <td><strong>Producer</strong></td>
@@ -2605,6 +2609,10 @@
 <tr>
 <td><strong>Vitals</strong></td>
 <td>Health, Stamina, and Mana — your three pools.</td>
+</tr>
+<tr>
+<td><strong>Water bucket</strong></td>
+<td>Worn doorway for <strong>water</strong> in personal inventory; preferred action slot <strong>9</strong>; used at wells.</td>
 </tr>
 <tr>
 <td><strong>XP</strong></td>

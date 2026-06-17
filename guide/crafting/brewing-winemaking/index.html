@@ -2668,10 +2668,10 @@
 <p>Drinks are made in <strong>stages</strong>: a <strong>producer</strong> station turns a raw input into a base liquid, an <strong>oven /
 fermenter</strong> turns that into the finished drink, and a <strong>refillable container</strong> can store or serve it.</p>
 <h2 id="liquids-vs-solids">Liquids vs solids<a class="headerlink" href="#liquids-vs-solids" title="Permanent link">&para;</a></h2>
-<p>Liquids (water, must, mash, wine, ale) are carried in your <strong>drink skin</strong> or <strong>bucket</strong>, while solids
-(grapes, barley, honey, yeast) live in your <strong>pouch</strong>. The system routes each ingredient automatically — you
-just wear the right containers. (In the game's data, liquid names carry a trailing <code>*</code>, but you never see that
-in menus.)</p>
+<p>Liquids (<code>water</code>, <code>must</code>, <code>mash</code>, <code>wine</code>, <code>ale</code>) are stored in your <strong>HUD personal inventory</strong> like any other
+item. Wear a <strong>drink skin</strong> and <strong>water bucket</strong> so stations can route liquid give/take correctly; solids
+(grapes, barley, honey, yeast) live in your <strong>pouch</strong> or personal inventory. (In recipe data, liquid names
+carry a trailing <code>*</code>, but you never see that in menus.)</p>
 <h2 id="producer-stations-no-roll">Producer stations (no roll)<a class="headerlink" href="#producer-stations-no-roll" title="Permanent link">&para;</a></h2>
 <p>Presses, malting tubs, grape-stomping vats, and churns are <strong>producers</strong>: one input → one output, on a timer,
 with <strong>no success roll</strong>. If you have the input and wait, you get the output.</p>
@@ -2681,7 +2681,7 @@ with <strong>no success roll</strong>. If you have the input and wait, you get t
 <li>Wear your <strong>pouch</strong> (and <strong>skin</strong> if a liquid is involved).</li>
 <li>Touch the station (or <strong>sit</strong> for animated ones like a stomping vat).</li>
 <li>Pick the recipe and confirm.</li>
-<li>Wait the timer; the output goes to your pouch or skin.</li>
+<li>Wait the timer; the output goes to your <strong>personal inventory</strong> (or pouch overflow).</li>
 </ol>
 </div>
 <p>Examples: a grape press turns <strong>grapes → must</strong>; a malting tub turns <strong>barley → malt</strong>; a churn turns
@@ -2711,9 +2711,10 @@ with <strong>no success roll</strong>. If you have the input and wait, you get t
 or <strong>Take Item</strong>. Liquids use your drink skin. Linked production (like milking) can refill them
 automatically.</p>
 <div class="admonition tip">
-<p class="admonition-title">Drink skins hold one liquid type</p>
-<p>A skin carries a single liquid at a time. Empty it (or use a fresh one) before switching from, say, water
-to must. Touch the skin for <strong>Contents · Drink · Empty</strong>.</p>
+<p class="admonition-title">Skins and buckets are filters, not tanks</p>
+<p>On Feudalism 4 personal-inventory HUDs, liquids live in your <strong>character inventory</strong>. Touch your <strong>drink
+skin</strong> (or action slot <strong>8</strong>) for brewing liquids; use your <strong>bucket</strong> (slot <strong>9</strong>) or the water filter for
+<code>water</code>. Wells fill water into personal inventory while you wear a bucket.</p>
 </div>
 <p>Owners: producer and fermenter recipe formats are in the
 <strong><a href="../../owners/recipe-reference/">Recipe Notecard Reference</a></strong>.</p>
