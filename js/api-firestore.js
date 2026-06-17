@@ -760,6 +760,9 @@ const API = {
                 // Inventory
                 inventory: [],
                 
+                // Auto-provisioned starter — player can customize in Setup HUD
+                provisional: charData.provisional === true,
+                
                 // Timestamps
                 created_at: firebase.firestore.FieldValue.serverTimestamp(),
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
@@ -2896,8 +2899,8 @@ const API = {
     const raw = { id, ...data };
     const legacyType = (raw.effect_type || '').toLowerCase();
     let category = (raw.effect_category || '').toLowerCase();
-    if (!['healing', 'poison', 'alcohol', 'intoxicant'].includes(category)) {
-      const map = { heal: 'healing', healing: 'healing', poison: 'poison', alcohol: 'alcohol', intoxicant: 'intoxicant' };
+    if (!['healing', 'poison', 'alcohol', 'intoxicant', 'food'].includes(category)) {
+      const map = { heal: 'healing', healing: 'healing', poison: 'poison', alcohol: 'alcohol', intoxicant: 'intoxicant', food: 'food' };
       category = map[legacyType] || 'healing';
     }
     let effect_health = raw.effect_health;
@@ -2928,6 +2931,9 @@ const API = {
     if (c.effect_stamina) parts.push(`STA ${c.effect_stamina > 0 ? '+' : ''}${c.effect_stamina}`);
     if (c.effect_mana) parts.push(`MP ${c.effect_mana > 0 ? '+' : ''}${c.effect_mana}`);
     const amounts = parts.length ? parts.join(', ') : 'none';
+    if ((c.effect_category || '').toLowerCase() === 'food') {
+      return `food — ${amounts} (instant, every use)`;
+    }
     const delay = c.delay_seconds ? `${c.delay_seconds}s delay` : 'instant';
     const dur = c.duration_seconds ? `${c.duration_seconds}s` : 'instant';
     return `${c.effect_category || 'healing'} — ${amounts} (${delay}, lasts ${dur})`;
@@ -2961,6 +2967,7 @@ const API = {
     async createConsumable(consumableData) {
         try {
             const slug = consumableData.slug || consumableData.name.toLowerCase().replace(/\s+/g, '_');
+            const isFood = (consumableData.effect_category || '').toLowerCase() === 'food';
             
             const consumable = {
                 name: consumableData.name,
@@ -2970,8 +2977,8 @@ const API = {
                 effect_health: consumableData.effect_health ?? 0,
                 effect_stamina: consumableData.effect_stamina ?? 0,
                 effect_mana: consumableData.effect_mana ?? 0,
-                delay_seconds: consumableData.delay_seconds ?? 0,
-                duration_seconds: consumableData.duration_seconds ?? 0,
+                delay_seconds: isFood ? 0 : (consumableData.delay_seconds ?? 0),
+                duration_seconds: isFood ? 0 : (consumableData.duration_seconds ?? 0),
                 stackable: consumableData.stackable || false,
                 max_stack: consumableData.stackable ? (consumableData.max_stack || 1) : 1,
                 rp_only: consumableData.rp_only || false,
@@ -3023,6 +3030,11 @@ const API = {
             }
             if (consumableData.rp_only !== undefined) updateData.rp_only = consumableData.rp_only;
             if (consumableData.disabled !== undefined) updateData.disabled = consumableData.disabled;
+
+            if (updateData.effect_category === 'food' || consumableData.effect_category === 'food') {
+                updateData.delay_seconds = 0;
+                updateData.duration_seconds = 0;
+            }
             
             await db.collection('feud4').doc('consumables')
                 .collection('master').doc(slug).update(updateData);

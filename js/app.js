@@ -189,6 +189,9 @@ try {
         channel: null,
         connected: false
     },
+
+    _starterProvisionAttempted: false,
+    _pendingAutoHideSetup: false,
     
     /**
      * Format currency for display (gold, silver, copper)
@@ -573,8 +576,14 @@ try {
                         }
                     }
                 } else {
-                    // No character found - ready for creation
+                    // No character found — auto-provision starter in default universe when possible
                     console.log('[loadData] No characters found in result. charsResult.data:', charsResult.data);
+                    const provisioned = await this.ensureStarterCharacter();
+                    if (provisioned) {
+                        console.log('[loadData] Starter character provisioned — reloading roster');
+                        await this.loadData();
+                        return;
+                    }
                     this.state.character = null;
                     this.state.selectedCharacterId = null;
                     
@@ -1406,6 +1415,114 @@ try {
         }
     },
     
+    /**
+     * Auto-create a playable starter character for first-time players (default universe).
+     * Returns true when a new Firestore character was created and synced to the HUD.
+     */
+    async ensureStarterCharacter() {
+        if (this._starterProvisionAttempted) {
+            return false;
+        }
+        this._starterProvisionAttempted = true;
+
+        if (!API.uuid || API.uuid.trim() === '') {
+            return false;
+        }
+
+        const universeId = 'default';
+        this.state.selectedUniverseId = universeId;
+
+        try {
+            const universeResult = await API.getUniverse(universeId);
+            if (!universeResult.success || !universeResult.data || !universeResult.data.universe) {
+                console.warn('[Starter] Default universe unavailable — manual creation required');
+                return false;
+            }
+            const universe = universeResult.data.universe;
+            if (universe.registrationCode && universe.registrationCode.trim() !== '') {
+                console.warn('[Starter] Default universe requires registration code — skipping auto-provision');
+                return false;
+            }
+
+            const limitCheck = await API.validateCharacterLimit(universeId, API.uuid);
+            if (!limitCheck.success || !limitCheck.data || !limitCheck.data.allowed) {
+                console.warn('[Starter] Character limit reached — manual creation required');
+                return false;
+            }
+
+            const template = this.createDefaultCharacter();
+            let starterName = (API.displayName || this.lsl.displayName || '').trim();
+            if (!starterName) {
+                starterName = 'Traveler';
+            }
+
+            const species = this.state.species.find(function (s) { return s.id === 'human'; }) || {
+                health_factor: 25,
+                stamina_factor: 25,
+                mana_factor: 25,
+                mana_chance: 10
+            };
+            const stats = template.stats || this.getDefaultStats();
+            const hasMana = this.rollManaChance(species);
+            const baseHealth = this.calculateHealth(stats, species);
+            const baseStamina = this.calculateStamina(stats, species);
+            const baseMana = this.calculateMana(stats, species, hasMana);
+
+            console.log('[Starter] Auto-provisioning character for', API.uuid, 'name:', starterName);
+
+            const result = await API.createCharacter({
+                name: starterName,
+                title: '',
+                gender: 'other',
+                species_id: 'human',
+                class_id: null,
+                universe_id: universeId,
+                has_mana: hasMana,
+                health: { current: baseHealth, base: baseHealth, max: baseHealth },
+                stamina: { current: baseStamina, base: baseStamina, max: baseStamina },
+                mana: { current: baseMana, base: baseMana, max: baseMana },
+                stats: stats,
+                mode: 'roleplay',
+                provisional: true
+            });
+
+            if (!result || !result.success || !result.data || !result.data.character) {
+                console.error('[Starter] createCharacter failed:', result && result.error);
+                return false;
+            }
+
+            const character = result.data.character;
+            this.state.character = character;
+            this.state.selectedCharacterId = character.id;
+            this.state.isNewCharacter = false;
+            this.state.creationInProgress = false;
+            this.state.currentUniverse = universe;
+            this.recalculateResourcePools();
+
+            if (API.setActiveCharacter) {
+                await API.setActiveCharacter(character.id);
+            }
+
+            this._pendingAutoHideSetup = true;
+            await this.pushCharacterToPlayersHUD(character.id);
+            this.scheduleBroadcastToPlayersHUD(character);
+
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast(
+                    'Welcome! A starter character was created so you can play right away. Open Setup anytime to change name, species, and class.',
+                    'success',
+                    10000
+                );
+            }
+
+            console.log('[Starter] Provisioned character', character.id);
+            return true;
+        } catch (error) {
+            console.error('[Starter] ensureStarterCharacter error:', error);
+            return false;
+        }
+    },
+
     /**
      * Create a default character template for new characters
      */
@@ -2579,6 +2696,10 @@ try {
         if (manaStr) {
             data.mana = manaStr;
         }
+        if (this._pendingAutoHideSetup) {
+            data.auto_hide_setup = 'TRUE';
+            this._pendingAutoHideSetup = false;
+        }
         return data;
     },
 
@@ -3428,15 +3549,16 @@ try {
                 <div class="form-group">
                     <label for="consumable-effect-category">Effect category *</label>
                     <select id="consumable-effect-category" required>
+                        <option value="food" ${consumable?.effect_category === 'food' ? 'selected' : ''}>Food</option>
                         <option value="healing" ${(consumable?.effect_category || consumable?.effect_type) === 'healing' || consumable?.effect_type === 'heal' ? 'selected' : ''}>Healing</option>
                         <option value="poison" ${consumable?.effect_category === 'poison' ? 'selected' : ''}>Poison</option>
                         <option value="alcohol" ${consumable?.effect_category === 'alcohol' ? 'selected' : ''}>Alcohol</option>
                         <option value="intoxicant" ${consumable?.effect_category === 'intoxicant' ? 'selected' : ''}>Intoxicant</option>
                     </select>
-                    <small>RP label only (healing, poison, alcohol, intoxicant). Does not limit which resources you can change.</small>
+                    <small id="consumable-category-help">Food applies health, stamina, and mana instantly every time the item is eaten or drunk.</small>
                 </div>
-                <fieldset style="border: 1px solid var(--border-color); padding: var(--space-md); margin-bottom: var(--space-md); border-radius: 4px;">
-                    <legend style="padding: 0 var(--space-xs);">Resource changes (applied once after delay)</legend>
+                <fieldset id="consumable-resource-fieldset" style="border: 1px solid var(--border-color); padding: var(--space-md); margin-bottom: var(--space-md); border-radius: 4px;">
+                    <legend id="consumable-resource-legend" style="padding: 0 var(--space-xs);">Resource changes (applied once after delay)</legend>
                     <div class="form-group">
                         <label for="consumable-effect-health">Health</label>
                         <input type="number" id="consumable-effect-health" value="${consumable?.effect_health ?? consumable?.effect_value ?? 0}">
@@ -3451,17 +3573,17 @@ try {
                         <input type="number" id="consumable-effect-mana" value="${consumable?.effect_mana ?? 0}">
                     </div>
                 </fieldset>
-                <div class="form-group">
+                <div class="form-group" id="consumable-timing-group">
                     <label for="consumable-delay">Delay (seconds)</label>
                     <input type="number" id="consumable-delay" value="${consumable?.delay_seconds ?? 0}" min="0" required>
-                    <small>Time after drinking before health/stamina/mana change applies (0 = immediate).</small>
+                    <small id="consumable-delay-help">Time after drinking before health/stamina/mana change applies (0 = immediate).</small>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="consumable-duration-group">
                     <label for="consumable-duration">Duration (seconds)</label>
                     <input type="number" id="consumable-duration" value="${consumable?.duration_seconds ?? 0}" min="0" required>
-                    <small>How long the effect stays active on the buff bar after it applies (0 = instant, no buff icon).</small>
+                    <small id="consumable-duration-help">How long the effect stays active on the buff bar after it applies (0 = instant, no buff icon).</small>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="consumable-stackable-group">
                     <label>
                         <input type="checkbox" id="consumable-stackable" ${consumable?.stackable ? 'checked' : ''}>
                         Stackable effects
@@ -3498,6 +3620,33 @@ try {
                 }
             }
         });
+
+        const syncConsumableCategoryUI = () => {
+            const category = document.getElementById('consumable-effect-category')?.value || 'healing';
+            const isFood = category === 'food';
+            const timingGroup = document.getElementById('consumable-timing-group');
+            const durationGroup = document.getElementById('consumable-duration-group');
+            const stackableGroup = document.getElementById('consumable-stackable-group');
+            const legend = document.getElementById('consumable-resource-legend');
+            const categoryHelp = document.getElementById('consumable-category-help');
+            if (isFood) {
+                if (timingGroup) timingGroup.style.display = 'none';
+                if (durationGroup) durationGroup.style.display = 'none';
+                if (stackableGroup) stackableGroup.style.display = 'none';
+                document.getElementById('consumable-delay').value = '0';
+                document.getElementById('consumable-duration').value = '0';
+                if (legend) legend.textContent = 'Resource changes (applied instantly every use)';
+                if (categoryHelp) categoryHelp.textContent = 'Food restores the amounts below each time the item is consumed (no delay, no buff timer).';
+            } else {
+                if (timingGroup) timingGroup.style.display = '';
+                if (durationGroup) durationGroup.style.display = '';
+                if (stackableGroup) stackableGroup.style.display = '';
+                if (legend) legend.textContent = 'Resource changes (applied once after delay)';
+                if (categoryHelp) categoryHelp.textContent = 'RP label (healing, poison, alcohol, intoxicant). Does not limit which resources you can change.';
+            }
+        };
+        document.getElementById('consumable-effect-category')?.addEventListener('change', syncConsumableCategoryUI);
+        syncConsumableCategoryUI();
         
         // Back button
         document.getElementById('btn-back-consumables')?.addEventListener('click', () => {
@@ -3512,9 +3661,14 @@ try {
             const name = document.getElementById('consumable-name').value.trim();
             const description = document.getElementById('consumable-description').value.trim();
             const icon = document.getElementById('consumable-icon').value.trim();
-            const delaySeconds = parseInt(document.getElementById('consumable-delay').value) || 0;
-            const duration = parseInt(document.getElementById('consumable-duration').value) || 0;
             const effectCategory = document.getElementById('consumable-effect-category').value;
+            const isFood = effectCategory === 'food';
+            let delaySeconds = parseInt(document.getElementById('consumable-delay').value) || 0;
+            let duration = parseInt(document.getElementById('consumable-duration').value) || 0;
+            if (isFood) {
+                delaySeconds = 0;
+                duration = 0;
+            }
             const effectHealth = parseInt(document.getElementById('consumable-effect-health').value) || 0;
             const effectStamina = parseInt(document.getElementById('consumable-effect-stamina').value) || 0;
             const effectMana = parseInt(document.getElementById('consumable-effect-mana').value) || 0;
