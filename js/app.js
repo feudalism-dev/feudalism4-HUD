@@ -3392,10 +3392,21 @@ try {
             const consumables = result.data.consumables || [];
             
             let html = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
-                    <h2>Consumables Management</h2>
-                    <button class="btn btn-primary" id="btn-create-consumable">➕ Create Consumable</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-wrap: wrap; gap: var(--space-sm);">
+                    <h2 style="margin: 0;">Consumables Management</h2>
+                    <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+                        <button class="btn btn-secondary" id="btn-export-consumables">📥 Export CSV</button>
+                        <label class="btn btn-secondary" style="cursor: pointer; margin: 0;">
+                            📤 Import CSV
+                            <input type="file" id="file-input-consumables" accept=".csv" style="display: none;">
+                        </label>
+                        <button class="btn btn-primary" id="btn-create-consumable">➕ Create Consumable</button>
+                    </div>
                 </div>
+                <p class="info-text" style="margin-bottom: var(--space-md);">
+                    Registry path: <code>feud4/consumables/master/{slug}</code> — one document per item.
+                    Slug must match personal inventory item id. Effects: fixed (<code>+10</code>) or dice (<code>1D</code>, <code>3D+5</code>, <code>-2D-5</code>).
+                </p>
                 <div class="admin-table-container" style="overflow-x: auto;">
                     <table class="admin-table" style="width: 100%; border-collapse: collapse;">
                         <thead>
@@ -3454,6 +3465,18 @@ try {
             // Bind event handlers
             document.getElementById('btn-create-consumable')?.addEventListener('click', () => {
                 this.showConsumableForm();
+            });
+
+            document.getElementById('btn-export-consumables')?.addEventListener('click', () => {
+                this.exportConsumablesToCSV(consumables);
+            });
+
+            document.getElementById('file-input-consumables')?.addEventListener('change', async (e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                    await this.importConsumablesFromCSV(file);
+                    e.target.value = '';
+                }
             });
             
             document.querySelectorAll('[data-action="edit"]').forEach(btn => {
@@ -3522,6 +3545,8 @@ try {
         }
         const isEdit = consumable !== null;
         const slug = consumable?.id || '';
+        const esc = (v) => UI.escapeHtml(String(v ?? ''));
+        const cat = consumable?.effect_category || 'healing';
         
         adminContent.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
@@ -3531,47 +3556,59 @@ try {
             <form id="consumable-form">
                 <div class="form-group">
                     <label for="consumable-slug">Slug (ID) ${isEdit ? '(read-only)' : ''}</label>
-                    <input type="text" id="consumable-slug" value="${slug}" ${isEdit ? 'readonly' : ''} placeholder="e.g., health_potion" required>
+                    <input type="text" id="consumable-slug" value="${esc(slug)}" ${isEdit ? 'readonly' : ''} placeholder="e.g., aged red wine" required>
+                    <small>Lowercase; must match inventory item slug exactly.</small>
                 </div>
                 <div class="form-group">
-                    <label for="consumable-name">Name *</label>
-                    <input type="text" id="consumable-name" value="${consumable?.name || ''}" placeholder="Health Potion" required>
+                    <label for="consumable-name">Display name *</label>
+                    <input type="text" id="consumable-name" value="${esc(consumable?.name || '')}" placeholder="Aged Red Wine" required>
                 </div>
                 <div class="form-group">
                     <label for="consumable-description">Description</label>
-                    <textarea id="consumable-description" rows="3" placeholder="Restores health...">${consumable?.description || ''}</textarea>
+                    <textarea id="consumable-description" rows="3" placeholder="Restores health...">${esc(consumable?.description || '')}</textarea>
                 </div>
                 <div class="form-group">
                     <label for="consumable-icon">Icon filename (optional)</label>
-                    <input type="text" id="consumable-icon" value="${consumable?.icon || ''}" placeholder="aged_red_wine.png">
-                    <small>Image file name for gameplay HUD / buff list (under MOAP images). Leave blank for default icon.</small>
+                    <input type="text" id="consumable-icon" value="${esc(consumable?.icon || '')}" placeholder="aged_red_wine.png">
                 </div>
                 <div class="form-group">
                     <label for="consumable-effect-category">Effect category *</label>
                     <select id="consumable-effect-category" required>
-                        <option value="food" ${consumable?.effect_category === 'food' ? 'selected' : ''}>Food</option>
-                        <option value="healing" ${(consumable?.effect_category || consumable?.effect_type) === 'healing' || consumable?.effect_type === 'heal' ? 'selected' : ''}>Healing</option>
-                        <option value="poison" ${consumable?.effect_category === 'poison' ? 'selected' : ''}>Poison</option>
-                        <option value="alcohol" ${consumable?.effect_category === 'alcohol' ? 'selected' : ''}>Alcohol</option>
-                        <option value="intoxicant" ${consumable?.effect_category === 'intoxicant' ? 'selected' : ''}>Intoxicant</option>
+                        <option value="food" ${cat === 'food' ? 'selected' : ''}>Food (EAT)</option>
+                        <option value="beverage" ${cat === 'beverage' ? 'selected' : ''}>Beverage (DRINK)</option>
+                        <option value="healing" ${cat === 'healing' ? 'selected' : ''}>Healing</option>
+                        <option value="poison" ${cat === 'poison' ? 'selected' : ''}>Poison</option>
+                        <option value="antidote" ${cat === 'antidote' ? 'selected' : ''}>Antidote</option>
+                        <option value="alcohol" ${cat === 'alcohol' ? 'selected' : ''}>Alcohol</option>
+                        <option value="intoxicant" ${cat === 'intoxicant' ? 'selected' : ''}>Intoxicant</option>
                     </select>
-                    <small id="consumable-category-help">Food applies health, stamina, and mana instantly every time the item is eaten or drunk.</small>
+                    <small id="consumable-category-help"></small>
+                </div>
+                <div class="form-group" id="poison-id-group" style="display: none;">
+                    <label for="consumable-poison-id">Poison ID</label>
+                    <input type="text" id="consumable-poison-id" value="${esc(consumable?.poison_id || slug)}" placeholder="nightshade">
+                    <small>Stable id for antidote matching. Defaults to slug if blank.</small>
+                </div>
+                <div class="form-group" id="cures-poison-group" style="display: none;">
+                    <label for="consumable-cures-poison">Cures poison IDs</label>
+                    <input type="text" id="consumable-cures-poison" value="${esc(consumable?.cures_poison || '')}" placeholder="nightshade, bad_ale">
+                    <small>Comma-separated poison_id values this antidote removes.</small>
                 </div>
                 <fieldset id="consumable-resource-fieldset" style="border: 1px solid var(--border-color); padding: var(--space-md); margin-bottom: var(--space-md); border-radius: 4px;">
-                    <legend id="consumable-resource-legend" style="padding: 0 var(--space-xs);">Resource changes (applied once after delay)</legend>
+                    <legend id="consumable-resource-legend" style="padding: 0 var(--space-xs);">Resource changes</legend>
                     <div class="form-group">
                         <label for="consumable-effect-health">Health</label>
-                        <input type="number" id="consumable-effect-health" value="${consumable?.effect_health ?? consumable?.effect_value ?? 0}">
-                        <small>Negative = damage. Example wine: -2</small>
+                        <input type="text" id="consumable-effect-health" value="${esc(consumable?.effect_health ?? consumable?.effect_value ?? '0')}" placeholder="0, 1D, 3D+5, +10">
                     </div>
                     <div class="form-group">
                         <label for="consumable-effect-stamina">Stamina</label>
-                        <input type="number" id="consumable-effect-stamina" value="${consumable?.effect_stamina ?? 0}">
+                        <input type="text" id="consumable-effect-stamina" value="${esc(consumable?.effect_stamina ?? '0')}" placeholder="0, 1D, +5">
                     </div>
                     <div class="form-group">
                         <label for="consumable-effect-mana">Mana</label>
-                        <input type="number" id="consumable-effect-mana" value="${consumable?.effect_mana ?? 0}">
+                        <input type="text" id="consumable-effect-mana" value="${esc(consumable?.effect_mana ?? '0')}" placeholder="0, 1D">
                     </div>
+                    <small>Dice uses d20 per die. Plain number or +N is fixed. Examples: <code>1D</code>, <code>3D+5</code>, <code>-2D-5</code>, <code>+10</code>.</small>
                 </fieldset>
                 <div class="form-group" id="consumable-timing-group">
                     <label for="consumable-delay">Delay (seconds)</label>
@@ -3623,26 +3660,40 @@ try {
 
         const syncConsumableCategoryUI = () => {
             const category = document.getElementById('consumable-effect-category')?.value || 'healing';
-            const isFood = category === 'food';
+            const isInstant = category === 'food' || category === 'beverage';
             const timingGroup = document.getElementById('consumable-timing-group');
             const durationGroup = document.getElementById('consumable-duration-group');
             const stackableGroup = document.getElementById('consumable-stackable-group');
             const legend = document.getElementById('consumable-resource-legend');
             const categoryHelp = document.getElementById('consumable-category-help');
-            if (isFood) {
+            const poisonGroup = document.getElementById('poison-id-group');
+            const curesGroup = document.getElementById('cures-poison-group');
+            if (poisonGroup) {
+                poisonGroup.style.display = category === 'poison' ? '' : 'none';
+            }
+            if (curesGroup) {
+                curesGroup.style.display = category === 'antidote' ? '' : 'none';
+            }
+            if (isInstant) {
                 if (timingGroup) timingGroup.style.display = 'none';
                 if (durationGroup) durationGroup.style.display = 'none';
                 if (stackableGroup) stackableGroup.style.display = 'none';
                 document.getElementById('consumable-delay').value = '0';
                 document.getElementById('consumable-duration').value = '0';
-                if (legend) legend.textContent = 'Resource changes (applied instantly every use)';
-                if (categoryHelp) categoryHelp.textContent = 'Food restores the amounts below each time the item is consumed (no delay, no buff timer).';
+                if (legend) legend.textContent = 'Resource changes (rolled on each use; instant)';
+                if (categoryHelp) {
+                    categoryHelp.textContent = category === 'food'
+                        ? 'Food is eaten — instant effect every time.'
+                        : 'Beverage is drunk — instant effect every time.';
+                }
             } else {
                 if (timingGroup) timingGroup.style.display = '';
                 if (durationGroup) durationGroup.style.display = '';
                 if (stackableGroup) stackableGroup.style.display = '';
-                if (legend) legend.textContent = 'Resource changes (applied once after delay)';
-                if (categoryHelp) categoryHelp.textContent = 'RP label (healing, poison, alcohol, intoxicant). Does not limit which resources you can change.';
+                if (legend) legend.textContent = 'Resource changes (rolled once after delay)';
+                if (categoryHelp) {
+                    categoryHelp.textContent = 'Alcohol/intoxicant apply impairment while active. Poison/antidote use meta fields above.';
+                }
             }
         };
         document.getElementById('consumable-effect-category')?.addEventListener('change', syncConsumableCategoryUI);
@@ -3662,66 +3713,53 @@ try {
             const description = document.getElementById('consumable-description').value.trim();
             const icon = document.getElementById('consumable-icon').value.trim();
             const effectCategory = document.getElementById('consumable-effect-category').value;
-            const isFood = effectCategory === 'food';
-            let delaySeconds = parseInt(document.getElementById('consumable-delay').value) || 0;
-            let duration = parseInt(document.getElementById('consumable-duration').value) || 0;
-            if (isFood) {
+            const isInstant = effectCategory === 'food' || effectCategory === 'beverage';
+            let delaySeconds = parseInt(document.getElementById('consumable-delay').value, 10) || 0;
+            let duration = parseInt(document.getElementById('consumable-duration').value, 10) || 0;
+            if (isInstant) {
                 delaySeconds = 0;
                 duration = 0;
             }
-            const effectHealth = parseInt(document.getElementById('consumable-effect-health').value) || 0;
-            const effectStamina = parseInt(document.getElementById('consumable-effect-stamina').value) || 0;
-            const effectMana = parseInt(document.getElementById('consumable-effect-mana').value) || 0;
+            const effectHealth = document.getElementById('consumable-effect-health').value.trim() || '0';
+            const effectStamina = document.getElementById('consumable-effect-stamina').value.trim() || '0';
+            const effectMana = document.getElementById('consumable-effect-mana').value.trim() || '0';
+            const poisonId = document.getElementById('consumable-poison-id').value.trim();
+            const curesPoison = document.getElementById('consumable-cures-poison').value.trim();
             const stackable = document.getElementById('consumable-stackable').checked;
-            const maxStack = stackable ? (parseInt(document.getElementById('consumable-max-stack').value) || 1) : 1;
+            const maxStack = stackable ? (parseInt(document.getElementById('consumable-max-stack').value, 10) || 1) : 1;
             const rpOnly = document.getElementById('consumable-rp-only').checked;
             const disabled = document.getElementById('consumable-disabled').checked;
             
-            // Validation
-            if (!name || delaySeconds < 0 || duration < 0 || maxStack < 1 || (stackable && maxStack < 1)) {
+            if (!name || delaySeconds < 0 || duration < 0 || maxStack < 1) {
                 UI.showToast('Please fill in all required fields correctly', 'warning');
                 return;
             }
             
+            const payload = {
+                name,
+                description,
+                icon,
+                effect_category: effectCategory,
+                effect_health: effectHealth,
+                effect_stamina: effectStamina,
+                effect_mana: effectMana,
+                poison_id: poisonId,
+                cures_poison: curesPoison,
+                delay_seconds: delaySeconds,
+                duration_seconds: duration,
+                effect_type: effectCategory,
+                stackable,
+                max_stack: maxStack,
+                rp_only: rpOnly,
+                disabled
+            };
+            
             try {
                 let result;
                 if (isEdit) {
-                    result = await API.updateConsumable(slug, {
-                        name,
-                        description,
-                        icon,
-                        effect_category: effectCategory,
-                        effect_health: effectHealth,
-                        effect_stamina: effectStamina,
-                        effect_mana: effectMana,
-                        delay_seconds: delaySeconds,
-                        duration_seconds: duration,
-                        effect_type: effectCategory,
-                        effect_value: effectHealth || effectStamina || effectMana,
-                        stackable,
-                        max_stack: maxStack,
-                        rp_only: rpOnly,
-                        disabled
-                    });
+                    result = await API.updateConsumable(slug, payload);
                 } else {
-                    result = await API.createConsumable({
-                        slug,
-                        name,
-                        description,
-                        icon,
-                        effect_category: effectCategory,
-                        effect_health: effectHealth,
-                        effect_stamina: effectStamina,
-                        effect_mana: effectMana,
-                        delay_seconds: delaySeconds,
-                        duration_seconds: duration,
-                        effect_type: effectCategory,
-                        effect_value: effectHealth || effectStamina || effectMana,
-                        stackable,
-                        max_stack: maxStack,
-                        rp_only: rpOnly,
-                        disabled
-                    });
+                    result = await API.createConsumable({ slug, ...payload });
                 }
                 
                 if (result.success) {
@@ -3734,6 +3772,153 @@ try {
                 UI.showToast('Error: ' + error.message, 'error');
             }
         });
+    },
+
+    exportConsumablesToCSV(consumables) {
+        try {
+            const headers = [
+                'slug', 'name', 'description', 'icon', 'effect_category',
+                'effect_health', 'effect_stamina', 'effect_mana',
+                'poison_id', 'cures_poison',
+                'delay_seconds', 'duration_seconds', 'stackable', 'max_stack', 'rp_only', 'disabled'
+            ];
+            const rows = (consumables || []).map(c => {
+                const row = [
+                    c.id || '',
+                    c.name || '',
+                    (c.description || '').replace(/"/g, '""'),
+                    c.icon || '',
+                    c.effect_category || '',
+                    c.effect_health ?? '0',
+                    c.effect_stamina ?? '0',
+                    c.effect_mana ?? '0',
+                    c.poison_id || '',
+                    c.cures_poison || '',
+                    c.delay_seconds ?? 0,
+                    c.duration_seconds ?? 0,
+                    c.stackable ? 'true' : 'false',
+                    c.max_stack ?? 1,
+                    c.rp_only ? 'true' : 'false',
+                    c.disabled ? 'true' : 'false'
+                ];
+                return row.map((field, index) => {
+                    const str = String(field);
+                    if (index === 2 || str.includes(',') || str.includes('"') || str.includes('\n')) {
+                        return `"${str.replace(/"/g, '""')}"`;
+                    }
+                    return str;
+                }).join(',');
+            });
+            const csvContent = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.setAttribute('href', URL.createObjectURL(blob));
+            link.setAttribute('download', `consumables_export_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            UI.showToast('Consumables exported to CSV', 'success');
+        } catch (error) {
+            console.error('[exportConsumablesToCSV]', error);
+            UI.showToast('Failed to export: ' + error.message, 'error');
+        }
+    },
+
+    parseConsumableCSVLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (inQuotes) {
+                if (ch === '"' && line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else if (ch === '"') {
+                    inQuotes = false;
+                } else {
+                    current += ch;
+                }
+            } else if (ch === '"') {
+                inQuotes = true;
+            } else if (ch === ',') {
+                result.push(current);
+                current = '';
+            } else {
+                current += ch;
+            }
+        }
+        result.push(current);
+        return result;
+    },
+
+    async importConsumablesFromCSV(file) {
+        try {
+            UI.showToast('Reading consumables CSV...', 'info');
+            const text = await file.text();
+            const lines = text.split(/\r?\n/).filter(line => line.trim());
+            if (lines.length < 2) {
+                UI.showToast('CSV must have a header row and at least one data row', 'warning');
+                return;
+            }
+            const headers = this.parseConsumableCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+            const slugIdx = headers.indexOf('slug');
+            const nameIdx = headers.indexOf('name');
+            if (slugIdx < 0 || nameIdx < 0) {
+                UI.showToast('CSV must include slug and name columns', 'warning');
+                return;
+            }
+            const col = (name) => headers.indexOf(name);
+            let imported = 0;
+            let failed = 0;
+            for (let i = 1; i < lines.length; i++) {
+                const cells = this.parseConsumableCSVLine(lines[i]);
+                const slug = (cells[slugIdx] || '').trim().toLowerCase();
+                const name = (cells[nameIdx] || '').trim();
+                if (!slug || !name) {
+                    failed++;
+                    continue;
+                }
+                const get = (colName, fallback = '') => {
+                    const idx = col(colName);
+                    return idx >= 0 ? (cells[idx] || '').trim() : fallback;
+                };
+                const data = {
+                    slug,
+                    name,
+                    description: get('description'),
+                    icon: get('icon'),
+                    effect_category: get('effect_category', 'healing'),
+                    effect_health: get('effect_health', '0'),
+                    effect_stamina: get('effect_stamina', '0'),
+                    effect_mana: get('effect_mana', '0'),
+                    poison_id: get('poison_id'),
+                    cures_poison: get('cures_poison'),
+                    delay_seconds: parseInt(get('delay_seconds', '0'), 10) || 0,
+                    duration_seconds: parseInt(get('duration_seconds', '0'), 10) || 0,
+                    stackable: get('stackable', 'false').toLowerCase() === 'true',
+                    max_stack: parseInt(get('max_stack', '1'), 10) || 1,
+                    rp_only: get('rp_only', 'false').toLowerCase() === 'true',
+                    disabled: get('disabled', 'false').toLowerCase() === 'true'
+                };
+                const existing = await db.collection('feud4').doc('consumables').collection('master').doc(slug).get();
+                const result = existing.exists
+                    ? await API.updateConsumable(slug, data)
+                    : await API.createConsumable(data);
+                if (result.success) {
+                    imported++;
+                } else {
+                    failed++;
+                    console.error('[importConsumablesFromCSV]', slug, result.error);
+                }
+            }
+            UI.showToast(`Import complete: ${imported} saved${failed ? `, ${failed} failed` : ''}`, imported ? 'success' : 'warning');
+            this.showConsumablesManagement();
+        } catch (error) {
+            console.error('[importConsumablesFromCSV]', error);
+            UI.showToast('Failed to import: ' + error.message, 'error');
+        }
     },
     
     showXPAward() {

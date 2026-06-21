@@ -2892,15 +2892,42 @@ const API = {
     
     // =========================== CONSUMABLES API ===========================
 
+  CONSUMABLE_CATEGORIES: ['food', 'beverage', 'healing', 'poison', 'antidote', 'alcohol', 'intoxicant'],
+
+  normalizeEffectExpr(value) {
+    if (value === undefined || value === null || value === '') {
+      return '0';
+    }
+    return String(value).trim();
+  },
+
+  normalizeCuresPoison(value) {
+    if (!value) {
+      return '';
+    }
+    if (Array.isArray(value)) {
+      return value.map(v => String(v).trim().toLowerCase()).filter(Boolean).join(',');
+    }
+    return String(value).split(/[,;]/).map(v => v.trim().toLowerCase()).filter(Boolean).join(',');
+  },
+
+  isInstantConsumableCategory(category) {
+    const c = (category || '').toLowerCase();
+    return c === 'food' || c === 'beverage';
+  },
+
   /**
-   * Normalize consumable document (legacy effect_type/value → category + per-resource amounts).
+   * Normalize consumable document (legacy effect_type/value → category + per-resource expressions).
    */
   normalizeConsumableData(id, data) {
     const raw = { id, ...data };
     const legacyType = (raw.effect_type || '').toLowerCase();
     let category = (raw.effect_category || '').toLowerCase();
-    if (!['healing', 'poison', 'alcohol', 'intoxicant', 'food'].includes(category)) {
-      const map = { heal: 'healing', healing: 'healing', poison: 'poison', alcohol: 'alcohol', intoxicant: 'intoxicant', food: 'food' };
+    if (!this.CONSUMABLE_CATEGORIES.includes(category)) {
+      const map = {
+        heal: 'healing', healing: 'healing', food: 'food', beverage: 'beverage', drink: 'beverage',
+        poison: 'poison', antidote: 'antidote', alcohol: 'alcohol', intoxicant: 'intoxicant'
+      };
       category = map[legacyType] || 'healing';
     }
     let effect_health = raw.effect_health;
@@ -2912,31 +2939,77 @@ const API = {
       else if (legacyType === 'stamina') effect_stamina = v;
       else if (legacyType === 'mana') effect_mana = v;
     }
+    const poison_id = (raw.poison_id || (category === 'poison' ? id : '') || '').toLowerCase();
     return {
       ...raw,
       effect_category: category,
-      effect_health: effect_health ?? 0,
-      effect_stamina: effect_stamina ?? 0,
-      effect_mana: effect_mana ?? 0,
-      delay_seconds: raw.delay_seconds ?? 0,
-      duration_seconds: raw.duration_seconds ?? 0,
+      effect_health: this.normalizeEffectExpr(effect_health ?? 0),
+      effect_stamina: this.normalizeEffectExpr(effect_stamina ?? 0),
+      effect_mana: this.normalizeEffectExpr(effect_mana ?? 0),
+      poison_id,
+      cures_poison: this.normalizeCuresPoison(raw.cures_poison),
+      delay_seconds: this.isInstantConsumableCategory(category) ? 0 : (raw.delay_seconds ?? 0),
+      duration_seconds: this.isInstantConsumableCategory(category) ? 0 : (raw.duration_seconds ?? 0),
       stackable: !!raw.stackable,
       max_stack: raw.stackable ? (raw.max_stack || 1) : 1
     };
   },
 
   formatConsumableEffectsSummary(c) {
+    const fmt = (expr) => {
+      const s = this.normalizeEffectExpr(expr);
+      if (s === '0') return '';
+      return s;
+    };
     const parts = [];
-    if (c.effect_health) parts.push(`HP ${c.effect_health > 0 ? '+' : ''}${c.effect_health}`);
-    if (c.effect_stamina) parts.push(`STA ${c.effect_stamina > 0 ? '+' : ''}${c.effect_stamina}`);
-    if (c.effect_mana) parts.push(`MP ${c.effect_mana > 0 ? '+' : ''}${c.effect_mana}`);
+    const h = fmt(c.effect_health);
+    const s = fmt(c.effect_stamina);
+    const m = fmt(c.effect_mana);
+    if (h) parts.push(`HP ${h}`);
+    if (s) parts.push(`STA ${s}`);
+    if (m) parts.push(`MP ${m}`);
     const amounts = parts.length ? parts.join(', ') : 'none';
-    if ((c.effect_category || '').toLowerCase() === 'food') {
-      return `food — ${amounts} (instant, every use)`;
+    const cat = (c.effect_category || '').toLowerCase();
+    if (cat === 'antidote' && c.cures_poison) {
+      return `antidote — cures ${c.cures_poison}${amounts !== 'none' ? '; ' + amounts : ''}`;
+    }
+    if (cat === 'poison' && c.poison_id) {
+      return `poison (${c.poison_id}) — ${amounts}`;
+    }
+    if (cat === 'food' || cat === 'beverage') {
+      return `${cat} — ${amounts} (instant, every use)`;
     }
     const delay = c.delay_seconds ? `${c.delay_seconds}s delay` : 'instant';
     const dur = c.duration_seconds ? `${c.duration_seconds}s` : 'instant';
-    return `${c.effect_category || 'healing'} — ${amounts} (${delay}, lasts ${dur})`;
+    return `${cat || 'healing'} — ${amounts} (${delay}, lasts ${dur})`;
+  },
+
+  buildConsumableDocument(consumableData, slug) {
+    const category = (consumableData.effect_category || 'healing').toLowerCase();
+    const instant = this.isInstantConsumableCategory(category);
+    return {
+      name: consumableData.name,
+      description: consumableData.description || '',
+      icon: consumableData.icon || '',
+      effect_category: category,
+      effect_health: this.normalizeEffectExpr(consumableData.effect_health ?? '0'),
+      effect_stamina: this.normalizeEffectExpr(consumableData.effect_stamina ?? '0'),
+      effect_mana: this.normalizeEffectExpr(consumableData.effect_mana ?? '0'),
+      poison_id: category === 'poison'
+        ? (consumableData.poison_id || slug || '').toLowerCase()
+        : (consumableData.poison_id || ''),
+      cures_poison: category === 'antidote'
+        ? this.normalizeCuresPoison(consumableData.cures_poison)
+        : '',
+      delay_seconds: instant ? 0 : (consumableData.delay_seconds ?? 0),
+      duration_seconds: instant ? 0 : (consumableData.duration_seconds ?? 0),
+      stackable: consumableData.stackable || false,
+      max_stack: consumableData.stackable ? (consumableData.max_stack || 1) : 1,
+      rp_only: consumableData.rp_only || false,
+      disabled: consumableData.disabled || false,
+      effect_type: consumableData.effect_type || category,
+      effect_value: consumableData.effect_value ?? 0
+    };
   },
     
     /**
@@ -2966,28 +3039,8 @@ const API = {
      */
     async createConsumable(consumableData) {
         try {
-            const slug = consumableData.slug || consumableData.name.toLowerCase().replace(/\s+/g, '_');
-            const isFood = (consumableData.effect_category || '').toLowerCase() === 'food';
-            
-            const consumable = {
-                name: consumableData.name,
-                description: consumableData.description || '',
-                icon: consumableData.icon || '',
-                effect_category: consumableData.effect_category || 'healing',
-                effect_health: consumableData.effect_health ?? 0,
-                effect_stamina: consumableData.effect_stamina ?? 0,
-                effect_mana: consumableData.effect_mana ?? 0,
-                delay_seconds: isFood ? 0 : (consumableData.delay_seconds ?? 0),
-                duration_seconds: isFood ? 0 : (consumableData.duration_seconds ?? 0),
-                stackable: consumableData.stackable || false,
-                max_stack: consumableData.stackable ? (consumableData.max_stack || 1) : 1,
-                rp_only: consumableData.rp_only || false,
-                disabled: consumableData.disabled || false,
-                effect_type: consumableData.effect_type || consumableData.effect_category || 'healing',
-                effect_value: consumableData.effect_value ?? (
-                    consumableData.effect_health || consumableData.effect_stamina || consumableData.effect_mana || 0
-                )
-            };
+            const slug = (consumableData.slug || consumableData.name.toLowerCase().replace(/\s+/g, '_')).trim();
+            const consumable = this.buildConsumableDocument(consumableData, slug);
             
             await db.collection('feud4').doc('consumables')
                 .collection('master').doc(slug).set(consumable);
@@ -3012,9 +3065,11 @@ const API = {
             if (consumableData.duration_seconds !== undefined) updateData.duration_seconds = consumableData.duration_seconds;
             if (consumableData.delay_seconds !== undefined) updateData.delay_seconds = consumableData.delay_seconds;
             if (consumableData.effect_category !== undefined) updateData.effect_category = consumableData.effect_category;
-            if (consumableData.effect_health !== undefined) updateData.effect_health = consumableData.effect_health;
-            if (consumableData.effect_stamina !== undefined) updateData.effect_stamina = consumableData.effect_stamina;
-            if (consumableData.effect_mana !== undefined) updateData.effect_mana = consumableData.effect_mana;
+            if (consumableData.effect_health !== undefined) updateData.effect_health = this.normalizeEffectExpr(consumableData.effect_health);
+            if (consumableData.effect_stamina !== undefined) updateData.effect_stamina = this.normalizeEffectExpr(consumableData.effect_stamina);
+            if (consumableData.effect_mana !== undefined) updateData.effect_mana = this.normalizeEffectExpr(consumableData.effect_mana);
+            if (consumableData.poison_id !== undefined) updateData.poison_id = (consumableData.poison_id || '').toLowerCase();
+            if (consumableData.cures_poison !== undefined) updateData.cures_poison = this.normalizeCuresPoison(consumableData.cures_poison);
             if (consumableData.effect_type !== undefined) updateData.effect_type = consumableData.effect_type;
             if (consumableData.effect_value !== undefined) updateData.effect_value = consumableData.effect_value;
             if (consumableData.stackable !== undefined) {
@@ -3031,7 +3086,8 @@ const API = {
             if (consumableData.rp_only !== undefined) updateData.rp_only = consumableData.rp_only;
             if (consumableData.disabled !== undefined) updateData.disabled = consumableData.disabled;
 
-            if (updateData.effect_category === 'food' || consumableData.effect_category === 'food') {
+            if (updateData.effect_category === 'food' || updateData.effect_category === 'beverage'
+                || consumableData.effect_category === 'food' || consumableData.effect_category === 'beverage') {
                 updateData.delay_seconds = 0;
                 updateData.duration_seconds = 0;
             }
