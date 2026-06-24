@@ -18,7 +18,7 @@
         <link rel="prev" href="../">
       
       
-        <link rel="next" href="../recipe-reference/">
+        <link rel="next" href="../dropbox-and-delivery/">
       
       
         
@@ -2046,6 +2046,8 @@
       
         
       
+        
+      
     
     
     
@@ -2335,6 +2337,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#smith-skinning-multi-output-workstation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Smith / skinning / multi-output workstation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dropbox-central-physical-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DropBox (central physical inventory)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#archery-target-dummy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2349,6 +2373,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dropbox-and-delivery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DropBox & Physical Delivery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2879,6 +2931,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#smith-skinning-multi-output-workstation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Smith / skinning / multi-output workstation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dropbox-central-physical-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DropBox (central physical inventory)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#archery-target-dummy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2985,6 +3059,8 @@ it. Many also accept <code>debug</code> to print extra info to you while you set
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sit,oven,cook,cooking,ingredients,recipe,all
 </code></pre></div>
 <p>Add <code>fire</code> to require a lit fire. Recipes go in a <code>recipes</code> notecard.</p>
+<p><strong>Scripts (four per object):</strong> <code>F4 Crafting - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>.<br />
+Do not use legacy <strong>Oven Script</strong> on new stations. See <a href="../dropbox-and-delivery/">DropBox &amp; physical delivery</a> for central physical inventory.</p>
 <h2 id="food-plate">Food plate<a class="headerlink" href="#food-plate" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>&lt;itemId&gt;,&lt;displayName&gt;,&lt;healthMod&gt;,&lt;staminaMod&gt;,&lt;maxServings&gt;,&lt;security&gt;[,debug]
 </code></pre></div>
@@ -3046,16 +3122,34 @@ it. Many also accept <code>debug</code> to print extra info to you while you set
 <h2 id="sharpening-wheel">Sharpening wheel<a class="headerlink" href="#sharpening-wheel" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>sharpening wheel,sharpen,sharpening,&lt;security&gt;
 </code></pre></div>
+<h2 id="smith-skinning-multi-output-workstation">Smith / skinning / multi-output workstation<a class="headerlink" href="#smith-skinning-multi-output-workstation" title="Permanent link">&para;</a></h2>
+<p>Object description (touch mode):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;parts-word&gt;,&lt;recipe-word&gt;[,security][,&lt;craftSeconds&gt;]
+</code></pre></div>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>skinning station,skin,skinning,parts,recipes,all
+</code></pre></div>
+<p><strong>Scripts (four per object):</strong> <code>F4 Crafting - MultiItem - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>.<br />
+Recipes: <code>recipes</code> notecard — see <a href="../recipe-reference/">Recipe Reference</a> (multi-output section).</p>
+<h2 id="dropbox-central-physical-inventory">DropBox (central physical inventory)<a class="headerlink" href="#dropbox-central-physical-inventory" title="Permanent link">&para;</a></h2>
+<p>Dedicated object for physical crafting outputs used by stations that do <strong>not</strong> hold those objects locally.</p>
+<ul>
+<li>Install <code>F4 DropBox.lsl</code> + <code>F4 DropBox - Admin.lsl</code></li>
+<li><strong>Next Owner Copy: NO</strong></li>
+<li>Optional <code>dropbox.cfg</code> notecard</li>
+<li>Accept Experience; allow parcel HTTP-in</li>
+</ul>
+<p>Full setup: <strong><a href="../dropbox-and-delivery/">DropBox &amp; physical delivery</a></strong>.</p>
 <h2 id="archery-target-dummy">Archery target / dummy<a class="headerlink" href="#archery-target-dummy" title="Permanent link">&para;</a></h2>
 <p>Practice target:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>&lt;name&gt;,&lt;baseCR&gt;,&lt;ringCount&gt;,&lt;marginPerRing&gt;,&lt;security&gt;,&lt;roleplay|arcade&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>&lt;name&gt;,&lt;baseCR&gt;,&lt;ringCount&gt;,&lt;marginPerRing&gt;,&lt;security&gt;,&lt;roleplay|arcade&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>Practice Butt,3,5,10,all,roleplay
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>Practice Butt,3,5,10,all,roleplay
 </code></pre></div>
 <p>Practice dummy:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>&lt;name&gt;,&lt;health&gt;,&lt;resetDelay&gt;,&lt;meleeCR&gt;,&lt;security&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>&lt;name&gt;,&lt;health&gt;,&lt;resetDelay&gt;,&lt;meleeCR&gt;,&lt;security&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>Practice Dummy,100,60,4,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>Practice Dummy,100,60,4,all
 </code></pre></div>
 <p>Managed ranges use a controller plus numbered firing pads — see your range builder guide.</p>
 <div class="admonition warning">
@@ -3114,13 +3208,13 @@ it. Many also accept <code>debug</code> to print extra info to you while you set
         
         
           
-          <a href="../recipe-reference/" class="md-footer__link md-footer__link--next" aria-label="Next: Recipe Notecard Reference">
+          <a href="../dropbox-and-delivery/" class="md-footer__link md-footer__link--next" aria-label="Next: DropBox &amp; Physical Delivery">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Recipe Notecard Reference
+                DropBox & Physical Delivery
               </div>
             </div>
             <div class="md-footer__button md-icon">

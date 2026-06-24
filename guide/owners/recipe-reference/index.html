@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://feudalism-dev.github.io/feudalism4-HUD/guide/owners/recipe-reference/">
       
       
-        <link rel="prev" href="../setting-up-stations/">
+        <link rel="prev" href="../dropbox-and-delivery/">
       
       
         <link rel="next" href="../../admins/">
@@ -2046,6 +2046,8 @@
       
         
       
+        
+      
     
     
     
@@ -2118,6 +2120,34 @@
     
   
     Setting Up Stations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dropbox-and-delivery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DropBox & Physical Delivery
   
 
     
@@ -2209,10 +2239,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#smith-workstation-notecard-recipes" class="md-nav__link">
+  <a href="#smith-workstation-single-output-notecard-recipes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Smith workstation — notecard recipes
+        Smith workstation (single output) — notecard recipes
       
     </span>
   </a>
@@ -2224,6 +2254,17 @@
     <span class="md-ellipsis">
       
         Smith table (multi-output) — notecard recipes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legacy-smith-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy smith (deprecated)
       
     </span>
   </a>
@@ -2648,10 +2689,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#smith-workstation-notecard-recipes" class="md-nav__link">
+  <a href="#smith-workstation-single-output-notecard-recipes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Smith workstation — notecard recipes
+        Smith workstation (single output) — notecard recipes
       
     </span>
   </a>
@@ -2663,6 +2704,17 @@
     <span class="md-ellipsis">
       
         Smith table (multi-output) — notecard recipes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legacy-smith-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy smith (deprecated)
       
     </span>
   </a>
@@ -2764,6 +2816,7 @@ the <code>*</code> in menus.</p>
 </div>
 <hr />
 <h2 id="oven-cauldron-fermenter-notecard-recipes">Oven / cauldron / fermenter — notecard <code>recipes</code><a class="headerlink" href="#oven-cauldron-fermenter-notecard-recipes" title="Permanent link">&para;</a></h2>
+<p><strong>Scripts:</strong> <code>F4 Crafting - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code> (four scripts, same object).</p>
 <p><strong>Format</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>RecipeName,Category,Output,CR,ingredient1,qty1,ingredient2,qty2,...[,outputQty]
 </code></pre></div>
@@ -2785,7 +2838,7 @@ the <code>*</code> in menus.</p>
 </tr>
 <tr>
 <td><code>Output</code></td>
-<td><code>pouch</code> (virtual item), a liquid name like <code>must*</code> (to skin), or the exact name of a physical object in the station's contents.</td>
+<td><code>pouch</code> (virtual item), a liquid name like <code>must*</code> (to skin), or the exact name of a physical object (in the station <strong>or</strong> registered in a <strong>DropBox</strong>).</td>
 </tr>
 <tr>
 <td><code>CR</code></td>
@@ -2822,9 +2875,8 @@ the <code>*</code> in menus.</p>
 <code>Soup|1|Soup|physical|My Pot|1|carrot,2,water*,1</code> → <code>Soup,Soup,My Pot,1,carrot,2,water*,1</code>.</p>
 </div>
 <hr />
-<h2 id="smith-workstation-notecard-recipes">Smith workstation — notecard <code>recipes</code><a class="headerlink" href="#smith-workstation-notecard-recipes" title="Permanent link">&para;</a></h2>
-<p>Uses the <strong>same CSV</strong> as the oven, but <strong>CR must be ≥ 1</strong>. Requires the companion <code>Smith Workstation Recipes</code>
-script in the object.</p>
+<h2 id="smith-workstation-single-output-notecard-recipes">Smith workstation (single output) — notecard <code>recipes</code><a class="headerlink" href="#smith-workstation-single-output-notecard-recipes" title="Permanent link">&para;</a></h2>
+<p>Uses the <strong>same CSV</strong> as the oven. Install the <strong>F4 Crafting</strong> four-script stack (not legacy Smith Workstation scripts).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>RecipeName,Category,Output,CR,ing1,qty1,...[,outputQty]
 </code></pre></div>
 <p><strong>Examples</strong></p>
@@ -2842,27 +2894,63 @@ script in the object.</p>
 </ul>
 <hr />
 <h2 id="smith-table-multi-output-notecard-recipes">Smith table (multi-output) — notecard <code>recipes</code><a class="headerlink" href="#smith-table-multi-output-notecard-recipes" title="Permanent link">&para;</a></h2>
-<p>A different, advanced format that supports <strong>multiple outputs</strong> per recipe.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>MenuName,Category,out1,qty1,pouch|obj,...,CR:#,ing1,qty1,...[,seconds]
+<p>Install the <strong>F4 Crafting MultiItem</strong> four-script stack: <code>MultiItem - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>.</p>
+<p><strong>Format</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>MenuName,Category,out1,qty1,dest1,out2,qty2,dest2,...,CR:#,DAMAGE:#,ing1,qty1,...[,TIME:seconds]
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Output triplets</td>
+<td><code>item</code>, <code>qty</code>, <code>dest</code> — repeat for each output. <code>dest</code> = <code>pouch</code> or exact <strong>object name</strong></td>
+</tr>
+<tr>
+<td><code>CR:#</code></td>
+<td>Challenge rating (≥ 1). Time defaults to <strong>(CR+1)×20 s</strong> unless <code>TIME:</code> is set</td>
+</tr>
+<tr>
+<td><code>DAMAGE:#</code></td>
+<td>Optional health loss on failed craft roll</td>
+</tr>
+<tr>
+<td>Ingredients</td>
+<td>Same as oven — solids, <code>water</code>, liquids with <code>*</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Examples</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a># Pouch only
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>crushed cragsalt,ProcessedMineral,crushed cragsalt,1,pouch,CR:1,cragsalt,2
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a># Pouch + physical hide (DropBox or local)
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>butcher deer,Game,venison,2,pouch,deer pelt,1,Deer Pelt v4.0,CR:3,deer carcass,1,salt,1
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a># Timed weapon craft
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>forge blade,Weapons,iron blade,1,Iron Blade v4.0,CR:5,DAMAGE:2,iron ingot,2,coal,1,TIME:90
 </code></pre></div>
 <ul>
-<li>Use <code>CR:3</code> (or <code>CR,3</code>) to set the rating; optional <code>TIME:120</code> or a trailing <code>,seconds</code> sets craft time.</li>
-<li>Each output names an item, a quantity, and whether it goes to <code>pouch</code> or is a physical <code>obj</code>.</li>
+<li>Each physical <code>dest</code> must match a local inventory object <strong>or</strong> a <strong>DropBox</strong> registration.</li>
+<li>Use <strong>MultiItem Menu</strong> — do not install the single-item Menu script on the same object.</li>
 </ul>
-<div class="admonition warning">
-<p class="admonition-title">No shipped example</p>
-<p>This advanced schema is documented in the script only — build and test carefully, one recipe at a time.</p>
-</div>
+<hr />
+<h2 id="legacy-smith-deprecated">Legacy smith (deprecated)<a class="headerlink" href="#legacy-smith-deprecated" title="Permanent link">&para;</a></h2>
+<p>Older <strong><code>Smith Workstation Recipes</code></strong> / pipe-format tables are replaced by the formats above. Do not deploy on new objects.</p>
 <hr />
 <h2 id="producer-press-churn-malting-tub-notecard-recipes">Producer (press, churn, malting tub) — notecard <code>recipes</code><a class="headerlink" href="#producer-press-churn-malting-tub-notecard-recipes" title="Permanent link">&para;</a></h2>
 <p>One input → one output, <strong>no success roll</strong>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>outputItem,inputItem,qtyIn,qtyOut[,seconds[,xp[,pose[,bonusItem,bonusQty]]]]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>outputItem,inputItem,qtyIn,qtyOut[,seconds[,xp[,pose[,bonusItem,bonusQty]]]]
 </code></pre></div>
 <p><strong>Examples</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>must*,grapes,10,1,30,15
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>malt,barley,2,1,45,15
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>butter,cream,4,1,60,20,Churn
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>cream,milk,4,1,60,20,Churn,buttermilk,3
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>must*,grapes,10,1,30,15
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>malt,barley,2,1,45,15
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>butter,cream,4,1,60,20,Churn
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>cream,milk,4,1,60,20,Churn,buttermilk,3
 </code></pre></div>
 <ul>
 <li><code>seconds</code> defaults sensibly; <code>xp</code> defaults to <strong>20</strong>.</li>
@@ -2871,13 +2959,13 @@ script in the object.</p>
 <hr />
 <h2 id="farm-field-herb-pot-grape-vine-notecard-config">Farm field / herb pot / grape vine — notecard <code>config</code><a class="headerlink" href="#farm-field-herb-pot-grape-vine-notecard-config" title="Permanent link">&para;</a></h2>
 <p>Plant → grow → harvest. <strong>Only the first line is used.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>&lt;recipeName&gt;,&lt;CR&gt;,&lt;qtyPerHarvest&gt;,&lt;ingredient1&gt;,&lt;qty1&gt;,...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>&lt;recipeName&gt;,&lt;CR&gt;,&lt;qtyPerHarvest&gt;,&lt;ingredient1&gt;,&lt;qty1&gt;,...
 </code></pre></div>
 <p><strong>Examples</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>corn,3,1,seeds,2,water,1
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>wheat,1,2,wheat_seeds,1,water,1
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>parsley,2,5,parsleyseed,1,water,1,stover,1
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>grapes,2,1,grape_seeds,1,water,1
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>corn,3,1,seeds,2,water,1
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>wheat,1,2,wheat_seeds,1,water,1
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>parsley,2,5,parsleyseed,1,water,1,stover,1
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>grapes,2,1,grape_seeds,1,water,1
 </code></pre></div>
 <ul>
 <li>Grow time = <strong>CR × 100 s</strong> (5 s in debug).</li>
@@ -2887,31 +2975,31 @@ script in the object.</p>
 <hr />
 <h2 id="grain-mill-grain-silo-notecard-config">Grain mill / grain silo — notecard <code>config</code><a class="headerlink" href="#grain-mill-grain-silo-notecard-config" title="Permanent link">&para;</a></h2>
 <p>Grind/dry grain into product in batches.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>&lt;outputItem&gt;,&lt;CR&gt;,&lt;yieldPerSuccess&gt;,&lt;ingredient1&gt;,&lt;qty1&gt;,...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>&lt;outputItem&gt;,&lt;CR&gt;,&lt;yieldPerSuccess&gt;,&lt;ingredient1&gt;,&lt;qty1&gt;,...
 </code></pre></div>
 <p><strong>Examples</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>corn meal,1,2,corn seeds,1
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>flour,1,2,wheat berry,1
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>rye flour,1,2,rye seeds,1
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>fine flour,3,1,wheat berry,2
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>corn meal,1,2,corn seeds,1
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>flour,1,2,wheat berry,1
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>rye flour,1,2,rye seeds,1
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>fine flour,3,1,wheat berry,2
 </code></pre></div>
 <ul>
 <li>Processing time <strong>CR × 100 s</strong> per run; ~60 s cooldown afterward.</li>
 </ul>
 <hr />
 <h2 id="mine-notecard-deposits">Mine — notecard <code>deposits</code><a class="headerlink" href="#mine-notecard-deposits" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>Category,DepositKey,ItemId,QtyPerGather,MaxPool,ResetSeconds,CooldownSeconds
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>Category,DepositKey,ItemId,QtyPerGather,MaxPool,ResetSeconds,CooldownSeconds
 </code></pre></div>
 <p><strong>Example</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>Metals,iron_vein,iron ore,2,40,600,3
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>Stone,granite,granite,1,30,900,4
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Metals,iron_vein,iron ore,2,40,600,3
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>Stone,granite,granite,1,30,900,4
 </code></pre></div>
 <hr />
 <h2 id="feudalism-3-universal-oven-weaponsmith-table-config-notecards">Feudalism 3 universal oven / weaponsmith table — <code>*config*</code> notecards<a class="headerlink" href="#feudalism-3-universal-oven-weaponsmith-table-config-notecards" title="Permanent link">&para;</a></h2>
 <p>Legacy sit-based stations.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>&lt;Recipe Name&gt;,&lt;Category&gt;,&lt;Output Object Name&gt;,&lt;CR&gt;,&lt;ing1&gt;,&lt;qty1&gt;,...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>&lt;Recipe Name&gt;,&lt;Category&gt;,&lt;Output Object Name&gt;,&lt;CR&gt;,&lt;ing1&gt;,&lt;qty1&gt;,...
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Beef Stew,Meals,Beef Stew,3,potato,2,carrot,1,beef,1,salt,1
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>Beef Stew,Meals,Beef Stew,3,potato,2,carrot,1,beef,1,salt,1
 </code></pre></div>
 <p>Output is the <strong>exact inventory object name</strong>, or <code>pouch</code> for virtual items.</p>
 <hr />
@@ -2928,17 +3016,17 @@ script in the object.</p>
 <tr>
 <td>Oven / cauldron / fermenter</td>
 <td><code>recipes</code></td>
-<td><code>Name,Category,Output,CR,ing,qty…</code></td>
+<td><code>Name,Category,Output,CR,ing,qty…</code> — <strong>F4 Crafting</strong> scripts</td>
 </tr>
 <tr>
-<td>Smith workstation</td>
+<td>Smith (single output)</td>
 <td><code>recipes</code></td>
-<td>same as oven, <strong>CR ≥ 1</strong></td>
+<td>same as oven — <strong>F4 Crafting</strong> scripts</td>
 </tr>
 <tr>
 <td>Smith table (multi-output)</td>
 <td><code>recipes</code></td>
-<td><code>…CR:#…</code>, multiple outputs</td>
+<td><code>…CR:#…</code> output triplets — <strong>F4 Crafting MultiItem</strong> scripts</td>
 </tr>
 <tr>
 <td>Producer (press/churn)</td>
@@ -3002,7 +3090,7 @@ recipe of each output type.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../setting-up-stations/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Setting Up Stations">
+          <a href="../dropbox-and-delivery/" class="md-footer__link md-footer__link--prev" aria-label="Previous: DropBox &amp; Physical Delivery">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -3012,7 +3100,7 @@ recipe of each output type.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Setting Up Stations
+                DropBox & Physical Delivery
               </div>
             </div>
           </a>
