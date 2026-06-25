@@ -2660,16 +2660,31 @@ try {
      * Retries if MOAP input is focused (history.replaceState is blocked).
      */
     syncStatsToPlayersHUD(char) {
-        if (!this.lsl.channel || !char) {
+        if (!char) {
             return;
         }
         const csv = this.statsCsvFromChar(char);
         if (!csv) {
+            console.warn('[Players HUD Sync] statsCsvFromChar empty — char.stats missing?');
             return;
         }
         const parts = csv.split(',');
-        console.log('[Players HUD Sync] UPDATE_STATS crafting=' + parts[4] + ' csvLen=' + parts.length);
-        this.sendToLSL('UPDATE_STATS', { stats: csv });
+        console.log('[Players HUD Sync] stats_csv crafting[idx4]=' + parts[4] + ' len=' + parts.length);
+        // Primary: stats_csv on MOAP URL (LSL polls PRIM_MEDIA_CURRENT_URL — no lsl_cmd needed)
+        try {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('stats_csv', csv);
+            currentUrl.searchParams.set('stats_csv_ts', Date.now().toString());
+            if (!this.safeHistoryReplaceState(currentUrl.toString())) {
+                console.log('[Players HUD Sync] stats_csv deferred (form focused) — will retry');
+            }
+        } catch (e) {
+            console.error('[Players HUD Sync] stats_csv URL update failed:', e);
+        }
+        // Backup: lsl_cmd pipeline
+        if (this.lsl.channel) {
+            this.sendToLSL('UPDATE_STATS', { stats: csv });
+        }
     },
 
     _syncStatsScheduleTimer: null,
