@@ -2670,20 +2670,36 @@ try {
         }
         const parts = csv.split(',');
         console.log('[Players HUD Sync] stats_csv crafting[idx4]=' + parts[4] + ' len=' + parts.length);
-        // Primary: stats_csv on MOAP URL (LSL polls PRIM_MEDIA_CURRENT_URL — no lsl_cmd needed)
+
+        if (this._lastStatsCsvSynced === csv) {
+            return;
+        }
+
+        try {
+            const currentUrl = new URL(window.location.href);
+            const urlCsv = currentUrl.searchParams.get('stats_csv');
+            if (urlCsv === csv) {
+                this._lastStatsCsvSynced = csv;
+                return;
+            }
+        } catch (e) { /* ignore */ }
+
+        if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+            console.log('[Players HUD Sync] stats_csv deferred (form focused) — will retry');
+            this.scheduleSyncStatsToPlayersHUD(char);
+            return;
+        }
+
         try {
             const currentUrl = new URL(window.location.href);
             currentUrl.searchParams.set('stats_csv', csv);
             currentUrl.searchParams.set('stats_csv_ts', Date.now().toString());
-            if (!this.safeHistoryReplaceState(currentUrl.toString())) {
-                console.log('[Players HUD Sync] stats_csv deferred (form focused) — will retry');
-            }
+            this._lastStatsCsvSynced = csv;
+            // Full navigation — SL reads PRIM_MEDIA_CURRENT_URL; replaceState alone is invisible to LSL
+            console.log('[Players HUD Sync] Navigating MOAP URL with stats_csv');
+            window.location.assign(currentUrl.toString());
         } catch (e) {
             console.error('[Players HUD Sync] stats_csv URL update failed:', e);
-        }
-        // Backup: lsl_cmd pipeline
-        if (this.lsl.channel) {
-            this.sendToLSL('UPDATE_STATS', { stats: csv });
         }
     },
 
