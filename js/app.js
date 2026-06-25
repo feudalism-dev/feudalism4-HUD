@@ -321,7 +321,7 @@ try {
         // If LSL requested data, refresh stat cache when character is ready
         if (requestData === '1' && this.state.character) {
             console.log('[Players HUD] Character found — caching stats for Players HUD');
-            this.syncStatsToPlayersHUD(this.state.character);
+            this.cacheHudStatsForPlayers(this.state.character);
         }
         
         // Setup event handlers
@@ -547,7 +547,7 @@ try {
                             console.log('Character loaded:', this.state.character);
                             
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
-                            this.syncStatsToPlayersHUD(this.state.character);
+                            await this.cacheHudStatsForPlayers(this.state.character);
                             
                             // Load inventory (Inventory v2 - pagination)
                             const pageSize = 50;
@@ -2643,25 +2643,69 @@ try {
             'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
             'stealth', 'survival', 'thievery', 'will', 'wisdom'
         ];
-        return statNames.map(function (s) {
-            return char.stats[s] != null ? char.stats[s] : 2;
+        return statNames.map(function (s, idx) {
+            if (char.stats[s] != null) {
+                return char.stats[s];
+            }
+            const numKey = String(idx);
+            if (char.stats[numKey] != null) {
+                return char.stats[numKey];
+            }
+            return 2;
         }).join(',');
     },
 
     /**
-     * Write stats into Players HUD LSD only — no Firestore, no Bridge fetch.
-     * Setup pulls stats from Firestore in the browser, then caches them here for
-     * crafting stations and other world scripts (queryCrafting reads LSD).
+     * Write stats into Players HUD LSD only — no Bridge fetch.
+     * Retries if MOAP input is focused (history.replaceState is blocked).
      */
     syncStatsToPlayersHUD(char) {
-        if (!this.lsl.channel) {
+        if (!this.lsl.channel || !char) {
             return;
         }
         const csv = this.statsCsvFromChar(char);
         if (!csv) {
             return;
         }
+        const parts = csv.split(',');
+        console.log('[Players HUD Sync] UPDATE_STATS crafting=' + parts[4] + ' csvLen=' + parts.length);
         this.sendToLSL('UPDATE_STATS', { stats: csv });
+    },
+
+    _syncStatsScheduleTimer: null,
+
+    scheduleSyncStatsToPlayersHUD(char) {
+        if (!char) {
+            return;
+        }
+        const self = this;
+        if (self._syncStatsScheduleTimer) {
+            clearTimeout(self._syncStatsScheduleTimer);
+        }
+        self._syncStatsScheduleTimer = setTimeout(function () {
+            self._syncStatsScheduleTimer = null;
+            if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+                self.scheduleSyncStatsToPlayersHUD(char);
+                return;
+            }
+            self.syncStatsToPlayersHUD(char);
+        }, 300);
+    },
+
+    /**
+     * Setup open / save: push stats into Players HUD LSD (LOAD_CHARACTER + UPDATE_STATS).
+     */
+    async cacheHudStatsForPlayers(char) {
+        if (!char || !char.id) {
+            return;
+        }
+        this.scheduleSyncStatsToPlayersHUD(char);
+        await this.pushCharacterToPlayersHUD(char.id);
+        // Second pass after MOAP finishes loading (covers deferred URL commands)
+        const self = this;
+        setTimeout(function () {
+            self.scheduleSyncStatsToPlayersHUD(char);
+        }, 2000);
     },
 
     /**
@@ -3057,7 +3101,7 @@ try {
                 this.updateStepGuide();
                 await this.loadData();
                 // Refresh Players HUD stat cache (LSD only — crafting reads this, not Firestore)
-                this.syncStatsToPlayersHUD(this.state.character);
+                await this.cacheHudStatsForPlayers(this.state.character);
 
                 setTimeout(() => {
                     if (this.state.character) {
