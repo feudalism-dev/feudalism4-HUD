@@ -7985,30 +7985,73 @@ window.getSpeciesStatBudget = function(speciesId) {
 };
 
 /**
+ * Canonical 20-stat map for point math (named keys, numeric fallback, species defaults).
+ */
+window.getMergedCharacterStatsForPoints = function(character) {
+    const speciesId = String(character.species_id || 'human').toLowerCase();
+    const defaults = window.getSpeciesDefaultStats(speciesId);
+    const statNames = (typeof F4_SEED_DATA !== 'undefined' && F4_SEED_DATA.statNames)
+        ? F4_SEED_DATA.statNames
+        : Object.keys(defaults);
+    const raw = character.stats || {};
+    const merged = {};
+
+    statNames.forEach(function (stat, idx) {
+        let val = raw[stat];
+        if (val == null && raw[String(idx)] != null) {
+            val = raw[String(idx)];
+        }
+        if (val == null) {
+            val = defaults[stat] || 2;
+        }
+        val = parseInt(val, 10);
+        if (isNaN(val) || val < 1) {
+            val = defaults[stat] || 2;
+        }
+        merged[stat] = val;
+    });
+
+    return { speciesId: speciesId, defaults: defaults, stats: merged };
+};
+
+/**
+ * Points spent above this species' default stat line (refunds if lowered below default).
+ */
+window.calculatePointsSpentAboveDefault = function(character) {
+    const merged = window.getMergedCharacterStatsForPoints(character);
+    const defaults = merged.defaults;
+    const stats = merged.stats;
+    let spentAbove = 0;
+
+    for (const stat in stats) {
+        const current = stats[stat];
+        const defaultLevel = defaults[stat] || 2;
+        spentAbove += window.getStatTotalCost(current) - window.getStatTotalCost(defaultLevel);
+    }
+
+    return spentAbove;
+};
+
+/**
  * Available stat points at creation and from XP.
- * budget = cost of species default line; spent = cost of current line; + XP earned.
- * Humans get +10 on top of zero-sum at all 2s (10 to spend without handicaps).
- * Other species: 0 available at racial defaults unless they lower stats.
+ * Humans: +10 free at racial defaults (separate from XP — not subtracted from floor(xp/1000)).
+ * Every 1000 XP adds 1 point on top of that. Example human at all 2s with 1000 XP → 11 available.
+ * Other species: 0 at racial defaults unless stats are lowered below default (refund).
  */
 window.calculateAvailablePoints = function(character) {
     if (!character) return 0;
 
     const XP_PER_POINT = 1000;
     const HUMAN_STARTING_BONUS = 10;
-    const speciesId = character.species_id || 'human';
-    const baseBudget = window.getSpeciesStatBudget(speciesId);
-    const speciesBonus = (speciesId === 'human') ? HUMAN_STARTING_BONUS : 0;
+    const merged = window.getMergedCharacterStatsForPoints(character);
+    const speciesBonus = (merged.speciesId === 'human') ? HUMAN_STARTING_BONUS : 0;
 
-    const earnedXP = character.xp_total || 0;
+    const earnedXP = Math.max(0, parseInt(character.xp_total, 10) || 0);
     const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
+    const spentAboveDefault = window.calculatePointsSpentAboveDefault(character);
 
-    let pointsSpent = 0;
-    const stats = character.stats || window.getSpeciesDefaultStats(speciesId);
-    for (const stat in stats) {
-        pointsSpent += window.getStatTotalCost(stats[stat] || 2);
-    }
-
-    return baseBudget + speciesBonus + earnedPoints - pointsSpent;
+    const available = speciesBonus + earnedPoints - spentAboveDefault;
+    return Math.max(0, available);
 };
 
 /**
