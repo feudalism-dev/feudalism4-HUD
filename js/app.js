@@ -318,10 +318,10 @@ try {
         await this.loadData();
         DebugLog.log('loadData() completed', 'debug');
         
-        // If LSL requested data, sync when safe (debounced; no inline URL replaceState)
+        // If LSL requested data, refresh stat cache when character is ready
         if (requestData === '1' && this.state.character) {
-            console.log('[Players HUD] Character found - scheduling broadcast for LSL');
-            this.scheduleBroadcastToPlayersHUD(this.state.character);
+            console.log('[Players HUD] Character found — caching stats for Players HUD');
+            this.syncStatsToPlayersHUD(this.state.character);
         }
         
         // Setup event handlers
@@ -546,6 +546,9 @@ try {
                             
                             console.log('Character loaded:', this.state.character);
                             
+                            // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
+                            this.syncStatsToPlayersHUD(this.state.character);
+                            
                             // Load inventory (Inventory v2 - pagination)
                             const pageSize = 50;
                             const page = 1;
@@ -566,12 +569,6 @@ try {
                             };
                             
                             console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
-                            
-                            // Pull full character into HUD LSD + meter (identity, stats, resources)
-                            await this.pushCharacterToPlayersHUD(this.state.character.id);
-
-                            // Broadcast character data to Players HUD via Setup HUD
-                            this.scheduleBroadcastToPlayersHUD(this.state.character);
                             
                             // Load and set up buffs listener
                             await this.loadBuffs();
@@ -2634,6 +2631,40 @@ try {
     },
 
     /**
+     * 20-stat CSV for Players HUD LSD (same order as LSL stat indices).
+     */
+    statsCsvFromChar(char) {
+        if (!char || !char.stats) {
+            return '';
+        }
+        const statNames = [
+            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+            'stealth', 'survival', 'thievery', 'will', 'wisdom'
+        ];
+        return statNames.map(function (s) {
+            return char.stats[s] != null ? char.stats[s] : 2;
+        }).join(',');
+    },
+
+    /**
+     * Write stats into Players HUD LSD only — no Firestore, no Bridge fetch.
+     * Setup pulls stats from Firestore in the browser, then caches them here for
+     * crafting stations and other world scripts (queryCrafting reads LSD).
+     */
+    syncStatsToPlayersHUD(char) {
+        if (!this.lsl.channel) {
+            return;
+        }
+        const csv = this.statsCsvFromChar(char);
+        if (!csv) {
+            return;
+        }
+        this.sendToLSL('UPDATE_STATS', { stats: csv });
+    },
+
+    /**
      * Build pipe-safe payload from loaded Firestore character (MOAP → LSL).
      * LSL bridge HTTP cannot use Firebase auth; MOAP must push identity and pools.
      */
@@ -2667,16 +2698,8 @@ try {
         if (char.mode) {
             data.mode = char.mode;
         }
-        const statNames = [
-            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
-            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
-            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
-            'stealth', 'survival', 'thievery', 'will', 'wisdom'
-        ];
         if (char.stats) {
-            data.stats = statNames.map(function (s) {
-                return char.stats[s] != null ? char.stats[s] : 2;
-            }).join(',');
+            data.stats = this.statsCsvFromChar(char);
         }
         const pool = function (p) {
             if (!p) {
@@ -3033,6 +3056,8 @@ try {
                 this.updateStatusIndicator();
                 this.updateStepGuide();
                 await this.loadData();
+                // Refresh Players HUD stat cache (LSD only — crafting reads this, not Firestore)
+                this.syncStatsToPlayersHUD(this.state.character);
 
                 setTimeout(() => {
                     if (this.state.character) {
