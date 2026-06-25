@@ -355,6 +355,9 @@ try {
      * Load species/classes/vocations/genders once per session (API layer caches 30m).
      */
     async ensureTemplatesLoaded(forceReload) {
+        if (forceReload) {
+            API.invalidateTemplateCache();
+        }
         if (!forceReload && this.state.templatesLoaded && this.state.species.length > 0 && this.state.classes.length > 0) {
             return { success: true, cached: true };
         }
@@ -5776,6 +5779,7 @@ try {
         UI.showLoading(adminContent, `Loading ${type}...`);
         
         try {
+            API.invalidateTemplateCache(type);
             // Reload templates to ensure we have latest data
             let templates = [];
             if (type === 'species') {

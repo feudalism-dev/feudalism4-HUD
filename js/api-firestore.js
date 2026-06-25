@@ -224,9 +224,54 @@ const API = {
     
     // =========================== TEMPLATES (Public Read) ====================
 
-    /** When true, species/classes/genders/vocations load from bundled seed-data.js (0 Firestore reads). */
+    /** Seed-data.js is the baseline catalog; Firestore overlays custom entries and edits. */
     _USE_STATIC_TEMPLATES: true,
-    _forceFirestoreTemplates: false,
+
+    invalidateTemplateCache(collectionName) {
+        if (collectionName) {
+            delete this._templateCache[collectionName];
+            return;
+        }
+        this._templateCache = {};
+    },
+
+    _mergeTemplateMaps(baselineById, firestoreById) {
+        const merged = {};
+        const ids = {};
+        Object.keys(baselineById).forEach(function (id) {
+            ids[id] = true;
+        });
+        Object.keys(firestoreById).forEach(function (id) {
+            ids[id] = true;
+        });
+        Object.keys(ids).forEach(function (id) {
+            if (firestoreById[id]) {
+                merged[id] = firestoreById[id];
+            } else if (baselineById[id]) {
+                merged[id] = baselineById[id];
+            }
+        });
+        const items = [];
+        Object.keys(merged).forEach(function (id) {
+            items.push(merged[id]);
+        });
+        items.sort(function (a, b) {
+            const na = (a.name || a.id || '').toLowerCase();
+            const nb = (b.name || b.id || '').toLowerCase();
+            return na.localeCompare(nb);
+        });
+        return items;
+    },
+
+    _indexTemplatesById(items) {
+        const byId = {};
+        (items || []).forEach(function (item) {
+            if (item && item.id) {
+                byId[item.id] = item;
+            }
+        });
+        return byId;
+    },
 
     _templateCache: {},
     _TEMPLATE_CACHE_TTL_MS: 30 * 60 * 1000,
@@ -303,42 +348,52 @@ const API = {
         return { success: true, data: items };
     },
 
-    /** Static seed-data.js first; Firestore only when admin forces or seed missing. */
+    /** Seed baseline + Firestore overlay (1 collection read when cache cold). */
     async _loadTemplateCollection(collectionName, seedFn, mapDoc) {
         const cached = this._getCachedTemplate(collectionName);
         if (cached) {
             return cached;
         }
 
-        if (this._USE_STATIC_TEMPLATES && !this._forceFirestoreTemplates) {
+        let baselineItems = [];
+        if (this._USE_STATIC_TEMPLATES) {
             const seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
-            if (seeded && seeded.data && seeded.data.length > 0) {
-                const result = { success: true, data: seeded.data };
-                this._setCachedTemplate(collectionName, result);
-                console.log('[API] ' + collectionName + ' from seed-data.js (0 Firestore reads)');
-                return result;
+            if (seeded && seeded.data) {
+                baselineItems = seeded.data;
             }
         }
 
         let snapshot = await db.collection(collectionName).get();
-        if (snapshot.empty && seedFn) {
+        if (snapshot.empty && seedFn && baselineItems.length === 0) {
             console.log('[API] Seeding empty collection:', collectionName);
             await seedFn.call(this);
             await new Promise(function (resolve) { setTimeout(resolve, 500); });
             snapshot = await db.collection(collectionName).get();
+            if (baselineItems.length === 0) {
+                const seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
+                if (seeded && seeded.data) {
+                    baselineItems = seeded.data;
+                }
+            }
         }
 
-        const items = [];
+        const firestoreById = {};
         snapshot.forEach(function (doc) {
             const data = doc.data();
             if (data.enabled === false) {
                 return;
             }
-            items.push(mapDoc ? mapDoc(doc, data) : { id: doc.id, ...data });
+            const mapped = mapDoc ? mapDoc(doc, data) : { id: doc.id, ...data };
+            firestoreById[doc.id] = mapped;
         });
+
+        const baselineById = this._indexTemplatesById(baselineItems);
+        const items = this._mergeTemplateMaps(baselineById, firestoreById);
 
         const result = { success: true, data: items };
         this._setCachedTemplate(collectionName, result);
+        console.log('[API] ' + collectionName + ': ' + items.length + ' templates (seed '
+            + baselineItems.length + ', firestore ' + snapshot.size + ')');
         return result;
     },
 
@@ -1558,8 +1613,7 @@ const API = {
      */
     async saveTemplate(type, id, templateData, isNew = false) {
         try {
-            this._forceFirestoreTemplates = true;
-            delete this._templateCache[type];
+            this.invalidateTemplateCache(type);
 
             if (!this.canManageGlobalTemplates()) {
                 return { success: false, error: 'Unauthorized: Only system administrators can add or edit global templates' };
@@ -1714,6 +1768,8 @@ const API = {
                 enabled: false,
                 deleted_at: firebase.firestore.FieldValue.serverTimestamp()
             });
+            
+            this.invalidateTemplateCache(type);
             
             return { success: true };
         } catch (error) {
@@ -2634,14 +2690,7 @@ const API = {
                 });
                 allowedClasses = allowedClasses.filter((c) => allowlistIds.has(c.id));
             }
-            // Allowlist is authoritative: a class on allowedClasses still shows even if
-            // classOverrides.enabled was saved false when the class was added later.
-            allowedClasses = allowedClasses.filter((c) => {
-                if (allowlistIds && allowlistIds.has(c.id)) {
-                    return true;
-                }
-                return c.enabled !== false;
-            });
+            // Empty allowedClasses = full catalog. classOverrides.enabled only applies with an allowlist.
             
             return { 
                 success: true, 
