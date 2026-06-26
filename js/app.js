@@ -1268,11 +1268,22 @@ try {
             return;
         }
         
-        // Get character name for confirmation (MOAP: overlay, not window.confirm)
-        const charName = this.state.character?.name || 'this character';
+        // MOAP overlay confirm — never window.confirm (unsupported in SL CEF-139)
+        let charName = 'this character';
+        if (selector) {
+            let i;
+            for (i = 0; i < selector.options.length; i++) {
+                if (selector.options[i].value === selectedId) {
+                    charName = selector.options[i].textContent.trim();
+                    break;
+                }
+            }
+        } else if (this.state.character && this.state.character.id === selectedId && this.state.character.name) {
+            charName = this.state.character.name;
+        }
         const confirmed = await UI.showConfirmDialog({
             title: 'Delete character?',
-            message: `Are you sure you want to delete "${charName}"? This action cannot be undone.`,
+            message: 'Delete "' + charName + '"?\n\nID: ' + selectedId + '\n\nThis cannot be undone.',
             confirmLabel: 'Delete',
             cancelLabel: 'Cancel',
             danger: true

@@ -10,12 +10,7 @@
     }
 
     function ensureOverlay() {
-        var modal = document.getElementById('modal');
-        var body = document.getElementById('modal-body');
-        if (modal && body) {
-            return { overlay: modal, body: body, useHudModal: true };
-        }
-
+        // Always use a dedicated overlay — never reuse #modal (species/class pickers use that).
         var overlay = document.getElementById('moap-dialog-overlay');
         if (!overlay) {
             overlay = document.createElement('div');
@@ -51,14 +46,6 @@
                 cancelActiveDialog();
             }
         });
-        var hudModal = document.getElementById('modal');
-        if (hudModal) {
-            hudModal.addEventListener('click', function (e) {
-                if (e.target === hudModal && activeDone) {
-                    cancelActiveDialog();
-                }
-            });
-        }
     }
 
     function hideOverlay(els) {
