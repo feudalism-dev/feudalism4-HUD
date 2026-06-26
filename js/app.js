@@ -1286,7 +1286,8 @@ try {
             message: 'Delete "' + charName + '"?\n\nID: ' + selectedId + '\n\nThis cannot be undone.',
             confirmLabel: 'Delete',
             cancelLabel: 'Cancel',
-            danger: true
+            danger: true,
+            allowBackdropCancel: false
         });
         if (!confirmed) {
             return;
@@ -2920,6 +2921,10 @@ try {
      */
     syncStatsToPlayersHUD(char) {
         if (!char) {
+            return;
+        }
+        if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
+            this.scheduleSyncStatsToPlayersHUD(char);
             return;
         }
         const csv = this.statsCsvFromChar(char);
@@ -8435,6 +8440,10 @@ window.schedulePushEconToHud = function () {
 window.pushEconToHud = function () {
     const char = App.state.character;
     if (!char) {
+        return false;
+    }
+    if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
+        window.schedulePushEconToHud();
         return false;
     }
     if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
