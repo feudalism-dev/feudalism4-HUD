@@ -232,15 +232,30 @@ const UI = {
             });
         });
         
-        // Modal close
-        this.elements.modalClose?.addEventListener('click', () => this.closeModal());
+        // Modal close — route through MoapDialogs when a confirm/alert is open
+        this.elements.modalClose?.addEventListener('click', () => {
+            if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog('close')) {
+                return;
+            }
+            this.closeModal();
+        });
         this.elements.modal?.addEventListener('click', (e) => {
-            if (e.target === this.elements.modal) this.closeModal();
+            if (e.target === this.elements.modal) {
+                if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog('backdrop')) {
+                    return;
+                }
+                this.closeModal();
+            }
         });
         
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.closeModal();
+            if (e.key === 'Escape') {
+                if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog('escape')) {
+                    return;
+                }
+                this.closeModal();
+            }
         });
     },
     
@@ -1563,7 +1578,8 @@ const UI = {
      * Close the modal
      */
     closeModal() {
-        if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog()) {
+        if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
+            MoapDialogs.cancelActiveDialog('close');
             return;
         }
         if (!this.elements.modal) return;

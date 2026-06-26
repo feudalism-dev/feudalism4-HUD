@@ -25,8 +25,13 @@ body.moap-dialog-open #app {
     user-select: none;
 }
 
-body.moap-dialog-open #moap-dialog-overlay {
+body.moap-dialog-open #moap-dialog-overlay,
+body.moap-dialog-open #modal {
     pointer-events: auto;
+}
+
+body.moap-dialog-open #modal {
+    z-index: 200000;
 }
 
 .moap-dialog-panel {

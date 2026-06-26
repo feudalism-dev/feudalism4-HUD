@@ -3,12 +3,18 @@
     var activeDone = null;
     var installed = false;
     var backdropEnabled = false;
+    var backdropCancelAllowed = true;
     var backdropTimer = null;
+    var activeEls = null;
 
     function escapeHtml(text) {
         var div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    function isSlMoap() {
+        return !!(global.IS_SL_BROWSER);
     }
 
     function isActive() {
@@ -27,8 +33,19 @@
     }
 
     function ensureOverlay() {
+        var modal;
+        var body;
+        if (isSlMoap()) {
+            // CEF-139 MOAP: fixed overlays outside #app often miss clicks — use Setup #modal.
+            modal = document.getElementById('modal');
+            body = document.getElementById('modal-body');
+            if (modal && body) {
+                return { overlay: modal, body: body, useHudModal: true };
+            }
+        }
+
         var overlay = document.getElementById('moap-dialog-overlay');
-        var body = document.getElementById('moap-dialog-body');
+        body = document.getElementById('moap-dialog-body');
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = 'moap-dialog-overlay';
@@ -39,33 +56,29 @@
                 '<button type="button" class="moap-dialog-close" aria-label="Close">&times;</button>' +
                 '<div id="moap-dialog-body"></div>' +
                 '</div>';
-            document.body.appendChild(overlay);
+            var appRoot = document.getElementById('app');
+            if (appRoot) {
+                appRoot.appendChild(overlay);
+            } else {
+                document.body.appendChild(overlay);
+            }
             body = document.getElementById('moap-dialog-body');
-        }
-        if (overlay.parentNode !== document.body) {
-            document.body.appendChild(overlay);
         }
         if (!overlay._moapBound) {
             overlay._moapBound = true;
             overlay.querySelector('.moap-dialog-close').addEventListener('click', function () {
-                cancelActiveDialog();
+                cancelActiveDialog('close');
             });
             overlay.addEventListener('click', function (e) {
                 if (!backdropEnabled) {
                     return;
                 }
                 if (e.target === overlay) {
-                    cancelActiveDialog();
+                    cancelActiveDialog('backdrop');
                 }
             });
             var panel = overlay.querySelector('.moap-dialog-panel');
             if (panel) {
-                panel.addEventListener('mousedown', function (e) {
-                    e.stopPropagation();
-                });
-                panel.addEventListener('mouseup', function (e) {
-                    e.stopPropagation();
-                });
                 panel.addEventListener('click', function (e) {
                     e.stopPropagation();
                 });
@@ -73,7 +86,8 @@
         }
         return {
             overlay: overlay,
-            body: body || document.getElementById('moap-dialog-body')
+            body: body || document.getElementById('moap-dialog-body'),
+            useHudModal: false
         };
     }
 
@@ -84,7 +98,7 @@
         installed = true;
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && activeDone) {
-                cancelActiveDialog();
+                cancelActiveDialog('escape');
             }
         });
     }
@@ -93,10 +107,20 @@
         if (!els || !els.overlay) {
             return;
         }
-        els.overlay.classList.add('hidden');
-        els.overlay.setAttribute('aria-hidden', 'true');
+        if (els.useHudModal) {
+            els.overlay.classList.add('hidden');
+            var closeBtn = els.overlay.querySelector('.modal-close');
+            if (closeBtn) {
+                closeBtn.style.display = '';
+            }
+        } else {
+            els.overlay.classList.add('hidden');
+            els.overlay.setAttribute('aria-hidden', 'true');
+        }
         setBodyDialogOpen(false);
         backdropEnabled = false;
+        backdropCancelAllowed = true;
+        activeEls = null;
         if (backdropTimer) {
             clearTimeout(backdropTimer);
             backdropTimer = null;
@@ -107,12 +131,19 @@
         if (!els || !els.body) {
             return;
         }
+        activeEls = els;
+        backdropCancelAllowed = !!allowBackdropCancel;
         els.body.innerHTML = html;
-        if (els.overlay.parentNode !== document.body) {
-            document.body.appendChild(els.overlay);
+        if (els.useHudModal) {
+            var closeBtn = els.overlay.querySelector('.modal-close');
+            if (closeBtn) {
+                closeBtn.style.display = '';
+            }
+            els.overlay.classList.remove('hidden');
+        } else {
+            els.overlay.classList.remove('hidden');
+            els.overlay.setAttribute('aria-hidden', 'false');
         }
-        els.overlay.classList.remove('hidden');
-        els.overlay.setAttribute('aria-hidden', 'false');
         setBodyDialogOpen(true);
         backdropEnabled = false;
         if (backdropTimer) {
@@ -126,12 +157,24 @@
         }
     }
 
-    function cancelActiveDialog() {
+    function cancelActiveDialog(source) {
         if (!activeDone) {
             return false;
         }
+        if (source === 'backdrop' && !backdropCancelAllowed) {
+            return true;
+        }
+        if (source === 'backdrop' && !backdropEnabled && !backdropCancelAllowed) {
+            return true;
+        }
+        if (source === 'backdrop' && !backdropEnabled) {
+            return true;
+        }
         var done = activeDone;
         activeDone = null;
+        if (activeEls) {
+            hideOverlay(activeEls);
+        }
         done(false);
         return true;
     }
@@ -141,15 +184,16 @@
         if (!btn) {
             return;
         }
-        btn.addEventListener('mousedown', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }, { once: true });
-        btn.addEventListener('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
+        btn.onclick = function (e) {
+            if (e && e.preventDefault) {
+                e.preventDefault();
+            }
+            if (e && e.stopPropagation) {
+                e.stopPropagation();
+            }
             handler();
-        }, { once: true });
+            return false;
+        };
     }
 
     function showConfirm(options) {
@@ -199,15 +243,6 @@
             bindActionButton('moap-dialog-cancel', function () {
                 done(false);
             });
-
-            setTimeout(function () {
-                var focusBtn = document.getElementById('moap-dialog-cancel');
-                if (focusBtn && focusBtn.focus) {
-                    try {
-                        focusBtn.focus();
-                    } catch (e) { /* MOAP may block focus */ }
-                }
-            }, 0);
         });
     }
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
     <link rel="stylesheet" href="css/styles.css?v=22">
-    <link rel="stylesheet" href="css/moap-dialogs.css?v=2">
+    <link rel="stylesheet" href="css/moap-dialogs.css?v=3">
 </head>
 <body>
     <script>
@@ -495,6 +495,14 @@
 
         <!-- Toast -->
         <div id="toast-container"></div>
+
+        <!-- MOAP confirm overlay (desktop); SL MOAP uses #modal above -->
+        <div id="moap-dialog-overlay" class="moap-dialog-overlay hidden" aria-hidden="true">
+            <div class="moap-dialog-panel">
+                <button type="button" class="moap-dialog-close" aria-label="Close">&times;</button>
+                <div id="moap-dialog-body"></div>
+            </div>
+        </div>
         
         <!-- Debug Panel (hidden by default, toggle with green dot) -->
         <div id="debug-panel" style="position: fixed; bottom: 10px; right: 10px; width: 500px; max-height: 400px; background: rgba(0, 0, 0, 0.95); color: #0f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; border: 3px solid #0f0; border-radius: 8px; z-index: 99999; overflow-y: auto; box-shadow: 0 0 20px rgba(0, 255, 0, 0.5); display: none;">
@@ -502,14 +510,6 @@
                 <strong style="color: #0f0; font-size: 14px;">🐛 DEBUG LOG (Click green dot to hide)</strong>
             </div>
             <div id="debug-content" style="line-height: 1.6; min-height: 50px;"></div>
-        </div>
-    </div>
-
-    <!-- MOAP confirm/alert overlay (must be outside #app, above all HUD layers) -->
-    <div id="moap-dialog-overlay" class="moap-dialog-overlay hidden" aria-hidden="true">
-        <div class="moap-dialog-panel">
-            <button type="button" class="moap-dialog-close" aria-label="Close">&times;</button>
-            <div id="moap-dialog-body"></div>
         </div>
     </div>
 
@@ -580,7 +580,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.0-xp-econ11';
+            window.HUD_BUILD_LABEL = '4.2.0-xp-econ12';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
