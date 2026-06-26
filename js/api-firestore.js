@@ -281,6 +281,7 @@ const API = {
     _LIST_CHARACTERS_TTL_MS: 5 * 60 * 1000,
     _listCharactersCache: null,
     _listCharactersCacheTs: 0,
+    _createCharacterInFlight: null,
 
     _dedupeCharactersById(characters) {
         const seen = {};
@@ -789,7 +790,21 @@ const API = {
         if (!this.uuid || this.uuid.trim() === '') {
             return { success: false, error: 'No UUID - access denied' };
         }
-        
+
+        if (this._createCharacterInFlight) {
+            console.warn('[createCharacter] Reusing in-flight create (prevents duplicate docs)');
+            return this._createCharacterInFlight;
+        }
+
+        this._createCharacterInFlight = this._createCharacterImpl(charData);
+        try {
+            return await this._createCharacterInFlight;
+        } finally {
+            this._createCharacterInFlight = null;
+        }
+    },
+
+    async _createCharacterImpl(charData) {
         try {
             // Multi-character: per-universe limits are enforced in saveCharacter via validateCharacterLimit.
             // SECURITY: Always set owner_uuid to current user's UUID - cannot be overridden

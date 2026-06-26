@@ -191,6 +191,7 @@ try {
     },
 
     _starterProvisionAttempted: false,
+    _starterProvisionPromise: null,
     _pendingAutoHideSetup: false,
     _initialized: false,
     _initPromise: null,
@@ -480,7 +481,11 @@ try {
     /**
      * Load all necessary data from server
      */
-    async loadData() {
+    async loadData(options) {
+        if (options === undefined) {
+            options = {};
+        }
+        const forceRefresh = !!options.forceRefresh;
         try {
             DebugLog.log('loadData() called', 'debug');
             UI.setConnectionStatus(true);
@@ -528,7 +533,7 @@ try {
             // SECURITY: listCharacters() validates owner_uuid matches API.uuid
             try {
                 console.log('[loadData] Loading characters for UUID:', API.uuid);
-                const charsResult = await API.listCharacters();
+                const charsResult = await API.listCharacters(forceRefresh);
                 console.log('[loadData] listCharacters result:', charsResult);
                 
                 if (!charsResult.success) {
@@ -1251,7 +1256,11 @@ try {
      * Handle delete character button click
      */
     async handleDeleteCharacter() {
-        const selectedId = this.state.selectedCharacterId;
+        const selector = document.getElementById('character-selector');
+        let selectedId = this.state.selectedCharacterId;
+        if (selector && selector.value && selector.value !== '__create_new__' && selector.value !== '__temp__' && selector.value !== '') {
+            selectedId = selector.value;
+        }
         
         // Can't delete if no valid character selected
         if (!selectedId || selectedId === '__create_new__') {
@@ -1284,9 +1293,15 @@ try {
                 this.state.character = null;
                 this.state.selectedCharacterId = null;
                 this.state.isNewCharacter = true;
+                if (API.activeCharacterId === selectedId) {
+                    API.activeCharacterId = null;
+                }
+                try {
+                    sessionStorage.removeItem(this.getActiveCharacterStorageKey());
+                } catch (e) { /* ignore */ }
                 
                 // Reload data to refresh character list
-                await this.loadData();
+                await this.loadData({ forceRefresh: true });
             } else {
                 UI.showToast('Failed to delete character: ' + (result.error || 'Unknown error'), 'error');
             }
@@ -1515,9 +1530,22 @@ try {
      * Returns true when a new Firestore character was created and synced to the HUD.
      */
     async ensureStarterCharacter() {
+        if (this._starterProvisionPromise) {
+            return this._starterProvisionPromise;
+        }
         if (this._starterProvisionAttempted) {
             return false;
         }
+
+        this._starterProvisionPromise = this._ensureStarterCharacterInternal();
+        try {
+            return await this._starterProvisionPromise;
+        } finally {
+            this._starterProvisionPromise = null;
+        }
+    },
+
+    async _ensureStarterCharacterInternal() {
         this._starterProvisionAttempted = true;
 
         if (!API.uuid || API.uuid.trim() === '') {
