@@ -547,7 +547,8 @@ try {
                             console.log('Character loaded:', this.state.character);
 
                             // Gameplay XP is authoritative in HUD KVP; Firestore xp_total is often stale
-                            this.applyGameplayXpFromUrl();
+                            this.initEconFromUrl();
+                            this.migrateLegacyEconIfNeeded();
                             
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
                             await this.cacheHudStatsForPlayers(this.state.character);
@@ -823,7 +824,7 @@ try {
      */
     getCreationSteps() {
         const char = this.state.character;
-        const availablePoints = char ? window.calculateAvailablePoints(char) : 0;
+        const availablePoints = char ? window.getApBalance(char) : 0;
         return [
             { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
             { id: 'gender', name: 'Gender', complete: !!(char && char.gender) },
@@ -869,9 +870,9 @@ try {
                 }
                 return { ok: true };
             case 'stats': {
-                const pts = window.calculateAvailablePoints(char);
+                const pts = window.getApBalance(char);
                 if (pts !== 0) {
-                    return { ok: false, message: `You have ${pts} stat point(s) left to allocate.` };
+                    return { ok: false, message: `You have ${pts} Available Point(s) left to spend (or buy more with XP).` };
                 }
                 return { ok: true };
             }
@@ -1530,7 +1531,7 @@ try {
      * Create a default character template for new characters
      */
     createDefaultCharacter() {
-        const defaultStats = this.getDefaultStats();
+        const defaultStats = this.getNewCharacterStats();
         const species = this.state.species.find(s => s.id === 'human') || { 
             health_factor: 25, 
             stamina_factor: 25, 
@@ -1552,10 +1553,10 @@ try {
             gender: null,
             species_id: null,
             class_id: null,
-            xp_total: 100,
-            xp_available: 100,
             currency: 50,
-            stat_points_available: 0,  // Derived by calculateAvailablePoints (F3 zero-sum at all 2s)
+            ap_balance: 0,
+            xp_lifetime: 0,
+            xp_spent: 0,
             stats: defaultStats,
             inventory: [],
             // Store species factors for LSL calculations
@@ -1635,8 +1636,26 @@ try {
     },
     
     /**
-     * Get default stats object
-     * All stats start at 2 (matching F3 system)
+     * New character stats — all start at 1 (XP economy v2).
+     */
+    getNewCharacterStats() {
+        const statNames = (typeof F4_SEED_DATA !== 'undefined' && F4_SEED_DATA.statNames)
+            ? F4_SEED_DATA.statNames
+            : [
+                'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+                'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+                'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+                'stealth', 'survival', 'thievery', 'will', 'wisdom'
+            ];
+        const stats = {};
+        statNames.forEach(function (stat) {
+            stats[stat] = 1;
+        });
+        return stats;
+    },
+
+    /**
+     * Get default stats object (legacy templates / display — still 2 for species defaults).
      */
     getDefaultStats() {
         // Use F3 stat names from seed data if available
@@ -1995,7 +2014,7 @@ try {
         const caps = this.calculateStatCaps();
         
         // Calculate available points using the F3-style exponential system
-        const availablePoints = char ? window.calculateAvailablePoints(char) : 0;
+        const availablePoints = char ? window.getApBalance(char) : 0;
         
         // Render stats grid with points
         UI.renderStatsGrid(stats, caps, availablePoints);
@@ -2220,13 +2239,19 @@ try {
     calculateStatCaps() {
         const caps = {};
         const statNames = Object.keys(this.getDefaultStats());
-        
+        const char = this.state.character;
+        const noClass = !char || !char.class_id;
+
         statNames.forEach(stat => {
+            if (noClass) {
+                caps[stat] = 2;
+                return;
+            }
             const speciesCap = this.state.currentSpecies?.stat_caps?.[stat] || 9;
             const classCap = this.state.currentClass?.stat_maximums?.[stat] || 9;
             caps[stat] = Math.min(speciesCap, classCap);
         });
-        
+
         return caps;
     },
     
@@ -2258,6 +2283,34 @@ try {
 
         document.getElementById('btn-creation-next')?.addEventListener('click', () => this.goToNextCreationStep());
         document.getElementById('btn-creation-back')?.addEventListener('click', () => this.goToPrevCreationStep());
+
+        let buyQty = 1;
+        const buyQtyEl = document.getElementById('buy-points-qty');
+        const refreshBuyCost = function () {
+            const costEl = document.getElementById('buy-points-cost');
+            if (costEl && buyQtyEl) {
+                costEl.textContent = '(' + (buyQty * (window.XP_PER_AP || 1000)).toLocaleString() + ' XP)';
+                buyQtyEl.textContent = String(buyQty);
+            }
+        };
+        document.getElementById('buy-points-minus')?.addEventListener('click', function () {
+            if (buyQty > 1) {
+                buyQty -= 1;
+                refreshBuyCost();
+            }
+        });
+        document.getElementById('buy-points-plus')?.addEventListener('click', function () {
+            buyQty += 1;
+            refreshBuyCost();
+        });
+        document.getElementById('buy-points-ok')?.addEventListener('click', async function () {
+            if (window.buyPointsWithXp && window.buyPointsWithXp(buyQty)) {
+                App.state.dirty = true;
+                App.updateStatusIndicator();
+                await App.renderAll();
+            }
+        });
+        refreshBuyCost();
         
         // Challenge Test button (renamed from "Roll")
         UI.elements.btnRoll?.addEventListener('click', () => this.showChallengeTestDialog());
@@ -2634,27 +2687,75 @@ try {
     },
 
     /**
-     * Merge HUD gameplay XP (URL param from LSD) over stale Firestore xp_total.
+     * Merge HUD gameplay economy from URL params (KVP authoritative).
      */
-    applyGameplayXpFromUrl() {
+    initEconFromUrl() {
         const char = this.state.character;
         if (!char) {
             return;
         }
-        const cloudXp = Math.max(0, parseInt(char.xp_total, 10) || 0);
-        let hudXp = 0;
+        let lifetime = 0;
+        let spent = 0;
+        let ap = 0;
         try {
             const params = new URLSearchParams(window.location.search);
-            const urlXp = parseInt(params.get('xp_total'), 10);
-            if (!isNaN(urlXp) && urlXp >= 0) {
-                hudXp = urlXp;
+            const urlLife = parseInt(params.get('xp_lifetime'), 10);
+            const urlLegacy = parseInt(params.get('xp_total'), 10);
+            const urlSpent = parseInt(params.get('xp_spent'), 10);
+            const urlAp = parseInt(params.get('ap_balance'), 10);
+            if (!isNaN(urlLife) && urlLife >= 0) {
+                lifetime = urlLife;
+            } else if (!isNaN(urlLegacy) && urlLegacy >= 0) {
+                lifetime = urlLegacy;
+            }
+            if (!isNaN(urlSpent) && urlSpent >= 0) {
+                spent = urlSpent;
+            }
+            if (!isNaN(urlAp) && urlAp >= 0) {
+                ap = urlAp;
             }
         } catch (e) { /* ignore */ }
-        const merged = Math.max(cloudXp, hudXp);
-        if (merged !== cloudXp) {
-            console.log('[XP] Using HUD gameplay XP ' + merged + ' (Firestore had ' + cloudXp + ')');
+        char.xp_lifetime = lifetime;
+        char.xp_spent = spent;
+        char.ap_balance = ap;
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
         }
-        char.xp_total = merged;
+        App.state.econ.xp_lifetime = lifetime;
+        App.state.econ.xp_spent = spent;
+        App.state.econ.ap_balance = ap;
+    },
+
+    /**
+     * One-time legacy AP migration from old derived formula (veterans).
+     */
+    migrateLegacyEconIfNeeded() {
+        const char = this.state.character;
+        if (!char || char._econMigrated) {
+            return;
+        }
+        const ap = char.ap_balance || 0;
+        const lifetime = char.xp_lifetime || 0;
+        if (ap === 0 && lifetime > 0 && typeof window.calculateLegacyAvailablePoints === 'function') {
+            const legacyAp = window.calculateLegacyAvailablePoints(char);
+            if (legacyAp > 0) {
+                char.ap_balance = legacyAp;
+                App.state.econ.ap_balance = legacyAp;
+                window.pushEconToHud();
+                console.log('[XP] Migrated legacy AP balance:', legacyAp);
+            }
+        }
+        char._econMigrated = true;
+    },
+
+    getSpeciesStartingXp(speciesId) {
+        if (!speciesId) {
+            return 0;
+        }
+        const species = (this.state.species || []).find(function (s) {
+            return s.id === speciesId;
+        });
+        return Math.max(0, parseInt(species && species.starting_xp, 10) || 0);
     },
 
     /**
@@ -2678,7 +2779,7 @@ try {
             if (char.stats[numKey] != null) {
                 return char.stats[numKey];
             }
-            return 2;
+            return 1;
         }).join(',');
     },
 
@@ -2793,6 +2894,10 @@ try {
         }
         if (char.species_id) {
             data.species_id = char.species_id;
+            const startingXp = this.getSpeciesStartingXp(char.species_id);
+            if (startingXp > 0 && (!char.xp_lifetime || char.xp_lifetime === 0)) {
+                data.starting_xp = startingXp;
+            }
         }
         if (char.class_id) {
             data.class_id = char.class_id;
@@ -3193,7 +3298,9 @@ try {
                             health: this.state.character.health || { current: 0, base: 0, max: 0 },
                             stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
                             mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
-                            xp_total: this.state.character.xp_total || 0,
+                            xp_lifetime: this.state.character.xp_lifetime || 0,
+                            xp_spent: this.state.character.xp_spent || 0,
+                            ap_balance: this.state.character.ap_balance || 0,
                             has_mana: this.state.character.has_mana || false,
                             species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
                         };
@@ -6720,6 +6827,11 @@ try {
                           placeholder="Description..." style="width: 100%;">${s.description || ''}</textarea>
             </div>
             <div class="form-group">
+                <label>Starting XP (new characters only)</label>
+                <input type="number" id="template-starting-xp" value="${s.starting_xp != null ? s.starting_xp : 0}" min="0" step="1000" style="width: 100%;">
+                <small style="color: var(--text-muted);">Bonus XP seeded in HUD KVP at creation. Default 0.</small>
+            </div>
+            <div class="form-group">
                 <label>Resource Pools</label>
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm);">
                     <div>
@@ -6874,6 +6986,7 @@ try {
                 templateData.health = parseInt(document.getElementById('template-health')?.value) || 100;
                 templateData.stamina = parseInt(document.getElementById('template-stamina')?.value) || 100;
                 templateData.mana = parseInt(document.getElementById('template-mana')?.value) || 50;
+                templateData.starting_xp = parseInt(document.getElementById('template-starting-xp')?.value) || 0;
                 
                 // Parse JSON fields
                 try {
@@ -7845,6 +7958,12 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
             UI.showToast(canChange.reason || 'Cannot select this class', 'warning', 3500);
             return;
         }
+        const xpCost = isFreeAdvance ? 0 : (classTemplate.xp_cost || 0);
+        if (xpCost > 0 && window.spendXpForClass && !window.spendXpForClass(xpCost)) {
+            const unused = window.getUnusedXp ? window.getUnusedXp(App.state.character) : 0;
+            UI.showToast('Need ' + xpCost + ' XP (have ' + unused + ' unused)', 'warning', 4000);
+            return;
+        }
         App.state.character.class_id = classId;
         App.state.character.stats_at_class_start = { ...App.state.character.stats };
         App.state.character.class_started_at = new Date().toISOString();
@@ -7874,12 +7993,31 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
     }
 
     try {
-        const result = await API.changeClass(classId, classTemplate, isFreeAdvance, characterId);
+        const xpCost = isFreeAdvance ? 0 : (classTemplate.xp_cost || 0);
+        if (xpCost > 0) {
+            if (!window.spendXpForClass || !window.spendXpForClass(xpCost)) {
+                const unused = window.getUnusedXp ? window.getUnusedXp(App.state.character) : 0;
+                UI.showToast('Need ' + xpCost + ' XP (have ' + unused + ' unused)', 'warning', 4000);
+                return;
+            }
+        }
+
+        const result = await API.changeClass(classId, classTemplate, isFreeAdvance, characterId, {
+            xp_lifetime: App.state.character.xp_lifetime,
+            xp_spent: App.state.character.xp_spent,
+            ap_balance: App.state.character.ap_balance
+        });
         
         if (result.success) {
+            const savedSpent = App.state.character.xp_spent;
+            const savedLife = App.state.character.xp_lifetime;
+            const savedAp = App.state.character.ap_balance;
             const charResult = await API.getCharacterById(characterId);
             if (charResult.success) {
                 App.state.character = charResult.data.character;
+                App.state.character.xp_lifetime = savedLife;
+                App.state.character.xp_spent = savedSpent;
+                App.state.character.ap_balance = savedAp;
             }
             App.state.currentClass = classTemplate;
             App.state.pendingChanges = {};
@@ -8042,21 +8180,157 @@ window.getMergedCharacterStatsForPoints = function(character) {
 };
 
 /**
- * Authoritative XP for stat points and Setup HUD display.
- * Gameplay XP is stored in the HUD Experience KVP and passed as xp_total URL param;
- * Firestore xp_total is often still at the creation default (100).
+ * XP economy v2 — KVP authoritative via HUD URL roundtrip.
  */
-window.getAuthoritativeXpTotal = function(character) {
-    if (!character) return 0;
-    let xp = Math.max(0, parseInt(character.xp_total, 10) || 0);
+window.XP_PER_AP = 1000;
+
+window.getEconFromUrl = function () {
+    let lifetime = 0;
+    let spent = 0;
+    let ap = 0;
     try {
         const params = new URLSearchParams(window.location.search);
-        const urlXp = parseInt(params.get('xp_total'), 10);
-        if (!isNaN(urlXp) && urlXp > xp) {
-            xp = urlXp;
+        const urlLife = parseInt(params.get('xp_lifetime'), 10);
+        const urlLegacy = parseInt(params.get('xp_total'), 10);
+        const urlSpent = parseInt(params.get('xp_spent'), 10);
+        const urlAp = parseInt(params.get('ap_balance'), 10);
+        if (!isNaN(urlLife) && urlLife >= 0) {
+            lifetime = urlLife;
+        } else if (!isNaN(urlLegacy) && urlLegacy >= 0) {
+            lifetime = urlLegacy;
+        }
+        if (!isNaN(urlSpent) && urlSpent >= 0) {
+            spent = urlSpent;
+        }
+        if (!isNaN(urlAp) && urlAp >= 0) {
+            ap = urlAp;
         }
     } catch (e) { /* ignore */ }
-    return xp;
+    return { xp_lifetime: lifetime, xp_spent: spent, ap_balance: ap };
+};
+
+window.syncEconToCharacter = function (character) {
+    if (!character) {
+        return;
+    }
+    if (character.xp_lifetime == null) {
+        character.xp_lifetime = 0;
+    }
+    if (character.xp_spent == null) {
+        character.xp_spent = 0;
+    }
+    if (character.ap_balance == null) {
+        character.ap_balance = 0;
+    }
+};
+
+window.getEconLifetime = function (character) {
+    window.syncEconToCharacter(character);
+    let lifetime = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
+    const url = window.getEconFromUrl();
+    if (url.xp_lifetime > lifetime) {
+        lifetime = url.xp_lifetime;
+        character.xp_lifetime = lifetime;
+    }
+    return lifetime;
+};
+
+window.getEconSpent = function (character) {
+    window.syncEconToCharacter(character);
+    return Math.max(0, parseInt(character.xp_spent, 10) || 0);
+};
+
+window.getApBalance = function (character) {
+    if (!character) {
+        return 0;
+    }
+    window.syncEconToCharacter(character);
+    return Math.max(0, parseInt(character.ap_balance, 10) || 0);
+};
+
+window.getUnusedXp = function (character) {
+    const lifetime = window.getEconLifetime(character);
+    const spent = window.getEconSpent(character);
+    return Math.max(0, lifetime - spent);
+};
+
+window.pushEconToHud = function () {
+    const char = App.state.character;
+    if (!char) {
+        return false;
+    }
+    try {
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('xp_spent', String(char.xp_spent || 0));
+        currentUrl.searchParams.set('ap_balance', String(char.ap_balance || 0));
+        currentUrl.searchParams.set('econ_ts', Date.now().toString());
+        if (App.safeHistoryReplaceState(currentUrl.toString())) {
+            return true;
+        }
+    } catch (e) {
+        console.error('[XP] pushEconToHud failed:', e);
+    }
+    return false;
+};
+
+window.spendXpForClass = function (xpCost) {
+    const char = App.state.character;
+    if (!char || xpCost <= 0) {
+        return true;
+    }
+    const unused = window.getUnusedXp(char);
+    if (unused < xpCost) {
+        return false;
+    }
+    char.xp_spent = window.getEconSpent(char) + xpCost;
+    window.pushEconToHud();
+    return true;
+};
+
+window.buyPointsWithXp = function (pointCount) {
+    const char = App.state.character;
+    if (!char) {
+        return false;
+    }
+    const n = parseInt(pointCount, 10);
+    if (isNaN(n) || n <= 0) {
+        UI.showToast('Enter a positive number of points', 'warning');
+        return false;
+    }
+    const xpCost = n * window.XP_PER_AP;
+    const unused = window.getUnusedXp(char);
+    if (unused < xpCost) {
+        UI.showToast('Need ' + xpCost + ' unused XP (have ' + unused + ')', 'warning');
+        return false;
+    }
+    char.xp_spent = window.getEconSpent(char) + xpCost;
+    char.ap_balance = window.getApBalance(char) + n;
+    window.pushEconToHud();
+    UI.showToast('Bought ' + n + ' point(s) for ' + xpCost + ' XP', 'success', 2500);
+    return true;
+};
+
+/** Legacy formula — migration only */
+window.calculateLegacyAvailablePoints = function (character) {
+    if (!character) {
+        return 0;
+    }
+    const XP_PER_POINT = 1000;
+    const HUMAN_STARTING_BONUS = 10;
+    const merged = window.getMergedCharacterStatsForPoints(character);
+    const speciesBonus = (merged.speciesId === 'human') ? HUMAN_STARTING_BONUS : 0;
+    const earnedXP = window.getEconLifetime(character);
+    const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
+    const spentAboveDefault = window.calculatePointsSpentAboveDefault(character);
+    return Math.max(0, speciesBonus + earnedPoints - spentAboveDefault);
+};
+
+window.getAuthoritativeXpTotal = function (character) {
+    return window.getEconLifetime(character);
+};
+
+window.calculateAvailablePoints = function (character) {
+    return window.getApBalance(character);
 };
 
 /**
@@ -8078,41 +8352,26 @@ window.calculatePointsSpentAboveDefault = function(character) {
 };
 
 /**
- * Available stat points at creation and from XP.
- * Humans: +10 free at racial defaults (separate from XP — not subtracted from floor(xp/1000)).
- * Every 1000 XP adds 1 point on top of that. Example human at all 2s with 1000 XP → 11 available.
- * Other species: 0 at racial defaults unless stats are lowered below default (refund).
- */
-window.calculateAvailablePoints = function(character) {
-    if (!character) return 0;
-
-    const XP_PER_POINT = 1000;
-    const HUMAN_STARTING_BONUS = 10;
-    const merged = window.getMergedCharacterStatsForPoints(character);
-    const speciesBonus = (merged.speciesId === 'human') ? HUMAN_STARTING_BONUS : 0;
-
-    const earnedXP = window.getAuthoritativeXpTotal(character);
-    const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
-    const spentAboveDefault = window.calculatePointsSpentAboveDefault(character);
-
-    const available = speciesBonus + earnedPoints - spentAboveDefault;
-    return Math.max(0, available);
-};
-
-/**
- * Called when a stat is changed
+ * Called when a stat is changed (+ only — no decreases).
  */
 window.onStatChange = async function(stat, action) {
     if (!App.state.character) return;
+    if (action === 'decrease') {
+        UI.showToast('Stats cannot be lowered', 'warning');
+        return;
+    }
     
-    const currentValue = App.state.character.stats[stat] || 2;
+    const currentValue = App.state.character.stats[stat] || 1;
     const caps = App.calculateStatCaps();
     const max = Math.min(caps[stat] || 9, 9);
     
-    // Calculate available points
-    const availablePoints = window.calculateAvailablePoints(App.state.character);
+    const availablePoints = window.getApBalance(App.state.character);
     
     if (action === 'increase') {
+        if (!App.state.character.class_id && currentValue >= 2) {
+            UI.showToast('Select a class to raise stats above 2', 'warning');
+            return;
+        }
         if (currentValue >= max) {
             UI.showToast(`Stat capped at ${max} for your class`, 'warning');
             return;
@@ -8120,29 +8379,17 @@ window.onStatChange = async function(stat, action) {
         
         const cost = window.getStatPointCost(currentValue);
         if (availablePoints < cost) {
-            UI.showToast(`Need ${cost} points (have ${availablePoints})`, 'warning');
+            UI.showToast(`Need ${cost} AP (have ${availablePoints})`, 'warning');
             return;
         }
         
         App.state.character.stats[stat] = currentValue + 1;
+        App.state.character.ap_balance = availablePoints - cost;
         App.state.pendingChanges.stats = App.state.character.stats;
-        UI.showToast(`+1 ${stat} (cost: ${cost} pts)`, 'info', 1500);
-        
-    } else if (action === 'decrease') {
-        // Cannot lower below species minimum (1 + species bonus)
-        const minimum = window.getStatMinimum(App.state.character, stat);
-        if (currentValue <= minimum) {
-            UI.showToast(`Cannot go below ${minimum} (species minimum)`, 'warning');
-            return;
-        }
-        
-        const refund = window.getStatPointCost(currentValue - 1);
-        App.state.character.stats[stat] = currentValue - 1;
-        App.state.pendingChanges.stats = App.state.character.stats;
-        UI.showToast(`-1 ${stat} (refund: ${refund} pts)`, 'info', 1500);
+        window.pushEconToHud();
+        UI.showToast(`+1 ${stat} (cost: ${cost} AP)`, 'info', 1500);
     }
     
-    // Mark as dirty and update save button
     App.state.dirty = true;
     App.updateStatusIndicator();
     

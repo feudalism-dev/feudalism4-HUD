@@ -212,14 +212,32 @@
 
             <!-- Stats Tab -->
             <section id="tab-stats" class="tab-content">
-                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Spend all available stat points, then use <strong>Next »</strong> in the bar above or save your progress.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy points with XP if needed, spend all Available Points, then use <strong>Next »</strong>. Without a class, stats are capped at 2.</p>
                 <div class="panel">
                     <div class="stats-header">
                         <h2>Attributes</h2>
-                        <div class="xp-display">
-                            <span class="xp-label">Available Points:</span>
-                            <span id="xp-available" class="xp-value">0</span>
+                        <div class="econ-display">
+                            <div class="econ-row">
+                                <span class="econ-label">Earned XP:</span>
+                                <span id="xp-lifetime" class="econ-value">0</span>
+                            </div>
+                            <div class="econ-row">
+                                <span class="econ-label">Unused XP:</span>
+                                <span id="xp-unused" class="econ-value">0</span>
+                            </div>
+                            <div class="econ-row">
+                                <span class="econ-label">Available Points:</span>
+                                <span id="xp-available" class="econ-value">0</span>
+                            </div>
                         </div>
+                    </div>
+                    <div class="buy-points-panel" id="buy-points-panel">
+                        <span class="econ-label">Buy Points</span>
+                        <button type="button" class="stat-btn" id="buy-points-minus" title="Fewer points">−</button>
+                        <span id="buy-points-qty" class="econ-value">1</span>
+                        <button type="button" class="stat-btn" id="buy-points-plus" title="More points">+</button>
+                        <span class="econ-hint" id="buy-points-cost">(1,000 XP)</span>
+                        <button type="button" class="btn btn-secondary btn-sm" id="buy-points-ok">Buy</button>
                     </div>
                     <div id="stats-grid" class="stats-grid">
                     </div>
@@ -554,7 +572,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.1.6';
+            window.HUD_BUILD_LABEL = '4.2.0-xp-econ';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

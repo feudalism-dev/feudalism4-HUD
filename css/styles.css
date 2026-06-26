@@ -508,6 +508,50 @@ input::placeholder {
     border-bottom: none;
 }
 
+.econ-display {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    text-align: right;
+}
+
+.econ-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
+.econ-label {
+    font-family: var(--font-ui);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.econ-value {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--gold);
+}
+
+.buy-points-panel {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+    padding: var(--space-sm);
+    background: var(--bg-dark);
+    border-radius: 4px;
+}
+
+.econ-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
 .xp-display {
     display: flex;
     align-items: center;

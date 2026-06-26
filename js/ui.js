@@ -174,6 +174,10 @@ const UI = {
             
             // Stats tab
             xpAvailable: document.getElementById('xp-available'),
+            xpLifetime: document.getElementById('xp-lifetime'),
+            xpUnused: document.getElementById('xp-unused'),
+            buyPointsQty: document.getElementById('buy-points-qty'),
+            buyPointsCost: document.getElementById('buy-points-cost'),
             statsGrid: document.getElementById('stats-grid'),
             vocationDisplay: document.getElementById('vocation-display'),
             
@@ -894,6 +898,7 @@ const UI = {
                                 <span class="cost-value free">FREE (Maxed Current Class)</span>
                             ` : `
                                 <span class="cost-value">${canChangeInfo.xpCost || 0} XP</span>
+                                <span class="cost-hint"> (unused: ${typeof window.getUnusedXp === 'function' ? window.getUnusedXp(character) : 0})</span>
                             `}
                         </div>
                     </div>
@@ -1070,31 +1075,25 @@ const UI = {
         ];
         
         this.elements.statsGrid.innerHTML = statNames.map(stat => {
-            const value = stats[stat] || 2;
+            const value = stats[stat] != null ? stats[stat] : 1;
             const max = Math.min(caps[stat] || 9, 9);
             const costToIncrease = this.getStatPointCost(value);
             const canIncrease = value < max && availablePoints >= costToIncrease;
-            const canDecrease = value > 1;
             
             return `
                 <div class="stat-row" data-stat="${stat}">
                     <span class="stat-name">${this.formatStatName(stat)}</span>
                     <div class="stat-controls">
-                        <button class="stat-btn" data-action="decrease" ${!canDecrease ? 'disabled' : ''} title="Refund: ${this.getStatPointCost(value - 1)} pts">−</button>
                         <span class="stat-value">${value}</span>
                         <span class="stat-max">/${max}</span>
-                        <button class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''} title="Cost: ${costToIncrease} pts">+</button>
+                        <button class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''} title="Cost: ${costToIncrease} AP">+</button>
                     </div>
                 </div>
             `;
         }).join('');
         
-        // Update points display (renamed from XP)
-        if (this.elements.xpAvailable) {
-            this.elements.xpAvailable.textContent = availablePoints;
-        }
+        this.renderEconDisplay(App.state.character);
         
-        // Bind stat button events
         this.elements.statsGrid.querySelectorAll('.stat-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const row = e.target.closest('.stat-row');
@@ -1106,6 +1105,31 @@ const UI = {
                 }
             });
         });
+    },
+
+    renderEconDisplay(character) {
+        if (!character) {
+            return;
+        }
+        const lifetime = typeof window.getEconLifetime === 'function'
+            ? window.getEconLifetime(character) : 0;
+        const unused = typeof window.getUnusedXp === 'function'
+            ? window.getUnusedXp(character) : 0;
+        const ap = typeof window.getApBalance === 'function'
+            ? window.getApBalance(character) : 0;
+        if (this.elements.xpLifetime) {
+            this.elements.xpLifetime.textContent = lifetime.toLocaleString();
+        }
+        if (this.elements.xpUnused) {
+            this.elements.xpUnused.textContent = unused.toLocaleString();
+        }
+        if (this.elements.xpAvailable) {
+            this.elements.xpAvailable.textContent = String(ap);
+        }
+        if (this.elements.buyPointsCost && this.elements.buyPointsQty) {
+            const qty = parseInt(this.elements.buyPointsQty.textContent, 10) || 1;
+            this.elements.buyPointsCost.textContent = '(' + (qty * (window.XP_PER_AP || 1000)).toLocaleString() + ' XP)';
+        }
     },
     
     /**
@@ -1507,12 +1531,16 @@ const UI = {
                     </span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">Points:</span>
-                    <span class="summary-value">${typeof window.calculateAvailablePoints === 'function' ? window.calculateAvailablePoints(character) : 0} available</span>
+                    <span class="summary-label">Earned XP:</span>
+                    <span class="summary-value">${typeof window.getEconLifetime === 'function' ? window.getEconLifetime(character).toLocaleString() : 0}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">XP Earned:</span>
-                    <span class="summary-value">${character.xp_total || 0}</span>
+                    <span class="summary-label">Unused XP:</span>
+                    <span class="summary-value">${typeof window.getUnusedXp === 'function' ? window.getUnusedXp(character).toLocaleString() : 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Available Points:</span>
+                    <span class="summary-value">${typeof window.getApBalance === 'function' ? window.getApBalance(character) : 0}</span>
                 </div>
             </div>
         `;

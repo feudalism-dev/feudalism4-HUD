@@ -800,14 +800,11 @@ const API = {
                 // Mode (roleplay, tournament, ooc, afk)
                 mode: charData.mode || 'roleplay',
                 
-                // XP and currency
-                xp_total: 100,
-                xp_available: 100,
                 currency: 50,
                 
-                // Stats
-                stats: charData.stats || this.getDefaultStats(),
-                stats_at_class_start: charData.stats || this.getDefaultStats(), // Snapshot for tracking progress
+                // Stats (new characters start at 1 — MOAP enforces)
+                stats: charData.stats || this.getNewCharacterStats(),
+                stats_at_class_start: charData.stats || this.getNewCharacterStats(),
                 
                 // Career history: array of { class_id, started_at, ended_at, maxed, stats_gained, abandoned }
                 career_history: [],
@@ -962,7 +959,7 @@ const API = {
      * @param {object} classData - The class template data
      * @param {boolean} isFreeAdvance - If true, no XP cost
      */
-    async changeClass(newClassId, classData, isFreeAdvance = false, characterId) {
+    async changeClass(newClassId, classData, isFreeAdvance = false, characterId, econOverride) {
         if (!this.uuid) {
             return { success: false, error: 'No UUID' };
         }
@@ -976,6 +973,17 @@ const API = {
             }
             
             const character = charResult.data.character;
+            if (econOverride) {
+                if (econOverride.xp_lifetime != null) {
+                    character.xp_lifetime = econOverride.xp_lifetime;
+                }
+                if (econOverride.xp_spent != null) {
+                    character.xp_spent = econOverride.xp_spent;
+                }
+                if (econOverride.ap_balance != null) {
+                    character.ap_balance = econOverride.ap_balance;
+                }
+            }
             const universeId = character.universe_id || 'default';
             const universeDoc = await db.collection('universes').doc(universeId).get();
             const universe = universeDoc.exists ? universeDoc.data() : null;
@@ -994,9 +1002,12 @@ const API = {
             const isBeginnerClass = prerequisites.length === 0;
             const xpCost = isFreeAdvance ? 0 : (isBeginnerClass ? 0 : (classData.xp_cost || 0));
             
-            // Check XP if not free advance
-            if (!isFreeAdvance && xpCost > 0 && (character.xp_available || 0) < xpCost) {
-                return { success: false, error: `Not enough XP. Need ${xpCost}, have ${character.xp_available || 0}` };
+            // Check XP if not free advance (unused XP from KVP via MOAP character state)
+            const lifetime = character.xp_lifetime != null ? character.xp_lifetime : 0;
+            const spent = character.xp_spent != null ? character.xp_spent : 0;
+            const unusedXp = Math.max(0, lifetime - spent);
+            if (!isFreeAdvance && xpCost > 0 && unusedXp < xpCost) {
+                return { success: false, error: `Not enough XP. Need ${xpCost}, have ${unusedXp} unused` };
             }
             
             // Calculate if we gained any points in current class
@@ -1047,9 +1058,8 @@ const API = {
             const updateData = {
                 class_id: newClassId,
                 class_started_at: new Date().toISOString(),
-                stats_at_class_start: { ...currentStats }, // Snapshot current stats
+                stats_at_class_start: { ...currentStats },
                 career_history: careerHistory,
-                xp_available: (character.xp_available || 0) - xpCost,
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
             };
             
@@ -1163,9 +1173,12 @@ const API = {
             }
         }
         
-        // Check XP
-        if (!result.isFreeAdvance && result.xpCost > (character.xp_available || 0)) {
-            result.reason = `Need ${result.xpCost} XP (have ${character.xp_available || 0})`;
+        // Check XP (unused = lifetime - spent, from MOAP/KVP)
+        const lifetime = character.xp_lifetime != null ? character.xp_lifetime : 0;
+        const spent = character.xp_spent != null ? character.xp_spent : 0;
+        const unusedXp = Math.max(0, lifetime - spent);
+        if (!result.isFreeAdvance && result.xpCost > unusedXp) {
+            result.reason = `Need ${result.xpCost} XP (have ${unusedXp} unused)`;
             return result;
         }
         
@@ -1275,6 +1288,22 @@ const API = {
     
     // =========================== HELPERS ====================================
     
+    getNewCharacterStats() {
+        if (typeof F4_SEED_DATA !== 'undefined' && F4_SEED_DATA.statNames) {
+            const stats = {};
+            F4_SEED_DATA.statNames.forEach(function (stat) {
+                stats[stat] = 1;
+            });
+            return stats;
+        }
+        return {
+            agility: 1, animal_handling: 1, athletics: 1, awareness: 1, crafting: 1,
+            deception: 1, endurance: 1, entertaining: 1, fighting: 1, healing: 1,
+            influence: 1, intelligence: 1, knowledge: 1, marksmanship: 1, persuasion: 1,
+            stealth: 1, survival: 1, thievery: 1, will: 1, wisdom: 1
+        };
+    },
+
     getDefaultStats() {
         // Use F3 seed data if available
         if (typeof F4_SEED_DATA !== 'undefined') {
