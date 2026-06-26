@@ -545,6 +545,9 @@ try {
                             }
                             
                             console.log('Character loaded:', this.state.character);
+
+                            // Gameplay XP is authoritative in HUD KVP; Firestore xp_total is often stale
+                            this.applyGameplayXpFromUrl();
                             
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
                             await this.cacheHudStatsForPlayers(this.state.character);
@@ -2628,6 +2631,30 @@ try {
                 console.warn('[Character] Firestore activeCharacter save failed:', result.error);
             }
         }
+    },
+
+    /**
+     * Merge HUD gameplay XP (URL param from LSD) over stale Firestore xp_total.
+     */
+    applyGameplayXpFromUrl() {
+        const char = this.state.character;
+        if (!char) {
+            return;
+        }
+        const cloudXp = Math.max(0, parseInt(char.xp_total, 10) || 0);
+        let hudXp = 0;
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const urlXp = parseInt(params.get('xp_total'), 10);
+            if (!isNaN(urlXp) && urlXp >= 0) {
+                hudXp = urlXp;
+            }
+        } catch (e) { /* ignore */ }
+        const merged = Math.max(cloudXp, hudXp);
+        if (merged !== cloudXp) {
+            console.log('[XP] Using HUD gameplay XP ' + merged + ' (Firestore had ' + cloudXp + ')');
+        }
+        char.xp_total = merged;
     },
 
     /**
@@ -8015,6 +8042,24 @@ window.getMergedCharacterStatsForPoints = function(character) {
 };
 
 /**
+ * Authoritative XP for stat points and Setup HUD display.
+ * Gameplay XP is stored in the HUD Experience KVP and passed as xp_total URL param;
+ * Firestore xp_total is often still at the creation default (100).
+ */
+window.getAuthoritativeXpTotal = function(character) {
+    if (!character) return 0;
+    let xp = Math.max(0, parseInt(character.xp_total, 10) || 0);
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const urlXp = parseInt(params.get('xp_total'), 10);
+        if (!isNaN(urlXp) && urlXp > xp) {
+            xp = urlXp;
+        }
+    } catch (e) { /* ignore */ }
+    return xp;
+};
+
+/**
  * Points spent above this species' default stat line (refunds if lowered below default).
  */
 window.calculatePointsSpentAboveDefault = function(character) {
@@ -8046,7 +8091,7 @@ window.calculateAvailablePoints = function(character) {
     const merged = window.getMergedCharacterStatsForPoints(character);
     const speciesBonus = (merged.speciesId === 'human') ? HUMAN_STARTING_BONUS : 0;
 
-    const earnedXP = Math.max(0, parseInt(character.xp_total, 10) || 0);
+    const earnedXP = window.getAuthoritativeXpTotal(character);
     const earnedPoints = Math.floor(earnedXP / XP_PER_POINT);
     const spentAboveDefault = window.calculatePointsSpentAboveDefault(character);
 

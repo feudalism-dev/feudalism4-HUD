@@ -1247,7 +1247,9 @@ const UI = {
         
         if (!xpCurrent || !xpNextMilestone || !xpPercentage || !xpProgressFill || !xpMilestoneText) return;
         
-        const totalXP = character.xp_total || 0;
+        const totalXP = (typeof window.getAuthoritativeXpTotal === 'function')
+            ? window.getAuthoritativeXpTotal(character)
+            : (character.xp_total || 0);
         const milestone = this.calculateXPMilestone(totalXP);
         
         const progressPercent = Math.max(0, Math.min(100, milestone.progress * 100));
