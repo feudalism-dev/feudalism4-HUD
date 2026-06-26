@@ -627,6 +627,9 @@ try {
             // Render UI
             DebugLog.log('Calling renderAll()...', 'debug');
             await this.renderAll();
+            if (typeof window.restoreMoapTabFromUrl === 'function') {
+                window.restoreMoapTabFromUrl();
+            }
             DebugLog.log('renderAll() completed', 'debug');
             
         } catch (error) {
@@ -2741,8 +2744,7 @@ try {
             if (legacyAp > 0) {
                 char.ap_balance = legacyAp;
                 App.state.econ.ap_balance = legacyAp;
-                window.pushEconToHud();
-                console.log('[XP] Migrated legacy AP balance:', legacyAp);
+                console.log('[XP] Migrated legacy AP balance (MOAP session):', legacyAp);
             }
         }
         char._econMigrated = true;
@@ -8266,6 +8268,23 @@ window.getUnusedXp = function (character) {
     return Math.max(0, lifetime - spent);
 };
 
+window.getMoapActiveTab = function () {
+    const btn = document.querySelector('nav.tab-nav .tab-btn.active');
+    if (btn && btn.dataset && btn.dataset.tab) {
+        return btn.dataset.tab;
+    }
+    return 'stats';
+};
+
+window.restoreMoapTabFromUrl = function () {
+    try {
+        const tab = new URLSearchParams(window.location.search).get('moap_tab');
+        if (tab && typeof UI !== 'undefined' && UI.switchTab) {
+            UI.switchTab(tab);
+        }
+    } catch (e) { /* ignore */ }
+};
+
 window._econPushTimer = null;
 
 window.schedulePushEconToHud = function () {
@@ -8294,7 +8313,8 @@ window.pushEconToHud = function () {
         currentUrl.searchParams.set('xp_spent', spentStr);
         currentUrl.searchParams.set('ap_balance', apStr);
         currentUrl.searchParams.set('econ_ts', Date.now().toString());
-        // Full navigation — SL reads PRIM_MEDIA_CURRENT_URL; replaceState alone is invisible to LSL
+        currentUrl.searchParams.set('moap_tab', window.getMoapActiveTab());
+        // Full navigation — SL reads face-4 media URL via llGetLinkMedia; replaceState is invisible to LSL
         window.location.assign(currentUrl.toString());
         return true;
     } catch (e) {
