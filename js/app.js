@@ -8237,7 +8237,13 @@ window.getEconLifetime = function (character) {
 
 window.getEconSpent = function (character) {
     window.syncEconToCharacter(character);
-    return Math.max(0, parseInt(character.xp_spent, 10) || 0);
+    let spent = Math.max(0, parseInt(character.xp_spent, 10) || 0);
+    const url = window.getEconFromUrl();
+    if (url.xp_spent > spent) {
+        spent = url.xp_spent;
+        character.xp_spent = spent;
+    }
+    return spent;
 };
 
 window.getApBalance = function (character) {
@@ -8245,7 +8251,13 @@ window.getApBalance = function (character) {
         return 0;
     }
     window.syncEconToCharacter(character);
-    return Math.max(0, parseInt(character.ap_balance, 10) || 0);
+    let ap = Math.max(0, parseInt(character.ap_balance, 10) || 0);
+    const url = window.getEconFromUrl();
+    if (url.ap_balance > ap) {
+        ap = url.ap_balance;
+        character.ap_balance = ap;
+    }
+    return ap;
 };
 
 window.getUnusedXp = function (character) {
@@ -8254,19 +8266,37 @@ window.getUnusedXp = function (character) {
     return Math.max(0, lifetime - spent);
 };
 
+window._econPushTimer = null;
+
+window.schedulePushEconToHud = function () {
+    if (window._econPushTimer) {
+        clearTimeout(window._econPushTimer);
+    }
+    window._econPushTimer = setTimeout(function () {
+        window._econPushTimer = null;
+        window.pushEconToHud();
+    }, 400);
+};
+
 window.pushEconToHud = function () {
     const char = App.state.character;
     if (!char) {
         return false;
     }
+    if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+        window.schedulePushEconToHud();
+        return false;
+    }
     try {
         const currentUrl = new URL(window.location.href);
-        currentUrl.searchParams.set('xp_spent', String(char.xp_spent || 0));
-        currentUrl.searchParams.set('ap_balance', String(char.ap_balance || 0));
+        const spentStr = String(char.xp_spent || 0);
+        const apStr = String(char.ap_balance || 0);
+        currentUrl.searchParams.set('xp_spent', spentStr);
+        currentUrl.searchParams.set('ap_balance', apStr);
         currentUrl.searchParams.set('econ_ts', Date.now().toString());
-        if (App.safeHistoryReplaceState(currentUrl.toString())) {
-            return true;
-        }
+        // Full navigation — SL reads PRIM_MEDIA_CURRENT_URL; replaceState alone is invisible to LSL
+        window.location.assign(currentUrl.toString());
+        return true;
     } catch (e) {
         console.error('[XP] pushEconToHud failed:', e);
     }
