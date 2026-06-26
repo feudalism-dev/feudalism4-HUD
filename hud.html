@@ -572,7 +572,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.0-xp-econ7';
+            window.HUD_BUILD_LABEL = '4.2.0-xp-econ8';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
@@ -600,47 +600,17 @@
                     hudLoadScript('js/ui.js', 'ui.js', function () {
                         hudLoadScript('js/app.js', 'app.js', function () {
                             window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
+                            if (typeof App !== 'undefined' && typeof App.init === 'function') {
+                                App.init().catch(function (err) {
+                                    window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
+                                });
+                            }
                         });
                     });
                     });
                 });
             });
         });
-    </script>
-    <script>
-        window.simpleDebug('All scripts loaded, waiting for App.init()', 'info');
-        // Try to call init after a short delay
-        setTimeout(function() {
-            window.simpleDebug('Checking if App exists...', 'debug');
-            window.simpleDebug('typeof App: ' + typeof App, 'debug');
-            if (typeof App !== 'undefined') {
-                window.simpleDebug('App object found!', 'info');
-                window.simpleDebug('typeof App.init: ' + typeof App.init, 'debug');
-                if (typeof App.init === 'function') {
-                    window.simpleDebug('App.init found, calling it...', 'info');
-                    try {
-                        App.init().catch(function(err) {
-                            window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
-                            window.simpleDebug('Stack: ' + (err.stack || 'N/A'), 'error');
-                        });
-                    } catch (err) {
-                        window.simpleDebug('App.init() THREW ERROR: ' + err.message, 'error');
-                        window.simpleDebug('Stack: ' + (err.stack || 'N/A'), 'error');
-                    }
-                } else {
-                    window.simpleDebug('App.init is not a function! App keys: ' + Object.keys(App).join(', '), 'error');
-                }
-            } else {
-                window.simpleDebug('App object NOT FOUND!', 'error');
-                window.simpleDebug('Checking for syntax errors...', 'debug');
-                // Try to catch any syntax errors
-                try {
-                    eval('App');
-                } catch (e) {
-                    window.simpleDebug('Syntax error detected: ' + e.message, 'error');
-                }
-            }
-        }, 1000);
     </script>
 </body>
 </html>

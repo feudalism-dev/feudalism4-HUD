@@ -290,7 +290,8 @@ const API = {
         }
         for (let i = 0; i < characters.length; i++) {
             const char = characters[i];
-            const id = char && char.id;
+            const raw = char && (char.id || char.characterId || char.character_id || '');
+            const id = String(raw).trim();
             if (!id || seen[id]) {
                 continue;
             }
@@ -650,7 +651,7 @@ const API = {
                 // SECURITY: Double-check ownership
                 if (data.owner_uuid === this.uuid && !seenIds[doc.id]) {
                     seenIds[doc.id] = true;
-                    characters.push({ id: doc.id, ...data });
+                    characters.push({ ...data, id: doc.id });
                 }
             });
             
@@ -685,10 +686,11 @@ const API = {
                 });
             }
             
-            this._listCharactersCache = this._dedupeCharactersById(characters);
+            const deduped = this._dedupeCharactersById(characters);
+            this._listCharactersCache = deduped;
             this._listCharactersCacheTs = Date.now();
-            console.log(`[listCharacters] Found ${characters.length} character(s) for UUID: ${this.uuid}`);
-            return { success: true, data: { characters } };
+            console.log(`[listCharacters] Found ${deduped.length} character(s) for UUID: ${this.uuid}`);
+            return { success: true, data: { characters: deduped } };
         } catch (error) {
             console.error('[listCharacters] Error:', error);
             return { success: false, error: error.message };

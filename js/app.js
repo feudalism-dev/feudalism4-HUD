@@ -195,10 +195,43 @@ try {
     _initialized: false,
     _initPromise: null,
     _loadCharacterSelectorQueue: Promise.resolve(),
+    _eventHandlersBound: false,
 
     /**
      * Drop duplicate character rows (same Firestore doc id).
      */
+    _getCharacterDocId(char) {
+        if (!char) {
+            return '';
+        }
+        const raw = char.id || char.characterId || char.character_id || '';
+        return String(raw).trim();
+    },
+
+    _normalizeUniverseId(value) {
+        if (value === undefined || value === null) {
+            return 'default';
+        }
+        if (typeof value !== 'string') {
+            return 'default';
+        }
+        const trimmed = value.trim();
+        if (trimmed === '' || trimmed === 'JSON_INVALID' || trimmed === 'null') {
+            return 'default';
+        }
+        return trimmed;
+    },
+
+    _clearSelectOptions(selector) {
+        if (!selector) {
+            return;
+        }
+        // CEF-139: innerHTML on <select> does not reliably remove options — use DOM API
+        while (selector.firstChild) {
+            selector.removeChild(selector.firstChild);
+        }
+    },
+
     dedupeCharactersById(characters) {
         const seen = {};
         const out = [];
@@ -207,7 +240,7 @@ try {
         }
         for (let i = 0; i < characters.length; i++) {
             const char = characters[i];
-            const id = char && char.id;
+            const id = this._getCharacterDocId(char);
             if (!id || seen[id]) {
                 continue;
             }
@@ -216,6 +249,7 @@ try {
         }
         return out;
     },
+
     /**
      * Format currency for display (gold, silver, copper)
      * @param {number} gold - Gold amount
@@ -1279,8 +1313,9 @@ try {
         const noCharMessage = document.getElementById('no-character-message');
         if (!selector) return;
         
-        selector.innerHTML = '';
+        this._clearSelectOptions(selector);
         
+        const addedIds = {};
         // If no characters, add a disabled placeholder as the default selection
         if (characters.length === 0) {
             const placeholderOption = document.createElement('option');
@@ -1300,7 +1335,7 @@ try {
         // Group characters by universe
         const byUniverse = {};
         characters.forEach(char => {
-            const universe = char.universe_id || 'default';
+            const universe = this._normalizeUniverseId(char.universe_id);
             if (!byUniverse[universe]) {
                 byUniverse[universe] = [];
             }
@@ -1319,10 +1354,15 @@ try {
             }
             
             byUniverse[universe].forEach(char => {
+                const docId = this._getCharacterDocId(char);
+                if (!docId || addedIds[docId]) {
+                    return;
+                }
+                addedIds[docId] = true;
                 const option = document.createElement('option');
-                option.value = char.id;
+                option.value = docId;
                 option.textContent = char.name || 'Unnamed';
-                if (char.id === this.state.selectedCharacterId) {
+                if (docId === this.state.selectedCharacterId) {
                     option.selected = true;
                 } else if (!this.state.selectedCharacterId && characters.indexOf(char) === 0) {
                     option.selected = true;
@@ -2310,6 +2350,10 @@ try {
      * Setup global event handlers
      */
     setupEventHandlers() {
+        if (this._eventHandlersBound) {
+            return;
+        }
+        this._eventHandlersBound = true;
         // Character name/title — do not call renderAll() on each keystroke (breaks MOAP text input)
         UI.elements.charName?.addEventListener('input', (e) => {
             this.onCharacterTextFieldInput('name', e.target.value);
@@ -8506,15 +8550,5 @@ window.onStatChange = async function(stat, action) {
 
 // =========================== INITIALIZATION =============================
 
-// Initialize app when DOM is ready
-// Use regular function instead of arrow function for SL browser compatibility
-document.addEventListener('DOMContentLoaded', function() {
-    if (typeof App !== 'undefined' && typeof App.init === 'function') {
-        App.init();
-    } else {
-        if (window.simpleDebug) {
-            window.simpleDebug('ERROR: App.init not available on DOMContentLoaded', 'error');
-        }
-    }
-});
+// App.init() is invoked from hud.html after scripts finish loading (async chain).
 
