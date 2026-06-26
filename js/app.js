@@ -2862,10 +2862,16 @@ try {
         }
         this.scheduleSyncStatsToPlayersHUD(char);
         await this.pushCharacterToPlayersHUD(char.id);
-        // Second pass after MOAP finishes loading (covers deferred URL commands)
+        // One deferred pass — only if URL still lacks matching stats_csv (avoids reload loops)
         const self = this;
         setTimeout(function () {
-            self.scheduleSyncStatsToPlayersHUD(char);
+            try {
+                const csv = self.statsCsvFromChar(char);
+                const urlCsv = new URL(window.location.href).searchParams.get('stats_csv');
+                if (csv && urlCsv !== csv) {
+                    self.scheduleSyncStatsToPlayersHUD(char);
+                }
+            } catch (e) { /* ignore */ }
         }, 2000);
     },
 
