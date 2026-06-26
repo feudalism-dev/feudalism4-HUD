@@ -2306,11 +2306,9 @@ try {
             buyQty += 1;
             refreshBuyCost();
         });
-        document.getElementById('buy-points-ok')?.addEventListener('click', async function () {
+        document.getElementById('buy-points-ok')?.addEventListener('click', function () {
             if (window.buyPointsWithXp && window.buyPointsWithXp(buyQty)) {
-                App.state.dirty = true;
-                App.updateStatusIndicator();
-                await App.renderAll();
+                // pushEconToHud navigates — page reloads; do not renderAll here
             }
         });
         refreshBuyCost();
@@ -8316,11 +8314,14 @@ window.pushEconToHud = function () {
         const currentUrl = new URL(window.location.href);
         const spentStr = String(char.xp_spent || 0);
         const apStr = String(char.ap_balance || 0);
+        const ts = Date.now().toString();
         currentUrl.searchParams.set('xp_spent', spentStr);
         currentUrl.searchParams.set('ap_balance', apStr);
-        currentUrl.searchParams.set('econ_ts', Date.now().toString());
+        currentUrl.searchParams.set('econ_ts', ts);
         currentUrl.searchParams.set('moap_tab', window.getMoapActiveTab());
-        // Full navigation — SL reads face-4 media URL via llGetLinkMedia; replaceState is invisible to LSL
+        currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
+        currentUrl.searchParams.set('lsl_cmd_ts', ts);
+        // Full navigation — SL reads face-4 media URL via llGetLinkMedia
         window.location.assign(currentUrl.toString());
         return true;
     } catch (e) {
@@ -8361,8 +8362,10 @@ window.buyPointsWithXp = function (pointCount) {
     }
     char.xp_spent = window.getEconSpent(char) + xpCost;
     char.ap_balance = window.getApBalance(char) + n;
+    if (typeof UI !== 'undefined' && UI.showToast) {
+        UI.showToast('Syncing ' + xpCost + ' XP spend to HUD...', 'info', 2000);
+    }
     window.pushEconToHud();
-    UI.showToast('Bought ' + n + ' point(s) for ' + xpCost + ' XP', 'success', 2500);
     return true;
 };
 
