@@ -2848,6 +2848,18 @@ try {
                 ap = urlAp;
             }
         } catch (e) { /* ignore */ }
+        if (lifetime === 0) {
+            const docLife = parseInt(char.xp_total, 10);
+            if (!isNaN(docLife) && docLife > 0) {
+                lifetime = docLife;
+            }
+        }
+        if (spent === 0 && lifetime > 0) {
+            const docAvail = parseInt(char.xp_available, 10);
+            if (!isNaN(docAvail) && docAvail >= 0 && docAvail <= lifetime) {
+                spent = lifetime - docAvail;
+            }
+        }
         char.xp_lifetime = lifetime;
         char.xp_spent = spent;
         char.ap_balance = ap;
@@ -8374,6 +8386,13 @@ window.getEconLifetime = function (character) {
         lifetime = url.xp_lifetime;
         character.xp_lifetime = lifetime;
     }
+    if (lifetime === 0) {
+        const legacy = parseInt(character.xp_total, 10);
+        if (!isNaN(legacy) && legacy > 0) {
+            lifetime = legacy;
+            character.xp_lifetime = legacy;
+        }
+    }
     return lifetime;
 };
 
@@ -8384,6 +8403,14 @@ window.getEconSpent = function (character) {
     if (url.xp_spent > spent) {
         spent = url.xp_spent;
         character.xp_spent = spent;
+    }
+    if (spent === 0) {
+        const lifetime = window.getEconLifetime(character);
+        const docAvail = parseInt(character.xp_available, 10);
+        if (lifetime > 0 && !isNaN(docAvail) && docAvail >= 0 && docAvail <= lifetime) {
+            spent = lifetime - docAvail;
+            character.xp_spent = spent;
+        }
     }
     return spent;
 };
