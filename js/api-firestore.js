@@ -282,6 +282,24 @@ const API = {
     _listCharactersCache: null,
     _listCharactersCacheTs: 0,
 
+    _dedupeCharactersById(characters) {
+        const seen = {};
+        const out = [];
+        if (!characters || !characters.length) {
+            return out;
+        }
+        for (let i = 0; i < characters.length; i++) {
+            const char = characters[i];
+            const id = char && char.id;
+            if (!id || seen[id]) {
+                continue;
+            }
+            seen[id] = true;
+            out.push(char);
+        }
+        return out;
+    },
+
     _getCachedTemplate(cacheKey) {
         const entry = this._templateCache[cacheKey];
         if (entry && (Date.now() - entry.ts) < this._TEMPLATE_CACHE_TTL_MS) {
@@ -581,7 +599,7 @@ const API = {
         if (!forceRefresh && this._listCharactersCache &&
             (Date.now() - this._listCharactersCacheTs) < this._LIST_CHARACTERS_TTL_MS) {
             console.log('[listCharacters] session cache:', this._listCharactersCache.length, '(0 reads)');
-            return { success: true, data: { characters: this._listCharactersCache }, cached: true };
+            return { success: true, data: { characters: this._dedupeCharactersById(this._listCharactersCache) }, cached: true };
         }
         
         try {
@@ -626,10 +644,12 @@ const API = {
             }
             
             const characters = [];
+            const seenIds = {};
             snapshot.forEach(doc => {
                 const data = doc.data();
                 // SECURITY: Double-check ownership
-                if (data.owner_uuid === this.uuid) {
+                if (data.owner_uuid === this.uuid && !seenIds[doc.id]) {
+                    seenIds[doc.id] = true;
                     characters.push({ id: doc.id, ...data });
                 }
             });
@@ -665,7 +685,7 @@ const API = {
                 });
             }
             
-            this._listCharactersCache = characters;
+            this._listCharactersCache = this._dedupeCharactersById(characters);
             this._listCharactersCacheTs = Date.now();
             console.log(`[listCharacters] Found ${characters.length} character(s) for UUID: ${this.uuid}`);
             return { success: true, data: { characters } };

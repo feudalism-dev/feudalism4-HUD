@@ -192,7 +192,30 @@ try {
 
     _starterProvisionAttempted: false,
     _pendingAutoHideSetup: false,
-    
+    _initialized: false,
+    _initPromise: null,
+    _loadCharacterSelectorQueue: Promise.resolve(),
+
+    /**
+     * Drop duplicate character rows (same Firestore doc id).
+     */
+    dedupeCharactersById(characters) {
+        const seen = {};
+        const out = [];
+        if (!characters || !characters.length) {
+            return out;
+        }
+        for (let i = 0; i < characters.length; i++) {
+            const char = characters[i];
+            const id = char && char.id;
+            if (!id || seen[id]) {
+                continue;
+            }
+            seen[id] = true;
+            out.push(char);
+        }
+        return out;
+    },
     /**
      * Format currency for display (gold, silver, copper)
      * @param {number} gold - Gold amount
@@ -212,6 +235,22 @@ try {
      * Initialize the application
      */
     async init() {
+        if (this._initialized) {
+            return;
+        }
+        if (this._initPromise) {
+            return this._initPromise;
+        }
+        this._initPromise = this._runInitInternal();
+        try {
+            await this._initPromise;
+            this._initialized = true;
+        } finally {
+            this._initPromise = null;
+        }
+    },
+
+    async _runInitInternal() {
         if (window.simpleDebug) {
             window.simpleDebug('========================================', 'debug');
             window.simpleDebug('Feudalism 4 HUD initializing...', 'debug');
@@ -1227,6 +1266,15 @@ try {
      * Load character selector dropdown (UX 2: Updated for new structure)
      */
     async loadCharacterSelector(characters) {
+        const self = this;
+        const build = function() {
+            self._buildCharacterSelector(self.dedupeCharactersById(characters || []));
+        };
+        this._loadCharacterSelectorQueue = this._loadCharacterSelectorQueue.then(build, build);
+        return this._loadCharacterSelectorQueue;
+    },
+
+    _buildCharacterSelector(characters) {
         const selector = document.getElementById('character-selector');
         const noCharMessage = document.getElementById('no-character-message');
         if (!selector) return;
@@ -8469,13 +8517,4 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 });
-
-// Also try to initialize immediately if DOM is already loaded
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(function() {
-        if (typeof App !== 'undefined' && typeof App.init === 'function') {
-            App.init();
-        }
-    }, 100);
-}
 
