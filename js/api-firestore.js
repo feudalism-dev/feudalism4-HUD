@@ -1022,30 +1022,31 @@ const API = {
                 }
             }
             const universeId = character.universe_id || 'default';
-            const universeDoc = await db.collection('universes').doc(universeId).get();
-            const universe = universeDoc.exists ? universeDoc.data() : null;
-            const classesResult = await this.getClasses();
-            const allClasses = classesResult.success ? (classesResult.data.classes || []) : [];
-            const canChange = this.canChangeToClass(character, classData, allClasses, { universe });
+            const classConfigResult = await this.getUniverseClassConfiguration(universeId);
+            const universe = classConfigResult.success
+                ? classConfigResult.data.universe
+                : null;
+            const effectiveClasses = classConfigResult.success
+                ? (classConfigResult.data.classes || [])
+                : [];
+            const effectiveClassData = effectiveClasses.find(c => c.id === newClassId) || classData;
+            let allClasses = effectiveClasses;
+            if (allClasses.length === 0) {
+                const classesResult = await this.getClasses();
+                allClasses = classesResult.success ? (classesResult.data.classes || []) : [];
+            }
+
+            const canChange = this.canChangeToClass(character, effectiveClassData, allClasses, {
+                universe,
+                enforceStatMinimums: this.enforceClassStatMinimums(universe)
+            });
             if (!canChange.canChange) {
                 return { success: false, error: canChange.reason || 'Cannot change to this class' };
             }
 
+            const xpCost = canChange.xpCost;
+            const isFreeAdvanceEffective = canChange.isFreeAdvance;
             const currentClassId = character.class_id;
-            // Support multiple prerequisites (array format)
-            const prerequisites = Array.isArray(classData.prerequisites) ? classData.prerequisites : [];
-            
-            // Beginner classes (no prerequisites) always cost 0
-            const isBeginnerClass = prerequisites.length === 0;
-            const xpCost = isFreeAdvance ? 0 : (isBeginnerClass ? 0 : (classData.xp_cost || 0));
-            
-            // Check XP if not free advance (unused XP from KVP via MOAP character state)
-            const lifetime = character.xp_lifetime != null ? character.xp_lifetime : 0;
-            const spent = character.xp_spent != null ? character.xp_spent : 0;
-            const unusedXp = Math.max(0, lifetime - spent);
-            if (!isFreeAdvance && xpCost > 0 && unusedXp < xpCost) {
-                return { success: false, error: `Not enough XP. Need ${xpCost}, have ${unusedXp} unused` };
-            }
             
             // Calculate if we gained any points in current class
             const startStats = character.stats_at_class_start || {};
@@ -1103,14 +1104,17 @@ const API = {
             const result = await this.updateCharacter(updateData, character.id);
             
             if (result.success) {
-                if (isFreeAdvance) {
-                    result.data.message = `Advanced to ${classData.name}!`;
+                if (isFreeAdvanceEffective) {
+                    result.data.message = `Advanced to ${effectiveClassData.name}!`;
                 } else if (xpCost === 0) {
-                    result.data.message = `Changed class to ${classData.name} (Free)`;
+                    result.data.message = `Changed class to ${effectiveClassData.name} (Free)`;
                 } else {
-                    result.data.message = `Changed class to ${classData.name} (${xpCost} XP)`;
+                    result.data.message = `Changed class to ${effectiveClassData.name} (${xpCost} XP)`;
                 }
                 result.data.career_history = careerHistory;
+                result.data.xpCost = xpCost;
+                result.data.isFreeAdvance = isFreeAdvanceEffective;
+                result.data.class_id = newClassId;
             }
             
             return result;
@@ -1149,10 +1153,27 @@ const API = {
         // Support both single prerequisite (backward compat) and multiple prerequisites
         const prerequisites = classData.prerequisites || (classData.prerequisite ? [classData.prerequisite] : []);
         
-        // Beginner classes (no prerequisites) always cost 0
-        const isBeginnerClass = prerequisites.length === 0;
+        // Beginner classes (no prerequisites, or universe tier override) cost 0
+        const isBeginnerClass = prerequisites.length === 0 || classData.tier === 'beginner';
         if (!isBeginnerClass) {
             result.xpCost = classData.xp_cost || 0;
+        }
+
+        const universe = options.universe;
+        if (universe) {
+            const allowlist = universe.allowedClasses;
+            if (allowlist && allowlist.length > 0) {
+                const overrides = universe.classOverrides || {};
+                const enabledViaOverride = overrides[classData.id] && overrides[classData.id].enabled === true;
+                if (!allowlist.includes(classData.id) && !enabledViaOverride) {
+                    result.reason = `${classData.name || classData.id} is not available in this universe`;
+                    return result;
+                }
+            }
+            if (classData.enabled === false) {
+                result.reason = `${classData.name || classData.id} is disabled in this universe`;
+                return result;
+            }
         }
         
         // Check prerequisites - character needs ANY one of them

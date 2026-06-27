@@ -836,7 +836,8 @@ const UI = {
             : (App.state.classes || []);
         
         // Check if player can change to this class
-        const isBeginnerClass = !cls.prerequisite || cls.prerequisite === null;
+        const prerequisitesForTier = cls.prerequisites || (cls.prerequisite ? [cls.prerequisite] : []);
+        const isBeginnerClass = prerequisitesForTier.length === 0 || cls.tier === 'beginner';
         const defaultXpCost = isBeginnerClass ? 0 : (cls.xp_cost || 0);
         const enforceStatMins = typeof App !== 'undefined' && App.state
             ? App.state.enforceClassStatMinimums !== false

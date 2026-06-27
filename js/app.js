@@ -3324,6 +3324,28 @@ try {
     /**
      * Save character to server
      */
+    applyPendingClassXpChargeAfterSave() {
+        const pendingCost = this.state.pendingClassXpCost;
+        if (!pendingCost || pendingCost <= 0 || !this.state.character) {
+            return;
+        }
+        const unused = window.getUnusedXp(this.state.character);
+        if (unused < pendingCost) {
+            UI.showToast('Class saved but need ' + pendingCost + ' XP (have ' + unused + ' unused)', 'warning', 4000);
+            return;
+        }
+        this.state.character.xp_spent = window.getEconSpent(this.state.character) + pendingCost;
+        this.state.econSessionActive = true;
+        if (App.state.econ) {
+            App.state.econ.xp_spent = this.state.character.xp_spent;
+        }
+        delete this.state.pendingClassXpCost;
+        window.updateEconUrlParams(this.state.character.xp_spent, this.state.character.ap_balance);
+        setTimeout(function () {
+            window.pushEconToHud();
+        }, 600);
+    },
+
     async saveCharacter(options) {
         if (options === undefined) {
             options = {};
@@ -3476,6 +3498,7 @@ try {
                 this.state.character = result.data.character;
                 this.state.selectedCharacterId = result.data.character.id;
                 this.state.dirty = false;
+                this.applyPendingClassXpChargeAfterSave();
                 if (draft) {
                     this.state.isNewCharacter = true;
                     this.state.creationInProgress = true;
@@ -3560,6 +3583,8 @@ try {
                 App.state.econ.ap_balance = savedAp;
                 App.state.econ.xp_spent = savedSpent;
                 App.state.econSessionActive = true;
+                this.applyPendingClassXpChargeAfterSave();
+                const finalSpent = window.getEconSpent(this.state.character);
                 this.state.selectedCharacterId = result.data.character.id;
                 if (draft) {
                     this.state.isNewCharacter = true;
@@ -3580,12 +3605,12 @@ try {
                 await this.loadData();
                 if (this.state.character) {
                     this.state.character.ap_balance = savedAp;
-                    this.state.character.xp_spent = savedSpent;
+                    this.state.character.xp_spent = finalSpent;
                     App.state.econ.ap_balance = savedAp;
-                    App.state.econ.xp_spent = savedSpent;
+                    App.state.econ.xp_spent = finalSpent;
                 }
                 this.captureStatsFloor(this.state.character);
-                window.updateEconUrlParams(savedSpent, savedAp);
+                window.updateEconUrlParams(finalSpent, savedAp);
                 // Refresh Players HUD stat cache (LSD only — crafting reads this, not Firestore)
                 await this.cacheHudStatsForPlayers(this.state.character);
                 
@@ -6365,15 +6390,15 @@ try {
             adminContent.innerHTML = `
                 <div class="admin-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
                     <h3>${type.charAt(0).toUpperCase() + type.slice(1)} Management (${templates.length})</h3>
-                    ${canManageGlobal ? `<div style="display: flex; gap: var(--space-sm);">
+                    ${canManageGlobal ? `<div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
                         ${type === 'classes' ? `
                             <button class="action-btn" id="btn-sync-free-advances" title="Sync free advances with prerequisites">🔄 Sync Free Advances</button>
-                            <button class="action-btn" id="btn-export-${type}" title="Export to CSV">📥 Export CSV</button>
-                            <label class="action-btn" for="file-input-${type}" style="cursor: pointer;" title="Import from CSV">
-                                📤 Import CSV
-                                <input type="file" id="file-input-${type}" accept=".csv" style="display: none;">
-                            </label>
                         ` : ''}
+                        <button class="action-btn" id="btn-export-${type}" title="Export to CSV">📥 Export CSV</button>
+                        <label class="action-btn" for="file-input-${type}" style="cursor: pointer;" title="Import from CSV">
+                            📤 Import CSV
+                            <input type="file" id="file-input-${type}" accept=".csv" style="display: none;">
+                        </label>
                         <button class="action-btn primary" id="btn-new-${type}">+ New ${typeSingular}</button>
                     </div>` : '<span style="color: var(--text-muted); font-size: 0.9rem;">Use Universe Management → Classes tab to choose allowed classes per universe.</span>'}
                 </div>
@@ -6381,6 +6406,16 @@ try {
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
                     <strong>📝 CSV Format Note:</strong> When editing prerequisites or free_advances, use <strong>semicolons (;)</strong> to separate multiple values, not commas. 
                     Example: <code>courtier;scholar;monk</code> (not <code>courtier,scholar,monk</code>)
+                </div>
+                ` : ''}
+                ${type === 'species' && canManageGlobal ? `
+                <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
+                    <strong>📝 CSV:</strong> <code>base_stats</code>, <code>stat_minimums</code>, and <code>stat_maximums</code> are JSON objects. Portrait files still go under <code>images/species/&lt;id&gt;.png</code> on GitHub Pages (full MOAP deploy).
+                </div>
+                ` : ''}
+                ${type === 'genders' && canManageGlobal ? `
+                <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
+                    <strong>📝 CSV:</strong> Portrait files go under <code>images/genders/&lt;id&gt;.png</code> on GitHub Pages (full MOAP deploy).
                 </div>
                 ` : ''}
                 <div class="admin-search" style="margin-bottom: var(--space-md);">
@@ -6406,25 +6441,35 @@ try {
                 });
             }
             
-            // Export CSV button (classes only)
-            if (type === 'classes') {
+            if (canManageGlobal) {
                 document.getElementById(`btn-export-${type}`)?.addEventListener('click', () => {
-                    this.exportClassesToCSV(templates);
+                    if (type === 'classes') {
+                        this.exportClassesToCSV(templates);
+                    } else if (type === 'species') {
+                        this.exportSpeciesToCSV(templates);
+                    } else if (type === 'genders') {
+                        this.exportGendersToCSV(templates);
+                    }
                 });
-                
-                // Sync Free Advances button
-                document.getElementById('btn-sync-free-advances')?.addEventListener('click', () => {
-                    this.syncFreeAdvances(templates);
-                });
-                
-                // Import CSV button
+
+                if (type === 'classes') {
+                    document.getElementById('btn-sync-free-advances')?.addEventListener('click', () => {
+                        this.syncFreeAdvances(templates);
+                    });
+                }
+
                 const fileInput = document.getElementById(`file-input-${type}`);
                 if (fileInput) {
                     fileInput.addEventListener('change', (e) => {
                         const file = e.target.files[0];
                         if (file) {
-                            this.importClassesFromCSV(file);
-                            // Reset input so same file can be selected again
+                            if (type === 'classes') {
+                                this.importClassesFromCSV(file);
+                            } else if (type === 'species') {
+                                this.importSpeciesFromCSV(file);
+                            } else if (type === 'genders') {
+                                this.importGendersFromCSV(file);
+                            }
                             e.target.value = '';
                         }
                     });
@@ -7809,6 +7854,284 @@ try {
             UI.showToast('Failed to import: ' + error.message, 'error');
         }
     },
+
+    /**
+     * Trigger browser download of CSV content
+     */
+    downloadCsvFile(filename, csvContent) {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    },
+
+    /**
+     * Format one CSV row; quote JSON columns and fields with commas/quotes/newlines
+     */
+    formatCsvRow(fields, jsonColumnIndexes) {
+        const jsonSet = {};
+        (jsonColumnIndexes || []).forEach((i) => { jsonSet[i] = true; });
+        return fields.map((field, index) => {
+            const str = String(field);
+            if (jsonSet[index] || str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        }).join(',');
+    },
+
+    parseJsonCsvField(value, fallback) {
+        if (!value || !String(value).trim()) {
+            return fallback || {};
+        }
+        try {
+            return JSON.parse(value);
+        } catch (e) {
+            throw new Error('Invalid JSON: ' + String(value).substring(0, 80));
+        }
+    },
+
+    /**
+     * Export species templates to CSV
+     */
+    exportSpeciesToCSV(speciesList) {
+        try {
+            const headers = [
+                'id', 'name', 'icon', 'description', 'image', 'starting_xp',
+                'health', 'stamina', 'mana', 'base_stats', 'stat_minimums', 'stat_maximums', 'enabled'
+            ];
+            const jsonCols = [9, 10, 11];
+            const rows = speciesList.map((sp) => {
+                return this.formatCsvRow([
+                    sp.id || '',
+                    sp.name || '',
+                    sp.icon || '',
+                    (sp.description || '').replace(/"/g, '""'),
+                    sp.image || '',
+                    sp.starting_xp != null ? sp.starting_xp : 0,
+                    sp.health != null ? sp.health : 100,
+                    sp.stamina != null ? sp.stamina : 100,
+                    sp.mana != null ? sp.mana : 50,
+                    JSON.stringify(sp.base_stats || {}),
+                    JSON.stringify(sp.stat_minimums || {}),
+                    JSON.stringify(sp.stat_maximums || {}),
+                    sp.enabled !== false ? 'true' : 'false'
+                ], jsonCols);
+            });
+            const csvContent = [headers.join(','), ...rows].join('\n');
+            this.downloadCsvFile(`species_export_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+            UI.showToast('Species exported to CSV', 'success');
+        } catch (error) {
+            console.error('exportSpeciesToCSV', error);
+            UI.showToast('Failed to export: ' + error.message, 'error');
+        }
+    },
+
+    /**
+     * Import species templates from CSV
+     */
+    async importSpeciesFromCSV(file) {
+        try {
+            UI.showToast('Reading species CSV...', 'info');
+            const text = await file.text();
+            const lines = text.split('\n').filter((line) => line.trim());
+            if (lines.length < 2) {
+                UI.showToast('CSV file is empty or invalid', 'error');
+                return;
+            }
+            const headers = this.parseCSVLine(lines[0]);
+            const expectedHeaders = [
+                'id', 'name', 'icon', 'description', 'image', 'starting_xp',
+                'health', 'stamina', 'mana', 'base_stats', 'stat_minimums', 'stat_maximums', 'enabled'
+            ];
+            const missingHeaders = expectedHeaders.filter((h) => !headers.includes(h));
+            if (missingHeaders.length > 0) {
+                UI.showToast('Missing required columns: ' + missingHeaders.join(', '), 'error');
+                return;
+            }
+            const speciesRows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const values = this.parseCSVLine(lines[i]);
+                if (values.length !== headers.length) {
+                    console.warn(`Species row ${i + 1}: column count mismatch, skipping`);
+                    continue;
+                }
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = values[index] || '';
+                });
+                if (!row.id || !row.name) {
+                    continue;
+                }
+                speciesRows.push({
+                    id: row.id.trim(),
+                    name: row.name.trim(),
+                    icon: row.icon || '',
+                    description: row.description || '',
+                    image: row.image || this.getStandardSpeciesImagePath(row.id.trim()),
+                    starting_xp: parseInt(row.starting_xp, 10) || 0,
+                    health: parseInt(row.health, 10) || 100,
+                    stamina: parseInt(row.stamina, 10) || 100,
+                    mana: parseInt(row.mana, 10) || 50,
+                    base_stats: this.parseJsonCsvField(row.base_stats, {}),
+                    stat_minimums: this.parseJsonCsvField(row.stat_minimums, {}),
+                    stat_maximums: this.parseJsonCsvField(row.stat_maximums, {}),
+                    enabled: row.enabled !== 'false'
+                });
+            }
+            if (speciesRows.length === 0) {
+                UI.showToast('No valid species found in CSV', 'error');
+                return;
+            }
+            const confirmed = await UI.showConfirmDialog({
+                title: 'Import species?',
+                message: `Import ${speciesRows.length} species?\n\nUpdates existing IDs and creates new ones. Others unchanged.`,
+                confirmLabel: 'Import'
+            });
+            if (!confirmed) {
+                return;
+            }
+            API.invalidateTemplateCache('species');
+            const existingResult = await API.getSpecies();
+            const existingIds = new Set((existingResult.data?.species || []).map((s) => s.id));
+            let imported = 0;
+            let errors = 0;
+            for (const sp of speciesRows) {
+                try {
+                    const isNew = !existingIds.has(sp.id);
+                    const result = await API.saveTemplate('species', sp.id, sp, isNew);
+                    if (result.success) {
+                        imported++;
+                        existingIds.add(sp.id);
+                    } else {
+                        errors++;
+                        console.error('importSpeciesFromCSV', sp.id, result.error);
+                    }
+                } catch (err) {
+                    errors++;
+                    console.error('importSpeciesFromCSV', sp.id, err);
+                }
+            }
+            UI.showToast(`Species import: ${imported} saved${errors ? `, ${errors} failed` : ''}`, imported ? 'success' : 'warning');
+            this.showTemplateManager('species');
+        } catch (error) {
+            console.error('importSpeciesFromCSV', error);
+            UI.showToast('Failed to import: ' + error.message, 'error');
+        }
+    },
+
+    /**
+     * Export gender templates to CSV
+     */
+    exportGendersToCSV(genders) {
+        try {
+            const headers = ['id', 'name', 'icon', 'description', 'image', 'enabled'];
+            const rows = genders.map((g) => {
+                return this.formatCsvRow([
+                    g.id || '',
+                    g.name || '',
+                    g.icon || '',
+                    (g.description || '').replace(/"/g, '""'),
+                    g.image || '',
+                    g.enabled !== false ? 'true' : 'false'
+                ], []);
+            });
+            const csvContent = [headers.join(','), ...rows].join('\n');
+            this.downloadCsvFile(`genders_export_${new Date().toISOString().split('T')[0]}.csv`, csvContent);
+            UI.showToast('Genders exported to CSV', 'success');
+        } catch (error) {
+            console.error('exportGendersToCSV', error);
+            UI.showToast('Failed to export: ' + error.message, 'error');
+        }
+    },
+
+    /**
+     * Import gender templates from CSV
+     */
+    async importGendersFromCSV(file) {
+        try {
+            UI.showToast('Reading genders CSV...', 'info');
+            const text = await file.text();
+            const lines = text.split('\n').filter((line) => line.trim());
+            if (lines.length < 2) {
+                UI.showToast('CSV file is empty or invalid', 'error');
+                return;
+            }
+            const headers = this.parseCSVLine(lines[0]);
+            const expectedHeaders = ['id', 'name', 'icon', 'description', 'image', 'enabled'];
+            const missingHeaders = expectedHeaders.filter((h) => !headers.includes(h));
+            if (missingHeaders.length > 0) {
+                UI.showToast('Missing required columns: ' + missingHeaders.join(', '), 'error');
+                return;
+            }
+            const genderRows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const values = this.parseCSVLine(lines[i]);
+                if (values.length !== headers.length) {
+                    continue;
+                }
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = values[index] || '';
+                });
+                if (!row.id || !row.name) {
+                    continue;
+                }
+                genderRows.push({
+                    id: row.id.trim(),
+                    name: row.name.trim(),
+                    icon: row.icon || '',
+                    description: row.description || '',
+                    image: row.image || ('genders/' + row.id.trim() + '.png'),
+                    enabled: row.enabled !== 'false'
+                });
+            }
+            if (genderRows.length === 0) {
+                UI.showToast('No valid genders found in CSV', 'error');
+                return;
+            }
+            const confirmed = await UI.showConfirmDialog({
+                title: 'Import genders?',
+                message: `Import ${genderRows.length} genders?\n\nUpdates existing IDs and creates new ones. Others unchanged.`,
+                confirmLabel: 'Import'
+            });
+            if (!confirmed) {
+                return;
+            }
+            API.invalidateTemplateCache('genders');
+            const existingResult = await API.getGenders();
+            const existingIds = new Set((existingResult.data?.genders || []).map((g) => g.id));
+            let imported = 0;
+            let errors = 0;
+            for (const g of genderRows) {
+                try {
+                    const isNew = !existingIds.has(g.id);
+                    const result = await API.saveTemplate('genders', g.id, g, isNew);
+                    if (result.success) {
+                        imported++;
+                        existingIds.add(g.id);
+                    } else {
+                        errors++;
+                        console.error('importGendersFromCSV', g.id, result.error);
+                    }
+                } catch (err) {
+                    errors++;
+                    console.error('importGendersFromCSV', g.id, err);
+                }
+            }
+            UI.showToast(`Gender import: ${imported} saved${errors ? `, ${errors} failed` : ''}`, imported ? 'success' : 'warning');
+            this.showTemplateManager('genders');
+        } catch (error) {
+            console.error('importGendersFromCSV', error);
+            UI.showToast('Failed to import: ' + error.message, 'error');
+        }
+    },
     
     /**
      * Parse a CSV line handling quoted fields
@@ -8271,26 +8594,21 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         return;
     }
 
+    const allClasses = (App.state.filteredClasses && App.state.filteredClasses.length > 0)
+        ? App.state.filteredClasses
+        : (App.state.classes || []);
+    const classOptions = {
+        enforceStatMinimums: App.state.enforceClassStatMinimums !== false,
+        universe: App.state.currentUniverse
+    };
+    const canChange = API.canChangeToClass(App.state.character, classTemplate, allClasses, classOptions);
+    if (!canChange.canChange) {
+        UI.showToast(canChange.reason || 'Cannot select this class', 'warning', 3500);
+        return;
+    }
+
     // Creation wizard: pick class locally, save via Save Progress / Finish (not changeClass)
     if (App.isInCreationFlow()) {
-        const allClasses = (App.state.filteredClasses && App.state.filteredClasses.length > 0)
-            ? App.state.filteredClasses
-            : (App.state.classes || []);
-        const classOptions = {
-            enforceStatMinimums: App.state.enforceClassStatMinimums !== false,
-            universe: App.state.currentUniverse
-        };
-        const canChange = API.canChangeToClass(App.state.character, classTemplate, allClasses, classOptions);
-        if (!canChange.canChange) {
-            UI.showToast(canChange.reason || 'Cannot select this class', 'warning', 3500);
-            return;
-        }
-        const xpCost = isFreeAdvance ? 0 : (classTemplate.xp_cost || 0);
-        if (xpCost > 0 && window.spendXpForClass && !window.spendXpForClass(xpCost)) {
-            const unused = window.getUnusedXp ? window.getUnusedXp(App.state.character) : 0;
-            UI.showToast('Need ' + xpCost + ' XP (have ' + unused + ' unused)', 'warning', 4000);
-            return;
-        }
         App.state.character.class_id = classId;
         App.state.character.stats_at_class_start = { ...App.state.character.stats };
         App.state.character.class_started_at = new Date().toISOString();
@@ -8298,11 +8616,19 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         App.state.pendingChanges.class_id = classId;
         App.state.pendingChanges.stats_at_class_start = { ...App.state.character.stats };
         App.state.pendingChanges.class_started_at = App.state.character.class_started_at;
+        if (canChange.xpCost > 0) {
+            App.state.pendingClassXpCost = canChange.xpCost;
+        } else {
+            delete App.state.pendingClassXpCost;
+        }
         App.state.dirty = true;
         App.updateStatusIndicator();
         App.updateStepGuide();
         await App.renderAll();
-        UI.showToast(`Class selected: ${classTemplate.name} — save your progress`, 'success', 2500);
+        const costHint = canChange.isFreeAdvance
+            ? ' (free advance)'
+            : (canChange.xpCost > 0 ? ` — ${canChange.xpCost} XP on save` : '');
+        UI.showToast(`Class selected: ${classTemplate.name}${costHint} — save your progress`, 'success', 2500);
         return;
     }
     
@@ -8319,23 +8645,40 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         return;
     }
 
-    try {
-        const xpCost = isFreeAdvance ? 0 : (classTemplate.xp_cost || 0);
-        if (xpCost > 0) {
-            if (!window.spendXpForClass || !window.spendXpForClass(xpCost)) {
-                const unused = window.getUnusedXp ? window.getUnusedXp(App.state.character) : 0;
-                UI.showToast('Need ' + xpCost + ' XP (have ' + unused + ' unused)', 'warning', 4000);
-                return;
-            }
-        }
+    const costLabel = canChange.isFreeAdvance
+        ? 'FREE (maxed current class)'
+        : (canChange.xpCost > 0 ? `${canChange.xpCost} XP` : 'Free');
+    const unusedXp = window.getUnusedXp ? window.getUnusedXp(App.state.character) : 0;
+    const confirmed = await UI.showConfirmDialog({
+        title: 'Change class?',
+        message: `Switch to ${classTemplate.name}?\n\nCost: ${costLabel}` +
+            (canChange.xpCost > 0 && !canChange.isFreeAdvance ? `\nUnused XP: ${unusedXp}` : ''),
+        confirmLabel: canChange.xpCost > 0 && !canChange.isFreeAdvance
+            ? `Pay ${canChange.xpCost} XP`
+            : 'Confirm',
+        cancelLabel: 'Cancel',
+        allowBackdropCancel: true
+    });
+    if (!confirmed) {
+        return;
+    }
 
-        const result = await API.changeClass(classId, classTemplate, isFreeAdvance, characterId, {
+    try {
+        const result = await API.changeClass(classId, classTemplate, canChange.isFreeAdvance, characterId, {
             xp_lifetime: App.state.character.xp_lifetime,
             xp_spent: App.state.character.xp_spent,
             ap_balance: App.state.character.ap_balance
         });
         
         if (result.success) {
+            const xpCharged = result.data.xpCost || 0;
+            if (xpCharged > 0) {
+                App.state.character.xp_spent = window.getEconSpent(App.state.character) + xpCharged;
+                App.state.econSessionActive = true;
+                if (App.state.econ) {
+                    App.state.econ.xp_spent = App.state.character.xp_spent;
+                }
+            }
             const savedSpent = App.state.character.xp_spent;
             const savedLife = App.state.character.xp_lifetime;
             const savedAp = App.state.character.ap_balance;
@@ -8352,22 +8695,18 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
             App.state.lastAutoSaveMessage = result.data.message || 'Class updated';
             App.updateStatusIndicator();
             await App.renderAll();
+            if (xpCharged > 0) {
+                UI.showToast('Syncing XP spend to HUD...', 'info', 1500);
+                window.pushEconToHud();
+            }
+            await App.cacheHudStatsForPlayers(App.state.character);
             UI.showToast((result.data.message || 'Class updated') + ' — saved to server', 'success', 3500);
         } else {
-            App.state.character.class_id = classId;
-            App.state.currentClass = classTemplate;
-            App.state.pendingChanges.class_id = classId;
-            App.state.dirty = true;
-            App.updateStatusIndicator();
-            await App.renderAll();
-            UI.showToast((result.error || 'Could not switch class automatically') + '. Use Save Character.', 'warning', 4000);
+            UI.showToast(result.error || 'Could not change class', 'warning', 4000);
         }
     } catch (error) {
         console.error('Class change error:', error);
-        App.state.pendingChanges.class_id = classId;
-        App.state.dirty = true;
-        App.updateStatusIndicator();
-        UI.showToast('Error changing class — try Save Character', 'error');
+        UI.showToast('Error changing class — please try again', 'error');
     }
 };
 
