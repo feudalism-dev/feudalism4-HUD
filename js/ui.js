@@ -1077,8 +1077,9 @@ const UI = {
      * @param {object} stats - Current stat values
      * @param {object} caps - Stat maximums from class/species
      * @param {number} availablePoints - Available points for spending
+     * @param {object} statsFloor - Saved stat values (decrease cannot go below)
      */
-    renderStatsGrid(stats, caps = {}, availablePoints = 0) {
+    renderStatsGrid(stats, caps = {}, availablePoints = 0, statsFloor = {}) {
         if (!this.elements.statsGrid) return;
         
         // F3 stat names in order
@@ -1092,13 +1093,16 @@ const UI = {
         this.elements.statsGrid.innerHTML = statNames.map(stat => {
             const value = stats[stat] != null ? stats[stat] : 1;
             const max = Math.min(caps[stat] || 9, 9);
+            const savedFloor = statsFloor[stat] != null ? statsFloor[stat] : value;
             const costToIncrease = this.getStatPointCost(value);
             const canIncrease = value < max && availablePoints >= costToIncrease;
+            const canDecrease = value > savedFloor;
             
             return `
                 <div class="stat-row" data-stat="${stat}">
                     <span class="stat-name">${this.formatStatName(stat)}</span>
                     <div class="stat-controls">
+                        <button class="stat-btn" data-action="decrease" ${!canDecrease ? 'disabled' : ''} title="Undo raise (refund AP)">−</button>
                         <span class="stat-value">${value}</span>
                         <span class="stat-max">/${max}</span>
                         <button class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''} title="Cost: ${costToIncrease} AP">+</button>

@@ -168,6 +168,7 @@ try {
         selectedUniverseId: 'default',
         selectedCharacterId: null,
         pendingChanges: {},
+        statsFloor: null,
         isNewCharacter: false,
         creationInProgress: false,
         lastAutoSaveMessage: '',
@@ -579,6 +580,7 @@ try {
                                 this.state.isNewCharacter = false;
                             }
                             this.state.selectedCharacterId = character.id; // Ensure selected ID is set
+                            this.captureStatsFloor(this.state.character);
                             
                             // Load universe data for the character
                             if (character.universe_id) {
@@ -700,6 +702,7 @@ try {
                         console.log('[loadData] Fallback getCharacter() succeeded');
                         this.state.character = fallbackResult.data.character;
                         this.state.isNewCharacter = false;
+                        this.captureStatsFloor(this.state.character);
                     } else {
                         console.log('[loadData] Fallback getCharacter() failed:', fallbackResult.error);
                         this.state.character = null;
@@ -839,6 +842,7 @@ try {
                 this.state.creationInProgress = true;
                 this.state.character = this.createDefaultCharacter();
                 this.state.character.universe_id = universeId;
+                this.captureStatsFloor(this.state.character);
                 
                 // Load universe data for mana checks
                 const universeResult = await API.getUniverse(universeId);
@@ -2158,7 +2162,7 @@ try {
         const availablePoints = char ? window.getApBalance(char) : 0;
         
         // Render stats grid with points
-        UI.renderStatsGrid(stats, caps, availablePoints);
+        UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
         
         // Render vocation
         UI.renderVocation(this.state.currentVocation, stats);
@@ -2394,6 +2398,18 @@ try {
         });
 
         return caps;
+    },
+
+    /**
+     * Snapshot saved stat values for this session — decreases cannot go below this floor until Save.
+     */
+    captureStatsFloor(char) {
+        if (!char) {
+            this.state.statsFloor = null;
+            return;
+        }
+        const merged = window.getMergedCharacterStatsForPoints(char);
+        this.state.statsFloor = Object.assign({}, merged.stats);
     },
     
     /**
@@ -8589,22 +8605,40 @@ window.calculatePointsSpentAboveDefault = function(character) {
 };
 
 /**
- * Called when a stat is changed (+ only — no decreases).
+ * Saved stat floor for this session (value when character was loaded / last saved).
+ */
+window.getStatSavedFloor = function(statName) {
+    const floor = App.state.statsFloor;
+    if (!floor || floor[statName] == null) {
+        return 1;
+    }
+    return floor[statName];
+};
+
+/**
+ * Called when a stat is changed (+ / −). Session-only until Save Character.
  */
 window.onStatChange = async function(stat, action) {
     if (!App.state.character) return;
-    if (action === 'decrease') {
-        UI.showToast('Stats cannot be lowered', 'warning');
-        return;
-    }
     
     const currentValue = App.state.character.stats[stat] || 1;
     const caps = App.calculateStatCaps();
     const max = Math.min(caps[stat] || 9, 9);
+    const savedFloor = window.getStatSavedFloor(stat);
+    let availablePoints = window.getApBalance(App.state.character);
     
-    const availablePoints = window.getApBalance(App.state.character);
-    
-    if (action === 'increase') {
+    if (action === 'decrease') {
+        if (currentValue <= savedFloor) {
+            UI.showToast('Cannot lower below saved value (' + savedFloor + ')', 'warning');
+            return;
+        }
+        const refund = window.getStatPointCost(currentValue - 1);
+        App.state.character.stats[stat] = currentValue - 1;
+        App.state.character.ap_balance = availablePoints + refund;
+        App.state.pendingChanges.stats = App.state.character.stats;
+        App.state.pendingChanges.ap_balance = App.state.character.ap_balance;
+        UI.showToast(`−1 ${stat} (refund: ${refund} AP)`, 'info', 1500);
+    } else if (action === 'increase') {
         if (!App.state.character.class_id && currentValue >= 2) {
             UI.showToast('Select a class to raise stats above 2', 'warning');
             return;
@@ -8623,15 +8657,16 @@ window.onStatChange = async function(stat, action) {
         App.state.character.stats[stat] = currentValue + 1;
         App.state.character.ap_balance = availablePoints - cost;
         App.state.pendingChanges.stats = App.state.character.stats;
-        window.pushEconToHud();
+        App.state.pendingChanges.ap_balance = App.state.character.ap_balance;
         UI.showToast(`+1 ${stat} (cost: ${cost} AP)`, 'info', 1500);
+    } else {
+        return;
     }
     
     App.state.dirty = true;
     App.updateStatusIndicator();
     
     await App.renderAll();
-    App.scheduleBroadcastToPlayersHUD(App.state.character);
 };
 
 // =========================== INITIALIZATION =============================
