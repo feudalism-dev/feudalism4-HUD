@@ -724,6 +724,7 @@ try {
                 window.restoreMoapTabFromUrl();
             }
             DebugLog.log('renderAll() completed', 'debug');
+            this.setupOpenInBrowserLink();
             
         } catch (error) {
             DebugLog.log('loadData() ERROR: ' + error.message, 'error');
@@ -892,14 +893,76 @@ try {
             return;
         }
         
-        // Build URL with credentials
         const baseUrl = window.location.origin + window.location.pathname;
         const params = new URLSearchParams();
+        const current = new URLSearchParams(window.location.search);
         params.set('uuid', API.uuid);
         if (API.username) params.set('username', API.username);
         if (API.displayName) params.set('displayname', API.displayName);
         if (API.hudChannel) params.set('channel', API.hudChannel.toString());
-        
+
+        // Carry HUD gameplay + selection params so browser matches in-world Setup
+        const carryKeys = [
+            'active_char', 'xp_lifetime', 'xp_total', 'xp_spent', 'ap_balance',
+            'health_pipe', 'stamina_pipe', 'mana_pipe', 'moap_tab'
+        ];
+        carryKeys.forEach((key) => {
+            const v = current.get(key);
+            if (v) {
+                params.set(key, v);
+            }
+        });
+        if (!params.has('active_char')) {
+            const charId = this.state.selectedCharacterId
+                || this.state.character?.id
+                || current.get('active_char');
+            if (charId) {
+                params.set('active_char', charId);
+            }
+        }
+        const char = this.state.character;
+        if (char) {
+            if (!params.has('xp_lifetime')) {
+                const life = char.xp_lifetime || char.xp_total;
+                if (life) {
+                    params.set('xp_lifetime', String(life));
+                }
+            }
+            if (!params.has('xp_spent') && char.xp_spent != null) {
+                params.set('xp_spent', String(char.xp_spent));
+            }
+            if (!params.has('ap_balance') && char.ap_balance != null) {
+                params.set('ap_balance', String(char.ap_balance));
+            }
+            const poolToPipe = function (pool) {
+                if (!pool || typeof pool !== 'object') {
+                    return null;
+                }
+                const c = pool.current != null ? pool.current : (pool.base != null ? pool.base : 0);
+                const b = pool.base != null ? pool.base : c;
+                const m = pool.max != null ? pool.max : b;
+                return c + '|' + b + '|' + m;
+            };
+            if (!params.has('health_pipe')) {
+                const pipe = poolToPipe(char.health);
+                if (pipe) {
+                    params.set('health_pipe', pipe);
+                }
+            }
+            if (!params.has('stamina_pipe')) {
+                const pipe = poolToPipe(char.stamina);
+                if (pipe) {
+                    params.set('stamina_pipe', pipe);
+                }
+            }
+            if (!params.has('mana_pipe')) {
+                const pipe = poolToPipe(char.mana);
+                if (pipe) {
+                    params.set('mana_pipe', pipe);
+                }
+            }
+        }
+
         const fullUrl = baseUrl + '?' + params.toString();
         link.href = fullUrl;
         link.style.display = 'inline-block';
@@ -2894,7 +2957,7 @@ try {
                 }
             }
         } catch (e) { /* ignore */ }
-        const allowFirestoreEcon = !window.IS_SL_BROWSER;
+        const allowFirestoreEcon = !window.hasHudEconInUrl();
         if (lifetime === 0 && allowFirestoreEcon) {
             const docLife = parseInt(char.xp_total, 10);
             if (!isNaN(docLife) && docLife > 0) {
@@ -8448,6 +8511,26 @@ window.getMergedCharacterStatsForPoints = function(character) {
  */
 window.XP_PER_AP = 1000;
 
+/** True when Setup was opened from HUD with KVP economy in the URL. */
+window.hasHudEconInUrl = function () {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        return p.has('xp_lifetime') || p.has('xp_total');
+    } catch (e) {
+        return false;
+    }
+};
+
+/** True when HUD passed live pool pipes on the Setup URL. */
+window.hasHudPoolsInUrl = function () {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        return p.has('health_pipe') || p.has('stamina_pipe') || p.has('mana_pipe');
+    } catch (e) {
+        return false;
+    }
+};
+
 window.getEconFromUrl = function () {
     let lifetime = 0;
     let spent = 0;
@@ -8496,7 +8579,7 @@ window.getEconLifetime = function (character) {
         lifetime = url.xp_lifetime;
         character.xp_lifetime = lifetime;
     }
-    if (lifetime === 0 && !window.IS_SL_BROWSER) {
+    if (lifetime === 0 && !window.hasHudEconInUrl()) {
         const legacy = parseInt(character.xp_total, 10);
         if (!isNaN(legacy) && legacy > 0) {
             lifetime = legacy;
@@ -8514,7 +8597,7 @@ window.getEconSpent = function (character) {
         spent = url.xp_spent;
         character.xp_spent = spent;
     }
-    if (spent === 0 && !window.IS_SL_BROWSER) {
+    if (spent === 0 && !window.hasHudEconInUrl()) {
         const lifetime = window.getEconLifetime(character);
         const docAvail = parseInt(character.xp_available, 10);
         if (lifetime > 0 && !isNaN(docAvail) && docAvail >= 0 && docAvail <= lifetime) {

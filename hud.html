@@ -559,10 +559,9 @@
             document.write('<script src="https://cdn.jsdelivr.net/npm/es6-promise@4/dist/es6-promise.auto.min.js"><\/script>');
         }
         
-        // Check if we're in SL browser
-        window.IS_SL_BROWSER = navigator.userAgent.includes('SecondLife') || 
-                               navigator.userAgent.includes('CefSharp') ||
-                               window.location.search.includes('uuid=');
+        // True only inside SL MOAP (CEF). uuid= in URL is NOT sufficient — external browser uses Firestore fallbacks.
+        window.IS_SL_BROWSER = navigator.userAgent.includes('SecondLife') ||
+                               navigator.userAgent.includes('CefSharp');
         
         window.simpleDebug('User Agent: ' + navigator.userAgent, 'debug');
         window.simpleDebug('Is SL Browser: ' + window.IS_SL_BROWSER, 'info');
@@ -580,7 +579,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.0-xp-econ18';
+            window.HUD_BUILD_LABEL = '4.2.0-xp-econ19';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
