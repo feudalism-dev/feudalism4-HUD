@@ -626,8 +626,9 @@ try {
                             
                             console.log('Character loaded:', this.state.character);
 
-                            // Gameplay XP is authoritative in HUD KVP; Firestore xp_total is often stale
+                            // Gameplay XP/pools are authoritative in HUD KVP; Firestore is often stale
                             this.initEconFromUrl();
+                            this.mergePoolsFromUrl();
                             this.migrateLegacyEconIfNeeded();
                             
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
@@ -2167,14 +2168,14 @@ try {
         // Render vocation
         UI.renderVocation(this.state.currentVocation, stats);
         
-        // Render character summary
-        await UI.renderCharacterSummary(char, this.state.currentSpecies, this.state.currentClass);
-        
-        // Recalculate resource pools based on current stats before rendering
+        // Recalculate pools, then overlay HUD KVP gameplay values before summary/bars
         if (char) {
             this.recalculateResourcePools();
-            // Players HUD sync is debounced via scheduleBroadcastToPlayersHUD (not every render)
+            this.mergePoolsFromUrl();
         }
+        
+        // Render character summary
+        await UI.renderCharacterSummary(char, this.state.currentSpecies, this.state.currentClass);
         
         // Render Players HUD (resource bars, XP progress, and action slots)
         UI.renderResourceBars(char);
@@ -2669,10 +2670,13 @@ try {
         if (!this.state.character.health) {
             this.state.character.health = { current: baseHealth, base: baseHealth, max: baseHealth };
         } else {
-            // Update max values, keep current if it's valid
+            const oldCurrent = this.state.character.health.current ?? 0;
+            const oldMax = this.state.character.health.max || this.state.character.health.base || 0;
             this.state.character.health.max = baseHealth;
             this.state.character.health.base = baseHealth;
-            if (this.state.character.health.current > baseHealth) {
+            if (oldMax > 0 && oldCurrent >= oldMax) {
+                this.state.character.health.current = baseHealth;
+            } else if (oldCurrent > baseHealth) {
                 this.state.character.health.current = baseHealth;
             }
         }
@@ -2680,9 +2684,13 @@ try {
         if (!this.state.character.stamina) {
             this.state.character.stamina = { current: baseStamina, base: baseStamina, max: baseStamina };
         } else {
+            const oldCurrent = this.state.character.stamina.current ?? 0;
+            const oldMax = this.state.character.stamina.max || this.state.character.stamina.base || 0;
             this.state.character.stamina.max = baseStamina;
             this.state.character.stamina.base = baseStamina;
-            if (this.state.character.stamina.current > baseStamina) {
+            if (oldMax > 0 && oldCurrent >= oldMax) {
+                this.state.character.stamina.current = baseStamina;
+            } else if (oldCurrent > baseStamina) {
                 this.state.character.stamina.current = baseStamina;
             }
         }
@@ -2896,6 +2904,46 @@ try {
         App.state.econ.xp_lifetime = lifetime;
         App.state.econ.xp_spent = spent;
         App.state.econ.ap_balance = ap;
+    },
+
+    /**
+     * Parse HUD pool pipe (current|base|max) from LSD/KVP.
+     */
+    parsePoolPipe(pipeStr) {
+        if (!pipeStr || typeof pipeStr !== 'string') {
+            return null;
+        }
+        const parts = pipeStr.split('|');
+        if (parts.length < 3) {
+            return null;
+        }
+        const current = parseInt(parts[0], 10);
+        const base = parseInt(parts[1], 10);
+        const max = parseInt(parts[2], 10);
+        if (isNaN(current) || isNaN(base) || isNaN(max)) {
+            return null;
+        }
+        return { current, base, max };
+    },
+
+    /**
+     * Merge gameplay health/stamina/mana from Setup HUD URL (KVP authoritative).
+     */
+    mergePoolsFromUrl() {
+        const char = this.state.character;
+        if (!char) {
+            return;
+        }
+        try {
+            const params = new URLSearchParams(window.location.search);
+            ['health', 'stamina', 'mana'].forEach((key) => {
+                const pipe = params.get(key + '_pipe');
+                const parsed = this.parsePoolPipe(pipe);
+                if (parsed) {
+                    char[key] = parsed;
+                }
+            });
+        } catch (e) { /* ignore */ }
     },
 
     /**
