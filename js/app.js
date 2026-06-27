@@ -173,6 +173,7 @@ try {
         creationInProgress: false,
         lastAutoSaveMessage: '',
         dirty: false,  // UX 2: Track unsaved changes
+        econSessionActive: false,  // AP/XP edits this session override stale URL params
         creationStepHints: {
             name: 'Enter your character\'s name and optional title, then click <strong>Next »</strong>. Use <strong>Save Progress</strong> anytime.',
             gender: 'Click a <strong>portrait</strong> below to view details, then press <strong>Select This Gender</strong>.',
@@ -2878,8 +2879,19 @@ try {
             if (!isNaN(urlSpent) && urlSpent >= 0) {
                 spent = urlSpent;
             }
-            if (!isNaN(urlAp) && urlAp >= 0) {
+            if (!this.state.econSessionActive && !isNaN(urlAp) && urlAp >= 0) {
                 ap = urlAp;
+            } else {
+                const sessionAp = (App.state.econ && App.state.econ.ap_balance != null)
+                    ? parseInt(App.state.econ.ap_balance, 10) : NaN;
+                const charAp = parseInt(char.ap_balance, 10);
+                if (!isNaN(sessionAp) && sessionAp >= 0) {
+                    ap = sessionAp;
+                } else if (!isNaN(charAp) && charAp >= 0) {
+                    ap = charAp;
+                } else {
+                    ap = 0;
+                }
             }
         } catch (e) { /* ignore */ }
         const allowFirestoreEcon = !window.IS_SL_BROWSER;
@@ -3443,6 +3455,9 @@ try {
                     class_id: classId
                 });
                 
+                const savedAp = window.getApBalance(char);
+                const savedSpent = window.getEconSpent(char);
+                
                 const result = await API.updateCharacter({
                     name: char.name,
                     title: char.title,
@@ -3474,6 +3489,14 @@ try {
                 }
                 
                 this.state.character = result.data.character;
+                this.state.character.ap_balance = savedAp;
+                this.state.character.xp_spent = savedSpent;
+                if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                    App.state.econ = {};
+                }
+                App.state.econ.ap_balance = savedAp;
+                App.state.econ.xp_spent = savedSpent;
+                App.state.econSessionActive = true;
                 this.state.selectedCharacterId = result.data.character.id;
                 if (draft) {
                     this.state.isNewCharacter = true;
@@ -3492,8 +3515,20 @@ try {
                 this.updateStatusIndicator();
                 this.updateStepGuide();
                 await this.loadData();
+                if (this.state.character) {
+                    this.state.character.ap_balance = savedAp;
+                    this.state.character.xp_spent = savedSpent;
+                    App.state.econ.ap_balance = savedAp;
+                    App.state.econ.xp_spent = savedSpent;
+                }
+                this.captureStatsFloor(this.state.character);
+                window.updateEconUrlParams(savedSpent, savedAp);
                 // Refresh Players HUD stat cache (LSD only — crafting reads this, not Firestore)
                 await this.cacheHudStatsForPlayers(this.state.character);
+                
+                setTimeout(function () {
+                    window.pushEconToHud();
+                }, 600);
 
                 setTimeout(() => {
                     if (this.state.character) {
@@ -8495,13 +8530,24 @@ window.getApBalance = function (character) {
         return 0;
     }
     window.syncEconToCharacter(character);
-    let ap = Math.max(0, parseInt(character.ap_balance, 10) || 0);
-    const url = window.getEconFromUrl();
-    if (url.ap_balance > ap) {
-        ap = url.ap_balance;
-        character.ap_balance = ap;
-    }
-    return ap;
+    return Math.max(0, parseInt(character.ap_balance, 10) || 0);
+};
+
+window.updateEconUrlParams = function (spent, ap) {
+    try {
+        const currentUrl = new URL(window.location.href);
+        if (ap != null && !isNaN(ap)) {
+            currentUrl.searchParams.set('ap_balance', String(ap));
+        }
+        if (spent != null && !isNaN(spent)) {
+            currentUrl.searchParams.set('xp_spent', String(spent));
+        }
+        if (typeof App !== 'undefined' && App.safeHistoryReplaceState) {
+            App.safeHistoryReplaceState(currentUrl.toString());
+        } else {
+            window.history.replaceState({}, '', currentUrl.toString());
+        }
+    } catch (e) { /* ignore */ }
 };
 
 window.getUnusedXp = function (character) {
@@ -8604,6 +8650,11 @@ window.buyPointsWithXp = function (pointCount) {
     }
     char.xp_spent = window.getEconSpent(char) + xpCost;
     char.ap_balance = window.getApBalance(char) + n;
+    App.state.econSessionActive = true;
+    if (App.state.econ) {
+        App.state.econ.ap_balance = char.ap_balance;
+        App.state.econ.xp_spent = char.xp_spent;
+    }
     if (typeof UI !== 'undefined' && UI.showToast) {
         UI.showToast('Syncing ' + xpCost + ' XP spend to HUD...', 'info', 2000);
     }
@@ -8685,6 +8736,11 @@ window.onStatChange = async function(stat, action) {
         App.state.character.ap_balance = availablePoints + refund;
         App.state.pendingChanges.stats = App.state.character.stats;
         App.state.pendingChanges.ap_balance = App.state.character.ap_balance;
+        App.state.econSessionActive = true;
+        if (App.state.econ) {
+            App.state.econ.ap_balance = App.state.character.ap_balance;
+        }
+        window.updateEconUrlParams(null, App.state.character.ap_balance);
         UI.showToast(`−1 ${stat} (refund: ${refund} AP)`, 'info', 1500);
     } else if (action === 'increase') {
         if (!App.state.character.class_id && currentValue >= 2) {
@@ -8706,6 +8762,11 @@ window.onStatChange = async function(stat, action) {
         App.state.character.ap_balance = availablePoints - cost;
         App.state.pendingChanges.stats = App.state.character.stats;
         App.state.pendingChanges.ap_balance = App.state.character.ap_balance;
+        App.state.econSessionActive = true;
+        if (App.state.econ) {
+            App.state.econ.ap_balance = App.state.character.ap_balance;
+        }
+        window.updateEconUrlParams(null, App.state.character.ap_balance);
         UI.showToast(`+1 ${stat} (cost: ${cost} AP)`, 'info', 1500);
     } else {
         return;
