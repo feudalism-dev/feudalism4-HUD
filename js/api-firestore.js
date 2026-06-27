@@ -2856,41 +2856,46 @@ const API = {
             return { items: [], page: 1, totalPages: 0, hasMore: false, cursor: null };
         }
 
-        const col = db.collection('characters').doc(characterId).collection('inventory');
-        let query = col.orderBy(firebase.firestore.FieldPath.documentId()).limit(pageSize);
+        try {
+            const col = db.collection('characters').doc(characterId).collection('inventory');
+            let query = col.orderBy(firebase.firestore.FieldPath.documentId()).limit(pageSize);
 
-        const useCursor = typeof pageOrCursor === 'string' && pageOrCursor.length > 0 && pageOrCursor !== '1';
-        if (useCursor) {
-            const cursorRef = col.doc(pageOrCursor);
-            const cursorSnap = await cursorRef.get();
-            if (cursorSnap.exists) {
-                query = col.orderBy(firebase.firestore.FieldPath.documentId()).startAfter(cursorSnap).limit(pageSize);
+            const useCursor = typeof pageOrCursor === 'string' && pageOrCursor.length > 0 && pageOrCursor !== '1';
+            if (useCursor) {
+                const cursorRef = col.doc(pageOrCursor);
+                const cursorSnap = await cursorRef.get();
+                if (cursorSnap.exists) {
+                    query = col.orderBy(firebase.firestore.FieldPath.documentId()).startAfter(cursorSnap).limit(pageSize);
+                }
             }
-        }
 
-        const snapshot = await query.get();
-        const items = [];
-        let lastId = null;
-        snapshot.forEach(function (doc) {
-            const data = doc.data();
-            items.push({
-                id: doc.id,
-                qty: data.qty != null ? data.qty : 0
+            const snapshot = await query.get();
+            const items = [];
+            let lastId = null;
+            snapshot.forEach(function (doc) {
+                const data = doc.data();
+                items.push({
+                    id: doc.id,
+                    qty: data.qty != null ? data.qty : 0
+                });
+                lastId = doc.id;
             });
-            lastId = doc.id;
-        });
 
-        const hasMore = snapshot.size >= pageSize;
-        const pageNum = useCursor ? 0 : (typeof pageOrCursor === 'number' ? pageOrCursor : 1);
-        console.log('[getInventoryPage] character:', characterId, 'items:', items.length, 'hasMore:', hasMore, 'reads:', snapshot.size);
+            const hasMore = snapshot.size >= pageSize;
+            const pageNum = useCursor ? 0 : (typeof pageOrCursor === 'number' ? pageOrCursor : 1);
+            console.log('[getInventoryPage] character:', characterId, 'items:', items.length, 'hasMore:', hasMore, 'reads:', snapshot.size);
 
-        return {
-            items: items,
-            page: pageNum,
-            totalPages: hasMore ? 0 : 1,
-            hasMore: hasMore,
-            cursor: lastId
-        };
+            return {
+                items: items,
+                page: pageNum,
+                totalPages: hasMore ? 0 : 1,
+                hasMore: hasMore,
+                cursor: lastId
+            };
+        } catch (error) {
+            console.error('[getInventoryPage] Error:', error);
+            return { items: [], page: 1, totalPages: 0, hasMore: false, cursor: null };
+        }
     },    
     /**
      * Get quantity of a specific item (v2: queries subcollection document directly)

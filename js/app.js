@@ -631,24 +631,34 @@ try {
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
                             await this.cacheHudStatsForPlayers(this.state.character);
                             
-                            // Load inventory (Inventory v2 - pagination)
+                            // Load inventory (Inventory v2 - pagination); non-fatal if rules deny
                             const pageSize = 50;
                             const page = 1;
                             console.log('[loadData] Loading inventory for character:', this.state.character.id);
-                            const result = await API.getInventoryPage(this.state.character.id, page, pageSize);
-                            console.log('[loadData] Inventory result:', result);
-                            const items = result.items || [];
-                            console.log('[loadData] Inventory items:', items, 'count:', items.length);
-                            this.state.inventory = items;
-                            
-                            // Initialize pagination state
-                            this.state.inventoryPagination = {
-                                page: result.page || page,
-                                totalPages: result.totalPages || 0,
-                                hasMore: !!result.hasMore,
-                                cursor: result.cursor || null,
-                                items: items
-                            };
+                            try {
+                                const result = await API.getInventoryPage(this.state.character.id, page, pageSize);
+                                console.log('[loadData] Inventory result:', result);
+                                const items = result.items || [];
+                                console.log('[loadData] Inventory items:', items, 'count:', items.length);
+                                this.state.inventory = items;
+                                this.state.inventoryPagination = {
+                                    page: result.page || page,
+                                    totalPages: result.totalPages || 0,
+                                    hasMore: !!result.hasMore,
+                                    cursor: result.cursor || null,
+                                    items: items
+                                };
+                            } catch (invErr) {
+                                console.warn('[loadData] Inventory load failed (non-fatal):', invErr);
+                                this.state.inventory = [];
+                                this.state.inventoryPagination = {
+                                    page: 1,
+                                    totalPages: 0,
+                                    hasMore: false,
+                                    cursor: null,
+                                    items: []
+                                };
+                            }
                             
                             console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
                             
@@ -2848,13 +2858,14 @@ try {
                 ap = urlAp;
             }
         } catch (e) { /* ignore */ }
-        if (lifetime === 0) {
+        const allowFirestoreEcon = !window.IS_SL_BROWSER;
+        if (lifetime === 0 && allowFirestoreEcon) {
             const docLife = parseInt(char.xp_total, 10);
             if (!isNaN(docLife) && docLife > 0) {
                 lifetime = docLife;
             }
         }
-        if (spent === 0 && lifetime > 0) {
+        if (spent === 0 && lifetime > 0 && allowFirestoreEcon) {
             const docAvail = parseInt(char.xp_available, 10);
             if (!isNaN(docAvail) && docAvail >= 0 && docAvail <= lifetime) {
                 spent = lifetime - docAvail;
@@ -8386,7 +8397,7 @@ window.getEconLifetime = function (character) {
         lifetime = url.xp_lifetime;
         character.xp_lifetime = lifetime;
     }
-    if (lifetime === 0) {
+    if (lifetime === 0 && !window.IS_SL_BROWSER) {
         const legacy = parseInt(character.xp_total, 10);
         if (!isNaN(legacy) && legacy > 0) {
             lifetime = legacy;
@@ -8404,7 +8415,7 @@ window.getEconSpent = function (character) {
         spent = url.xp_spent;
         character.xp_spent = spent;
     }
-    if (spent === 0) {
+    if (spent === 0 && !window.IS_SL_BROWSER) {
         const lifetime = window.getEconLifetime(character);
         const docAvail = parseInt(character.xp_available, 10);
         if (lifetime > 0 && !isNaN(docAvail) && docAvail >= 0 && docAvail <= lifetime) {
