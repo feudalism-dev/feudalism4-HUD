@@ -635,37 +635,6 @@ try {
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
                             await this.cacheHudStatsForPlayers(this.state.character);
                             
-                            // Load inventory (Inventory v2 - pagination); non-fatal if rules deny
-                            const pageSize = 50;
-                            const page = 1;
-                            console.log('[loadData] Loading inventory for character:', this.state.character.id);
-                            try {
-                                const result = await API.getInventoryPage(this.state.character.id, page, pageSize);
-                                console.log('[loadData] Inventory result:', result);
-                                const items = result.items || [];
-                                console.log('[loadData] Inventory items:', items, 'count:', items.length);
-                                this.state.inventory = items;
-                                this.state.inventoryPagination = {
-                                    page: result.page || page,
-                                    totalPages: result.totalPages || 0,
-                                    hasMore: !!result.hasMore,
-                                    cursor: result.cursor || null,
-                                    items: items
-                                };
-                            } catch (invErr) {
-                                console.warn('[loadData] Inventory load failed (non-fatal):', invErr);
-                                this.state.inventory = [];
-                                this.state.inventoryPagination = {
-                                    page: 1,
-                                    totalPages: 0,
-                                    hasMore: false,
-                                    cursor: null,
-                                    items: []
-                                };
-                            }
-                            
-                            console.log('[loadData] Inventory state set. this.state.inventory:', this.state.inventory);
-                            
                             // Load and set up buffs listener
                             await this.loadBuffs();
                             this.setupBuffsListener();
@@ -1677,7 +1646,7 @@ try {
                 mana_chance: 10
             };
             const stats = template.stats || this.getDefaultStats();
-            const hasMana = this.rollManaChance(species);
+            const hasMana = false;
             const baseHealth = this.calculateHealth(stats, species);
             const baseStamina = this.calculateStamina(stats, species);
             const baseMana = this.calculateMana(stats, species, hasMana);
@@ -1750,7 +1719,7 @@ try {
         };
         
         // Roll for mana based on species chance
-        const hasMana = this.rollManaChance(species);
+        const hasMana = false;
         
         // Calculate base resource pools from stats with species factors
         const baseHealth = this.calculateHealth(defaultStats, species);
@@ -1768,7 +1737,6 @@ try {
             xp_lifetime: 0,
             xp_spent: 0,
             stats: defaultStats,
-            inventory: [],
             // Store species factors for LSL calculations
             species_factors: {
                 health_factor: species.health_factor || 25,
@@ -1980,7 +1948,12 @@ try {
             return;
         }
         const manaEnabled = this.state.currentUniverse?.manaEnabled !== false;
-        char.has_mana = manaEnabled && this.rollManaChance(species);
+        const speciesCanUseMagic = manaEnabled && ((species.mana || 0) > 0 || (species.mana_chance || 0) > 0);
+        if (!speciesCanUseMagic) {
+            char.has_mana = false;
+        } else if (char.has_mana !== true) {
+            char.has_mana = false;
+        }
         char.species_factors = {
             health_factor: species.health_factor || 25,
             stamina_factor: species.stamina_factor || 25,
@@ -2240,165 +2213,18 @@ try {
         
         // Render character summary
         await UI.renderCharacterSummary(char, this.state.currentSpecies, this.state.currentClass);
+        this.updateMagicOptInPanel();
         
         // Render Players HUD (resource bars, XP progress, and action slots)
         UI.renderResourceBars(char);
         UI.renderXPProgress(char);
         UI.renderActionSlots(char);
         
-        // Render inventory (Inventory v2 - subcollection)
-        console.log('[renderAll] Rendering inventory. this.state.inventory:', this.state.inventory);
-        // Only render inventory if we have data - otherwise loadInventory will handle it when tab is shown
-        if (this.state.inventory && Array.isArray(this.state.inventory) && this.state.inventory.length > 0) {
-            // Safety check: ensure UI.renderInventory exists before calling
-            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
-                UI.renderInventory(this.state.inventory);
-            } else {
-                console.error('[renderAll] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
-            }
-        }
-        
-        // If inventory tab is active but no inventory loaded, load it
-        const inventoryTab = document.getElementById('tab-inventory');
-        if (inventoryTab && inventoryTab.classList.contains('active')) {
-            if (!this.state.inventory || !Array.isArray(this.state.inventory) || this.state.inventory.length === 0) {
-                // Load inventory if not already loaded
-                await this.loadInventory();
-            }
-        }
-        
         // Update active mode button in Options tab
         const currentMode = char?.mode || 'roleplay';
         document.querySelectorAll('.mode-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === currentMode);
         });
-        
-        // Identity form fields: only via UI.populateIdentityForm on load/switch (not here — breaks MOAP typing)
-
-        if (char) {
-            // Handle currency - can be object {gold, silver, copper} or number (legacy)
-            let currencyDisplay = '0';
-            if (char.currency) {
-                if (typeof char.currency === 'object' && char.currency !== null) {
-                    // Currency is object: {gold, silver, copper}
-                    const gold = char.currency.gold || 0;
-                    const silver = char.currency.silver || 0;
-                    const copper = char.currency.copper || 0;
-                    currencyDisplay = this.formatCurrency(gold, silver, copper);
-                } else if (typeof char.currency === 'number') {
-                    // Legacy: currency is a number (convert to display format)
-                    // Assume it's all gold for backwards compatibility
-                    currencyDisplay = this.formatCurrency(char.currency, 0, 0);
-                }
-            }
-            UI.elements.currencyAmount.textContent = currencyDisplay;
-        }
-    },
-    
-    /**
-     * Load and display inventory (read-only) for the current character's universe
-     */
-    async loadInventory(pageOrCursor = 1, append = false) {
-        try {
-            // Get character ID from current character
-            const characterId = this.state.character?.id;
-            
-            if (!characterId) {
-                console.warn('[loadInventory] No character selected');
-                if (UI.elements.inventoryGrid) {
-                    UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Select or create a character to view inventory.</p>';
-                }
-                return;
-            }
-            
-            // Initialize pagination state if not exists
-            if (!this.state.inventoryPagination) {
-                this.state.inventoryPagination = {
-                    page: 1,
-                    totalPages: 0,
-                    hasMore: false,
-                    cursor: null,
-                    items: []
-                };
-            }
-            
-            const pageSize = 50;
-            const queryArg = append && this.state.inventoryPagination.cursor
-                ? this.state.inventoryPagination.cursor
-                : 1;
-            console.log('[loadInventory] getInventoryPage character:', characterId, 'cursor:', queryArg, 'append:', append);
-            const result = await API.getInventoryPage(characterId, queryArg, pageSize);
-            console.log('[loadInventory] Result:', result);
-            
-            const items = result.items || [];
-            
-            // Update pagination state
-            if (append) {
-                // Append to existing items
-                this.state.inventoryPagination.items = this.state.inventoryPagination.items.concat(items);
-            } else {
-                // Replace items (new load)
-                this.state.inventoryPagination.items = items;
-            }
-            this.state.inventoryPagination.page = append
-                ? (this.state.inventoryPagination.page + 1)
-                : 1;
-            this.state.inventoryPagination.totalPages = result.totalPages || 0;
-            this.state.inventoryPagination.hasMore = !!result.hasMore;
-            this.state.inventoryPagination.cursor = result.cursor || null;
-            
-            // Update main inventory state
-            this.state.inventory = this.state.inventoryPagination.items;
-            
-            // Render inventory - with safety check
-            if (typeof UI !== 'undefined' && typeof UI.renderInventory === 'function') {
-                UI.renderInventory(this.state.inventoryPagination.items);
-            } else {
-                console.error('[loadInventory] UI.renderInventory is not available!', typeof UI, typeof UI?.renderInventory);
-            }
-        } catch (error) {
-            console.error('[loadInventory] Error loading inventory:', error);
-            if (UI.elements.inventoryGrid) {
-                UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text" style="color: var(--error);">Error loading inventory</p>';
-            }
-        }
-    },
-    
-    async loadInventoryNextPage() {
-        if (!this.state.inventoryPagination || !this.state.inventoryPagination.hasMore) {
-            console.warn('[loadInventoryNextPage] No more pages available');
-            return;
-        }
-        
-        await this.loadInventory(this.state.inventoryPagination.cursor, true);
-    },
-    
-    /**
-     * Request to consume an item
-     */
-    async requestConsumeItem(itemId) {
-        if (!itemId) {
-            UI.showToast('Invalid item', 'error');
-            return;
-        }
-        
-        if (!API.uuid) {
-            UI.showToast('Not authenticated', 'error');
-            return;
-        }
-        
-        try {
-            const result = await API.requestConsumeItem(API.uuid, itemId);
-            if (result.success) {
-                UI.showToast('Consume request sent', 'success');
-                // Inventory will update via real-time listener
-            } else {
-                UI.showToast('Failed to consume: ' + result.error, 'error');
-            }
-        } catch (error) {
-            console.error('[requestConsumeItem] Error:', error);
-            UI.showToast('Error: ' + error.message, 'error');
-        }
     },
     
     /**
@@ -2509,6 +2335,10 @@ try {
 
         document.getElementById('btn-creation-next')?.addEventListener('click', () => this.goToNextCreationStep());
         document.getElementById('btn-creation-back')?.addEventListener('click', () => this.goToPrevCreationStep());
+
+        document.getElementById('char-has-mana')?.addEventListener('change', (e) => {
+            this.handleMagicOptInToggle(e.target.checked);
+        });
 
         let buyQty = 1;
         const buyQtyEl = document.getElementById('buy-points-qty');
@@ -2678,17 +2508,7 @@ try {
             UI.switchTab('character');
         });
         
-        // Mode buttons - use event delegation to prevent duplicate listeners
-        const modeSelector = document.querySelector('.mode-selector');
-        if (modeSelector && !modeSelector.dataset.initialized) {
-            modeSelector.addEventListener('click', (e) => {
-                const btn = e.target.closest('.mode-btn');
-                if (btn && btn.dataset.mode) {
-                    this.handleModeChange(btn.dataset.mode);
-                }
-            });
-            modeSelector.dataset.initialized = 'true';
-        }
+        // Game mode changes: use rp_heart on the Players HUD (not MOAP).
         
         // Display options
         document.getElementById('btn-show-bars')?.addEventListener('click', () => {
@@ -2704,6 +2524,82 @@ try {
     // Use rp_options prim in Second Life to toggle Setup HUD visibility
     
     /**
+     * Whether this character's species and universe allow opting in to magic.
+     */
+    canOptInToMagic(species, universe) {
+        const u = universe || this.state.currentUniverse;
+        const manaEnabled = u?.manaEnabled !== false;
+        if (!manaEnabled || !species) {
+            return false;
+        }
+        return (species.mana || 0) > 0 || (species.mana_chance || 0) > 0;
+    },
+
+    /**
+     * Show/hide and sync the Magic opt-in checkbox on the Character tab.
+     */
+    updateMagicOptInPanel() {
+        const panel = document.getElementById('magic-opt-in-panel');
+        const checkbox = document.getElementById('char-has-mana');
+        const hint = document.getElementById('magic-opt-in-hint');
+        const char = this.state.character;
+        if (!panel || !checkbox) {
+            return;
+        }
+        const species = this.state.currentSpecies
+            || this.state.species.find(s => s.id === char?.species_id);
+        const canOptIn = this.canOptInToMagic(species, this.state.currentUniverse);
+        if (!char || !canOptIn) {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = '';
+        checkbox.checked = char.has_mana === true;
+        if (hint) {
+            const universeBlocks = this.state.currentUniverse?.manaEnabled === false;
+            hint.textContent = universeBlocks
+                ? 'This universe does not support magic.'
+                : 'Opt in to arcane abilities for this character. Off by default until you enable it.';
+        }
+    },
+
+    /**
+     * Toggle has_mana from the Character tab checkbox.
+     */
+    handleMagicOptInToggle(enabled) {
+        if (!this.state.character) {
+            return;
+        }
+        const species = this.state.currentSpecies
+            || this.state.species.find(s => s.id === this.state.character.species_id);
+        if (!this.canOptInToMagic(species, this.state.currentUniverse)) {
+            this.state.character.has_mana = false;
+            this.updateMagicOptInPanel();
+            return;
+        }
+        if (!enabled && this.state.character.class_id) {
+            const manaRequiredClasses = [
+                'cleric', 'cultist', 'druid', 'enchanter', 'footwizard', 'hedgemage',
+                'mage', 'necromancer', 'priest', 'seer', 'shadowmage', 'shaman',
+                'sorcerer', 'spellmonger', 'thaumaturge', 'warlock', 'warmage',
+                'witch', 'wizard'
+            ];
+            if (manaRequiredClasses.includes(this.state.character.class_id)) {
+                UI.showToast('Remove or change your arcane class before disabling magic.', 'warning');
+                this.updateMagicOptInPanel();
+                return;
+            }
+        }
+        this.state.character.has_mana = enabled;
+        this.state.pendingChanges.has_mana = enabled;
+        this.recalculateResourcePools();
+        this.state.pendingChanges.mana = this.state.character.mana;
+        this.state.dirty = true;
+        this.updateStatusIndicator();
+        UI.renderResourceBars(this.state.character);
+    },
+
+    /**
      * Recalculate resource pools (Health, Stamina, Mana) from stats and species
      */
     recalculateResourcePools() {
@@ -2716,7 +2612,7 @@ try {
         const healthFactor = this.state.character.species_factors?.health_factor || species?.health_factor || 25;
         const staminaFactor = this.state.character.species_factors?.stamina_factor || species?.stamina_factor || 25;
         const manaFactor = this.state.character.species_factors?.mana_factor || species?.mana_factor || 25;
-        const hasMana = this.state.character.has_mana !== undefined ? this.state.character.has_mana : this.rollManaChance(species);
+        const hasMana = this.state.character.has_mana === true;
         
         // Create species object with factors for calculation
         const speciesForCalc = species ? {
@@ -2760,7 +2656,10 @@ try {
         }
         
         // Handle mana - convert from number to object if needed, then recalculate
-        if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
+        if (!hasMana) {
+            this.state.character.has_mana = false;
+            this.state.character.mana = { current: 0, base: 0, max: 0 };
+        } else if (!this.state.character.mana || typeof this.state.character.mana !== 'object') {
             // If mana is missing or a number, create object with calculated value
             this.state.character.mana = { current: baseMana, base: baseMana, max: baseMana };
         } else {
@@ -3440,7 +3339,7 @@ try {
                 }
                 
                 const species = this.state.species.find(s => s.id === saveSpeciesId);
-                const hasMana = char.has_mana === true || (universe.manaEnabled && species && App.rollManaChance(species));
+                const hasMana = char.has_mana === true;
                 
                 // Calculate mana based on stats if has_mana is true
                 // Use character stats if available, otherwise use default stats (all 2s)
@@ -3843,7 +3742,7 @@ try {
                 this.showGiveCoins();
                 break;
             case 'giveitem':
-                this.showGiveItem();
+                this.showXPAward();
                 break;
             default:
                 adminContent.innerHTML = '<p class="placeholder-text">Select an admin function...</p>';
@@ -4514,37 +4413,74 @@ try {
         const adminContent = UI.elements.adminContent;
         
         adminContent.innerHTML = `
-            <h3>⭐ Award XP</h3>
-            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Grant experience points to a character. Enter either a character ID or player UUID.</p>
+            <h3>⭐ Award XP / Give Items</h3>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Grant XP via Firestore, or give inventory items to an online player via their HUD (Experience KVP).</p>
+            
+            <h4 style="margin-top: var(--space-lg); color: var(--gold-light);">Award XP</h4>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">Enter a character ID or player UUID.</p>
             <div class="form-group">
                 <label for="xp-target">Target Character ID or Player UUID</label>
                 <input type="text" id="xp-target" placeholder="Enter character ID or player UUID...">
-                <small style="color: var(--text-muted);">Character ID (preferred) or Second Life UUID</small>
             </div>
             <div class="form-group">
                 <label for="xp-amount">XP Amount</label>
                 <input type="number" id="xp-amount" value="100" min="1">
-                <small style="color: var(--text-muted);">Must be positive</small>
             </div>
             <div class="form-group">
                 <label for="xp-reason">Reason (Optional)</label>
                 <input type="text" id="xp-reason" placeholder="Quest completion, roleplay excellence, etc...">
             </div>
-            <div style="display: flex; gap: var(--space-sm);">
+            <div style="display: flex; gap: var(--space-sm); margin-bottom: var(--space-lg);">
                 <button class="action-btn primary" id="btn-award-xp">⭐ Award XP</button>
-                <button class="action-btn secondary" id="btn-clear-xp">Clear</button>
+                <button class="action-btn secondary" id="btn-clear-xp">Clear XP Form</button>
             </div>
-            <div id="xp-result" style="margin-top: var(--space-md);"></div>
+            <div id="xp-result" style="margin-bottom: var(--space-lg);"></div>
+            
+            <hr style="border: none; border-top: 1px solid var(--border-color); margin: var(--space-lg) 0;">
+            
+            <h4 style="color: var(--gold-light);">Give Item (in-world inventory)</h4>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">Player must be online with HUD attached. Items go to Experience KVP inventory (not Firestore).</p>
+            <div class="form-group">
+                <label for="item-target">Target Player UUID</label>
+                <input type="text" id="item-target" placeholder="Second Life UUID of the player...">
+            </div>
+            <div class="form-group">
+                <label for="item-name">Item slug</label>
+                <input type="text" id="item-name" placeholder="e.g. health_potion, iron_ore">
+                <small style="color: var(--text-muted);">Lowercase item id. Not for gold/silver/copper coins — use Give Coins.</small>
+            </div>
+            <div class="form-group">
+                <label for="item-amount">Quantity</label>
+                <input type="number" id="item-amount" value="1" min="1">
+            </div>
+            <div class="form-group">
+                <label for="item-reason">Reason (Optional)</label>
+                <input type="text" id="item-reason" placeholder="Event prize, compensation, etc...">
+            </div>
+            <div style="display: flex; gap: var(--space-sm);">
+                <button class="action-btn primary" id="btn-give-item">📦 Give Item via HUD</button>
+                <button class="action-btn secondary" id="btn-clear-item">Clear Item Form</button>
+            </div>
+            <div id="item-result" style="margin-top: var(--space-md);"></div>
         `;
         
-        const clearForm = () => {
+        const clearXpForm = () => {
             document.getElementById('xp-target').value = '';
             document.getElementById('xp-amount').value = '100';
             document.getElementById('xp-reason').value = '';
             document.getElementById('xp-result').innerHTML = '';
         };
         
-        document.getElementById('btn-clear-xp')?.addEventListener('click', clearForm);
+        const clearItemForm = () => {
+            document.getElementById('item-target').value = '';
+            document.getElementById('item-name').value = '';
+            document.getElementById('item-amount').value = '1';
+            document.getElementById('item-reason').value = '';
+            document.getElementById('item-result').innerHTML = '';
+        };
+        
+        document.getElementById('btn-clear-xp')?.addEventListener('click', clearXpForm);
+        document.getElementById('btn-clear-item')?.addEventListener('click', clearItemForm);
         
         document.getElementById('btn-award-xp')?.addEventListener('click', async () => {
             const target = document.getElementById('xp-target').value.trim();
@@ -4585,6 +4521,53 @@ try {
                 UI.showToast('Failed: ' + error.message, 'error');
             }
         });
+
+        document.getElementById('btn-give-item')?.addEventListener('click', () => {
+            const target = document.getElementById('item-target').value.trim();
+            const itemName = document.getElementById('item-name').value.trim().toLowerCase();
+            const amount = parseInt(document.getElementById('item-amount').value, 10) || 1;
+            const reason = document.getElementById('item-reason').value.trim();
+
+            if (!target || !itemName) {
+                UI.showToast('Enter target UUID and item slug', 'warning');
+                return;
+            }
+            if (amount <= 0) {
+                UI.showToast('Quantity must be positive', 'warning');
+                return;
+            }
+            const blockedItems = ['gold coin', 'silver coin', 'copper coin'];
+            if (blockedItems.includes(itemName)) {
+                UI.showToast('Use Give Coins for currency', 'error');
+                return;
+            }
+
+            const resultDiv = document.getElementById('item-result');
+            resultDiv.innerHTML = '<p style="color: var(--text-muted);">Sending to player HUD...</p>';
+
+            this.sendToLSL('ADMIN_GIVE_ITEM', {
+                target_uuid: target,
+                item_name: itemName,
+                amount: String(amount),
+                reason: reason
+            });
+
+            resultDiv.innerHTML = `
+                <div style="padding: var(--space-md); background: var(--success-bg); border: 1px solid var(--success); border-radius: 4px;">
+                    <p style="color: var(--success); font-weight: bold;">✅ Sent ${amount}× ${itemName} to HUD channel</p>
+                    <p style="color: var(--text-secondary); font-size: 0.9em;">Player must be online with HUD attached.${reason ? ' Reason: ' + reason : ''}</p>
+                </div>
+            `;
+            UI.showToast(`Gave ${amount}× ${itemName} via HUD`, 'success');
+            document.getElementById('item-target').value = '';
+            document.getElementById('item-name').value = '';
+            document.getElementById('item-amount').value = '1';
+            document.getElementById('item-reason').value = '';
+        });
+    },
+    
+    showGiveItem() {
+        this.showXPAward();
     },
     
     /**
@@ -4682,111 +4665,6 @@ try {
                 resultDiv.innerHTML = `
                     <div style="padding: var(--space-md); background: var(--error-bg); border: 1px solid var(--error); border-radius: 4px;">
                         <p style="color: var(--error); font-weight: bold;">❌ Failed to give coins</p>
-                        <p style="color: var(--text-secondary);">${error.message}</p>
-                    </div>
-                `;
-                UI.showToast('Failed: ' + error.message, 'error');
-            }
-        });
-    },
-    
-    /**
-     * Show Give Item admin panel
-     */
-    showGiveItem() {
-        const adminContent = UI.elements.adminContent;
-        
-        adminContent.innerHTML = `
-            <h3>📦 Give Item</h3>
-            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Give any item to a player without removing it from inventory. Currency items (gold coin, silver coin, copper coin) are blocked - use Give Coins instead.</p>
-            <div class="form-group">
-                <label for="item-target">Target Player UUID</label>
-                <input type="text" id="item-target" placeholder="Enter player UUID...">
-                <small style="color: var(--text-muted);">Second Life UUID of the player</small>
-            </div>
-            <div class="form-group">
-                <label for="item-name">Item Name</label>
-                <input type="text" id="item-name" placeholder="Enter exact item name...">
-                <small style="color: var(--text-muted);">Case-sensitive. Examples: "gold ore", "iron sword", "health potion"</small>
-            </div>
-            <div class="form-group">
-                <label for="item-amount">Amount</label>
-                <input type="number" id="item-amount" value="1" min="1">
-            </div>
-            <div class="form-group">
-                <label for="item-reason">Reason (Optional)</label>
-                <input type="text" id="item-reason" placeholder="Bug compensation, event prize, etc...">
-            </div>
-            <div style="display: flex; gap: var(--space-sm);">
-                <button class="action-btn primary" id="btn-give-item">📦 Give Item</button>
-                <button class="action-btn secondary" id="btn-clear-item">Clear</button>
-            </div>
-            <div id="item-result" style="margin-top: var(--space-md);"></div>
-            <div style="margin-top: var(--space-lg); padding: var(--space-md); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px;">
-                <p style="color: var(--text-muted); font-size: 0.9rem;"><strong>Blocked Currency Items:</strong></p>
-                <p style="color: var(--text-muted); font-size: 0.85rem;">• gold coin • silver coin • copper coin</p>
-                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: var(--space-xs);">✅ Allowed: gold ore, silver ore, copper ore, gold bar, etc.</p>
-            </div>
-        `;
-        
-        const clearForm = () => {
-            document.getElementById('item-target').value = '';
-            document.getElementById('item-name').value = '';
-            document.getElementById('item-amount').value = '1';
-            document.getElementById('item-reason').value = '';
-            document.getElementById('item-result').innerHTML = '';
-        };
-        
-        document.getElementById('btn-clear-item')?.addEventListener('click', clearForm);
-        
-        document.getElementById('btn-give-item')?.addEventListener('click', async () => {
-            const target = document.getElementById('item-target').value.trim();
-            const itemName = document.getElementById('item-name').value.trim();
-            const amount = parseInt(document.getElementById('item-amount').value) || 1;
-            const reason = document.getElementById('item-reason').value.trim();
-            
-            if (!target || !itemName) {
-                UI.showToast('Please enter target UUID and item name', 'warning');
-                return;
-            }
-            
-            if (amount <= 0) {
-                UI.showToast('Amount must be positive', 'warning');
-                return;
-            }
-            
-            // Check for blocked currency items (case-insensitive)
-            const blockedItems = ['gold coin', 'silver coin', 'copper coin'];
-            const itemLower = itemName.toLowerCase();
-            if (blockedItems.includes(itemLower)) {
-                UI.showToast(`Cannot give "${itemName}" - use Give Coins for currency`, 'error');
-                return;
-            }
-            
-            const resultDiv = document.getElementById('item-result');
-            resultDiv.innerHTML = '<p style="color: var(--text-muted);">Giving item...</p>';
-            
-            try {
-                const result = await API.giveItem(target, itemName, amount, reason);
-                if (result.success) {
-                    resultDiv.innerHTML = `
-                        <div style="padding: var(--space-md); background: var(--success-bg); border: 1px solid var(--success); border-radius: 4px;">
-                            <p style="color: var(--success); font-weight: bold;">✅ Successfully gave ${amount}x ${itemName}!</p>
-                        </div>
-                    `;
-                    UI.showToast(`Gave ${amount}x ${itemName}!`, 'success');
-                    // Clear for next use
-                    document.getElementById('item-target').value = '';
-                    document.getElementById('item-name').value = '';
-                    document.getElementById('item-amount').value = '1';
-                    document.getElementById('item-reason').value = '';
-                } else {
-                    throw new Error(result.error || 'Unknown error');
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `
-                    <div style="padding: var(--space-md); background: var(--error-bg); border: 1px solid var(--error); border-radius: 4px;">
-                        <p style="color: var(--error); font-weight: bold;">❌ Failed to give item</p>
                         <p style="color: var(--text-secondary);">${error.message}</p>
                     </div>
                 `;

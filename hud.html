@@ -201,6 +201,17 @@
                     </div>
                 </div>
 
+                <div class="panel" id="magic-opt-in-panel" style="display: none;">
+                    <h2>Magic</h2>
+                    <p class="field-hint" id="magic-opt-in-hint">Opt in to arcane abilities for this character. Off by default.</p>
+                    <div class="form-group">
+                        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="char-has-mana">
+                            <span>Magically gifted (can use mana, spells, and arcane classes)</span>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="panel summary-panel">
                     <h2>Character Summary</h2>
                     <div id="char-summary">
@@ -353,21 +364,19 @@
                 </div>
             </section>
 
-            <!-- Inventory Tab -->
+            <!-- Inventory Tab (in-world only — Experience KVP, not Firestore) -->
             <section id="tab-inventory" class="tab-content">
-                <div class="panel">
-                    <div class="currency-bar">
-                        <span class="currency-label">Currency:</span>
-                        <span id="currency-amount" class="currency-value">0</span>
-                        <span class="currency-icon">🪙</span>
-                    </div>
-                </div>
-
-                <div class="panel">
+                <div class="panel" style="text-align: center; padding: var(--space-xl);">
                     <h2>Inventory</h2>
-                    <div id="inventory-grid" class="inventory-grid">
-                        <p class="placeholder-text">Your inventory is empty...</p>
-                    </div>
+                    <p class="info-text" style="font-size: 1.1em; margin: var(--space-lg) 0;">
+                        Personal inventory is managed on your <strong>Players HUD</strong>, not in this Setup screen.
+                    </p>
+                    <p class="info-text" style="font-size: 1.2em; margin-bottom: var(--space-md);">
+                        Click the <strong>I</strong> button on your HUD to open inventory.
+                    </p>
+                    <p class="field-hint" style="margin-top: var(--space-md);">
+                        Use the <strong>$</strong> button on the HUD for currency (when enabled).
+                    </p>
                 </div>
             </section>
 
@@ -375,17 +384,6 @@
             <section id="tab-options" class="tab-content">
                 <!-- Character Management removed per UX 2 Spec - moved to Character tab -->
                 
-                <div class="panel">
-                    <h2>Game Mode</h2>
-                    <div class="mode-selector" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--space-sm);">
-                        <button class="mode-btn" data-mode="tournament" id="btn-mode-tournament">⚔️ Tournament</button>
-                        <button class="mode-btn" data-mode="roleplay" id="btn-mode-roleplay">🎭 Roleplay</button>
-                        <button class="mode-btn" data-mode="ooc" id="btn-mode-ooc">💬 OOC</button>
-                        <button class="mode-btn" data-mode="afk" id="btn-mode-afk">😴 AFK</button>
-                        <button class="mode-btn" data-mode="none" id="btn-mode-none">*</button>
-                    </div>
-                </div>
-
                 <div class="panel">
                     <h2>Display Options</h2>
                     <div class="display-options" style="display: flex; flex-direction: column; gap: var(--space-sm);">
@@ -471,9 +469,8 @@
                         <!-- Vocations admin removed: redundant with classes; re-enable if vocation grouping/bonuses are implemented -->
                         <!-- <button class="admin-btn" data-admin="vocations">📜 Vocations</button> -->
                         <button class="admin-btn" data-admin="consumables">🧪 Consumables</button>
-                        <button class="admin-btn" data-admin="xp">⭐ Award XP</button>
+                        <button class="admin-btn" data-admin="xp">⭐ Award XP / Items</button>
                         <button class="admin-btn" data-admin="givecoins">💰 Give Coins</button>
-                        <button class="admin-btn" data-admin="giveitem">📦 Give Item</button>
                     </div>
                 </div>
 
@@ -579,7 +576,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.2';
+            window.HUD_BUILD_LABEL = '4.2.3';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

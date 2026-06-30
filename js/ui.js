@@ -276,32 +276,11 @@ const UI = {
             content.classList.toggle('active', content.id === `tab-${tabId}`);
         });
         
-        // Load inventory when inventory tab is shown
-        if (tabId === 'inventory' && typeof App !== 'undefined') {
-            // Always try to load inventory when tab is shown (in case it wasn't loaded before)
-            if (App.loadInventory) {
-                // Load fresh to ensure we have latest data
-                App.loadInventory().catch(err => {
-                    console.error('[switchTab] Error loading inventory:', err);
-                    // If load fails but we have cached inventory, render that
-                    if (App.state && App.state.inventory && App.state.inventory.length > 0) {
-                        if (typeof this.renderInventory === 'function') {
-                            this.renderInventory(App.state.inventory);
-                        } else {
-                            console.error('[switchTab] UI.renderInventory not found!');
-                        }
-                    }
-                });
-            } else if (App.state && App.state.inventory) {
-                // Fallback: render cached inventory if loadInventory doesn't exist
-                if (typeof this.renderInventory === 'function') {
-                    this.renderInventory(App.state.inventory);
-                } else {
-                    console.error('[switchTab] UI.renderInventory not found!');
-                }
-            }
+        // Inventory tab is static HTML — no Firestore load
+        if (tabId === 'inventory') {
+            return;
         }
-
+        
         if (tabId === 'admin') {
             this.openDefaultAdminPanel();
         }
@@ -1237,20 +1216,26 @@ const UI = {
             }
         }
         
-        // Update mana sphere (GREEN)
-        const manaPercent = Math.max(0, Math.min(100, (mana.current / mana.max) * 100));
-        this.elements.manaValue.textContent = `${mana.current} / ${mana.max}`;
-        const manaLiquid = document.getElementById('mana-liquid');
-        if (manaLiquid) {
-            manaLiquid.style.height = `${manaPercent}%`;
-        }
+        // Update mana sphere (GREEN) — hidden unless character opted in to magic
+        const showMana = character.has_mana === true;
         const manaBar = this.elements.resourceBars.querySelector('.mana-bar');
         if (manaBar) {
-            manaBar.classList.remove('low', 'critical');
-            if (manaPercent < 25) {
-                manaBar.classList.add('critical');
-            } else if (manaPercent < 50) {
-                manaBar.classList.add('low');
+            manaBar.style.display = showMana ? '' : 'none';
+        }
+        if (showMana) {
+            const manaPercent = Math.max(0, Math.min(100, mana.max > 0 ? (mana.current / mana.max) * 100 : 0));
+            this.elements.manaValue.textContent = `${mana.current} / ${mana.max}`;
+            const manaLiquid = document.getElementById('mana-liquid');
+            if (manaLiquid) {
+                manaLiquid.style.height = `${manaPercent}%`;
+            }
+            if (manaBar) {
+                manaBar.classList.remove('low', 'critical');
+                if (manaPercent < 25) {
+                    manaBar.classList.add('critical');
+                } else if (manaPercent < 50) {
+                    manaBar.classList.add('low');
+                }
             }
         }
     },
@@ -1503,8 +1488,8 @@ const UI = {
         const manaCurrent = mana.current !== undefined ? mana.current : (mana.base !== undefined ? mana.base : 0);
         const manaMax = mana.max !== undefined ? mana.max : (mana.base !== undefined ? mana.base : 0);
         
-        // Determine mana status - check has_mana field, or infer from mana value
-        const hasMana = character.has_mana === true || (character.has_mana === undefined && manaMax > 0);
+        // Determine mana status — explicit opt-in only
+        const hasMana = character.has_mana === true;
         
         this.elements.charSummary.innerHTML = `
             <div class="summary-grid">

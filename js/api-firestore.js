@@ -846,9 +846,6 @@ const API = {
                 // Career history: array of { class_id, started_at, ended_at, maxed, stats_gained, abandoned }
                 career_history: [],
                 
-                // Inventory
-                inventory: [],
-                
                 // Auto-provisioned starter — player can customize in Setup HUD
                 provisional: charData.provisional === true,
                 
@@ -2848,189 +2845,24 @@ const API = {
         }
     },
     
-    // =========================== INVENTORY API (READ-ONLY) =====================
-    // Note: Inventory modifications are done via LSL → Firestore REST API
-    // JS functions here are read-only for display in Setup HUD
-    // v2: Inventory is now stored in subcollection: characters/{characterId}/inventory/{itemId}
+    // =========================== INVENTORY API (REMOVED) =====================
+    // Gameplay inventory is Experience KVP only. Use the HUD I button in-world.
     
-    /**
-     * Get inventory page from subcollection (v2: paginated)
-     * @param {string} characterId - The character document ID
-     * @param {string} cursor - Last itemId from previous page (empty string for first page)
-     * @param {number} pageSize - Number of items per page (default: 50, max: 100)
-     * @returns {Promise<{success: boolean, data?: {items: Array, cursor: string, hasMore: boolean}, error?: string}>}
-     */
-    /**
-     * Get inventory from character subcollection (Inventory v2)
-     * Returns array of { id, qty } objects
-     * @param {string} characterId - The character document ID
-     */
-    /**
-     * Paginated inventory (Inventory v2) — one Firestore page per call, not full subcollection.
-     * @param {string} characterId
-     * @param {number|string} pageOrCursor - page 1 for first load, or last item doc id for next page
-     * @param {number} pageSize
-     * @returns {Promise<{ items, page, totalPages, hasMore, cursor }>}
-     */
-    async getInventoryPage(characterId, pageOrCursor = 1, pageSize = 50) {
-        if (!characterId) {
-            return { items: [], page: 1, totalPages: 0, hasMore: false, cursor: null };
-        }
-
-        try {
-            const col = db.collection('characters').doc(characterId).collection('inventory');
-            let query = col.orderBy(firebase.firestore.FieldPath.documentId()).limit(pageSize);
-
-            const useCursor = typeof pageOrCursor === 'string' && pageOrCursor.length > 0 && pageOrCursor !== '1';
-            if (useCursor) {
-                const cursorRef = col.doc(pageOrCursor);
-                const cursorSnap = await cursorRef.get();
-                if (cursorSnap.exists) {
-                    query = col.orderBy(firebase.firestore.FieldPath.documentId()).startAfter(cursorSnap).limit(pageSize);
-                }
-            }
-
-            const snapshot = await query.get();
-            const items = [];
-            let lastId = null;
-            snapshot.forEach(function (doc) {
-                const data = doc.data();
-                items.push({
-                    id: doc.id,
-                    qty: data.qty != null ? data.qty : 0
-                });
-                lastId = doc.id;
-            });
-
-            const hasMore = snapshot.size >= pageSize;
-            const pageNum = useCursor ? 0 : (typeof pageOrCursor === 'number' ? pageOrCursor : 1);
-            console.log('[getInventoryPage] character:', characterId, 'items:', items.length, 'hasMore:', hasMore, 'reads:', snapshot.size);
-
-            return {
-                items: items,
-                page: pageNum,
-                totalPages: hasMore ? 0 : 1,
-                hasMore: hasMore,
-                cursor: lastId
-            };
-        } catch (error) {
-            console.error('[getInventoryPage] Error:', error);
-            return { items: [], page: 1, totalPages: 0, hasMore: false, cursor: null };
-        }
-    },    
-    /**
-     * Get quantity of a specific item (v2: queries subcollection document directly)
-     * @param {string} characterId - The character document ID
-     * @param {string} name - Item name (will be normalized to lowercase)
-     */
-    async getItemQuantity(characterId, name) {
-        if (!this.uuid) {
-            console.error('[getItemQuantity] No UUID - access denied');
-            return { success: false, error: 'No UUID - access denied' };
-        }
-        
-        if (!characterId) {
-            console.error('[getItemQuantity] No characterId provided');
-            return { success: false, error: 'No characterId provided' };
-        }
-        
-        if (!name || typeof name !== 'string') {
-            return { success: false, error: 'Invalid item name' };
-        }
-        
-        const normalizedName = name.toLowerCase().trim();
-        
-        try {
-            // Query specific document: characters/{characterId}/inventory/{itemName}
-            const doc = await db.collection('characters').doc(characterId)
-                .collection('inventory').doc(normalizedName).get();
-            
-            if (!doc.exists) {
-                return { success: true, data: { quantity: 0 } };
-            }
-            
-            const data = doc.data();
-            const quantity = data.qty || 0;
-            
-            return { success: true, data: { quantity } };
-        } catch (error) {
-            console.error('[getItemQuantity] Error:', error);
-            return { success: false, error: error.message };
-        }
+    async getInventoryPage() {
+        console.warn('[API] getInventoryPage is disabled — inventory is Experience KVP only');
+        return { items: [], page: 1, totalPages: 0, hasMore: false, cursor: null };
     },
-    
-    /**
-     * Check if required items are available (v2: uses batch queries on subcollection)
-     * @param {string} characterId - The character document ID
-     * @param {Array<{name: string, qty: number}>} items - Array of {name, qty} objects
-     * @returns {Promise<{success: boolean, data?: {allAvailable: boolean, missing?: Array}, error?: string}>}
-     */
-    async checkItems(characterId, items) {
-        if (!this.uuid) {
-            console.error('[checkItems] No UUID - access denied');
-            return { success: false, error: 'No UUID - access denied' };
-        }
-        
-        if (!characterId) {
-            console.error('[checkItems] No characterId provided');
-            return { success: false, error: 'No characterId provided' };
-        }
-        
-        if (!Array.isArray(items)) {
-            return { success: false, error: 'Items must be an array' };
-        }
-        
-        try {
-            // Build batch of document reads
-            const inventoryRef = db.collection('characters').doc(characterId).collection('inventory');
-            const reads = items.map(item => {
-                if (!item.name || typeof item.qty !== 'number') {
-                    return null;
-                }
-                const normalizedName = item.name.toLowerCase().trim();
-                return inventoryRef.doc(normalizedName).get();
-            }).filter(read => read !== null);
-            
-            // Execute all reads in parallel
-            const docs = await Promise.all(reads);
-            
-            const missing = [];
-            items.forEach((item, index) => {
-                if (!item.name || typeof item.qty !== 'number') {
-                    return;
-                }
-                
-                const normalizedName = item.name.toLowerCase().trim();
-                const doc = docs[index];
-                
-                let available = 0;
-                if (doc && doc.exists) {
-                    const data = doc.data();
-                    available = data.qty || 0;
-                }
-                
-                if (available < item.qty) {
-                    missing.push({
-                        name: normalizedName,
-                        required: item.qty,
-                        available: available
-                    });
-                }
-            });
-            
-            return {
-                success: true,
-                data: {
-                    allAvailable: missing.length === 0,
-                    missing: missing.length > 0 ? missing : undefined
-                }
-            };
-        } catch (error) {
-            console.error('[checkItems] Error:', error);
-            return { success: false, error: error.message };
-        }
+
+    async getItemQuantity() {
+        console.warn('[API] getItemQuantity is disabled — inventory is Experience KVP only');
+        return { success: true, data: { quantity: 0 } };
     },
-    
+
+    async checkItems() {
+        console.warn('[API] checkItems is disabled — inventory is Experience KVP only');
+        return { success: true, data: { allAvailable: false, missing: [] } };
+    },
+
     // =========================== CONSUMABLES API ===========================
 
   CONSUMABLE_CATEGORIES: ['food', 'beverage', 'healing', 'poison', 'antidote', 'alcohol', 'intoxicant'],

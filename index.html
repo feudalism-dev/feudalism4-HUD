@@ -116,21 +116,19 @@
                 </div>
             </section>
 
-            <!-- Inventory Tab -->
+            <!-- Inventory Tab (in-world only — Experience KVP, not Firestore) -->
             <section id="tab-inventory" class="tab-content">
-                <div class="panel">
-                    <div class="currency-bar">
-                        <span class="currency-label">Currency:</span>
-                        <span id="currency-amount" class="currency-value">0</span>
-                        <span class="currency-icon">🪙</span>
-                    </div>
-                </div>
-
-                <div class="panel">
+                <div class="panel" style="text-align: center; padding: var(--space-xl);">
                     <h2>Inventory</h2>
-                    <div id="inventory-grid" class="inventory-grid">
-                        <p class="placeholder-text">Your inventory is empty...</p>
-                    </div>
+                    <p class="info-text" style="font-size: 1.1em; margin: var(--space-lg) 0;">
+                        Personal inventory is managed on your <strong>Players HUD</strong>, not in this Setup screen.
+                    </p>
+                    <p class="info-text" style="font-size: 1.2em; margin-bottom: var(--space-md);">
+                        Click the <strong>I</strong> button on your HUD to open inventory.
+                    </p>
+                    <p class="field-hint" style="margin-top: var(--space-md);">
+                        Use the <strong>$</strong> button on the HUD for currency (when enabled).
+                    </p>
                 </div>
             </section>
 
@@ -144,7 +142,7 @@
                         <button class="admin-btn" data-admin="classes">⚔️ Classes</button>
                         <!-- Vocations admin removed: redundant with classes; re-enable if vocation grouping/bonuses are implemented -->
                         <!-- <button class="admin-btn" data-admin="vocations">📜 Vocations</button> -->
-                        <button class="admin-btn" data-admin="xp">⭐ Award XP</button>
+                        <button class="admin-btn" data-admin="xp">⭐ Award XP / Items</button>
                     </div>
                 </div>
 
