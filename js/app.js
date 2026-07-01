@@ -3615,12 +3615,12 @@ try {
                 }
                 this.updateStatusIndicator();
                 this.updateStepGuide();
-                this.clearMoapSessionDraft(characterId);
+                this.captureStatsFloor(this.state.character);
                 App.state.econSessionActive = true;
                 window.updateEconUrlParams(finalSpent, savedAp);
+                this.clearMoapSessionDraft(characterId);
                 window.pushEconToHud();
                 await this.cacheHudStatsForPlayers(this.state.character);
-                window.pushEconToHud();
                 await this.loadData({ forceRefresh: true });
                 if (this.state.character) {
                     this.state.character.ap_balance = savedAp;
@@ -8852,7 +8852,7 @@ window.XP_PER_AP = 1000;
 window.hasHudEconInUrl = function () {
     try {
         const p = new URLSearchParams(window.location.search);
-        return p.has('xp_lifetime') || p.has('xp_total');
+        return p.has('xp_lifetime') || p.has('xp_total') || p.has('ap_balance');
     } catch (e) {
         return false;
     }
@@ -8961,6 +8961,12 @@ window.getApBalance = function (character) {
         && App.state.econ.ap_balance != null && !isNaN(parseInt(App.state.econ.ap_balance, 10))) {
         ap = Math.max(0, parseInt(App.state.econ.ap_balance, 10));
         character.ap_balance = ap;
+        return ap;
+    }
+    const url = window.getEconFromUrl();
+    if (window.hasHudEconInUrl() && !isNaN(url.ap_balance) && url.ap_balance >= 0) {
+        ap = url.ap_balance;
+        character.ap_balance = ap;
     }
     return ap;
 };
@@ -8974,26 +8980,39 @@ window.getSpeciesStartingAp = function (character) {
 };
 
 /**
- * Fix stale KVP ap_balance when Firestore stats prove AP was spent but HUD still shows starting bonus.
- * Skips when xp_spent > 0 (player bought AP or paid class XP from the XP pool).
+ * AP implied by current stats above the v2 new-char baseline (all stats at 1).
+ */
+window.calculateApSpentFromBaseline = function (character, baselineLevel) {
+    if (!character) {
+        return 0;
+    }
+    const base = baselineLevel != null ? baselineLevel : 1;
+    const merged = window.getMergedCharacterStatsForPoints(character);
+    let spent = 0;
+    for (const stat in merged.stats) {
+        spent += window.getStatTotalCost(merged.stats[stat]) - window.getStatTotalCost(base);
+    }
+    return Math.max(0, spent);
+};
+
+/**
+ * Fix stale KVP ap_balance when saved stats prove AP was spent but HUD still shows starting bonus.
+ * Uses baseline 1 (v2 new chars), not species default line at 2.
  */
 window.reconcileStaleApBalance = function (character) {
     if (!character || !character.stats || !character.species_id) {
         return false;
     }
-    if (window.getEconSpent(character) > 0) {
-        return false;
-    }
-    const spentAbove = window.calculatePointsSpentAboveDefault(character);
-    if (spentAbove <= 0) {
+    const spentFromStats = window.calculateApSpentFromBaseline(character, 1);
+    if (spentFromStats <= 0) {
         return false;
     }
     const currentAp = window.getApBalance(character);
     const startingAp = window.getSpeciesStartingAp(character);
-    if (startingAp <= 0 || currentAp !== startingAp) {
+    if (startingAp <= 0 || currentAp > startingAp) {
         return false;
     }
-    const corrected = Math.max(0, startingAp - spentAbove);
+    const corrected = Math.max(0, startingAp - spentFromStats);
     if (corrected >= currentAp) {
         return false;
     }
@@ -9005,7 +9024,7 @@ window.reconcileStaleApBalance = function (character) {
         App.state.econ.ap_balance = corrected;
         App.state.econSessionActive = true;
     }
-    console.log('[XP] Reconciled stale AP balance:', currentAp, '→', corrected, '(stats prove', spentAbove, 'AP spent)');
+    console.log('[XP] Reconciled stale AP balance:', currentAp, '→', corrected, '(stats prove', spentFromStats, 'AP spent)');
     return true;
 };
 
@@ -9258,10 +9277,12 @@ window.onStatChange = async function(stat, action) {
     }
     
     App.state.dirty = true;
+    App.state.econSessionActive = true;
     App.updateStatusIndicator();
     if (typeof App.persistMoapSessionDraft === 'function') {
-        App.persistMoapSessionDraft();
+        App.persistMoapSessionDraft(true);
     }
+    window.schedulePushEconToHud();
 
     await App.renderAll();
 };
