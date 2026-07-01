@@ -3856,13 +3856,13 @@ try {
                 this.showConsumablesManagement();
                 break;
             case 'xp':
-                this.showXPAward();
+                this.showGiveItemAdmin();
                 break;
             case 'givecoins':
                 this.showGiveCoins();
                 break;
             case 'giveitem':
-                this.showXPAward();
+                this.showGiveItemAdmin();
                 break;
             default:
                 adminContent.innerHTML = '<p class="placeholder-text">Select an admin function...</p>';
@@ -4529,34 +4529,12 @@ try {
         }
     },
     
-    showXPAward() {
+    showGiveItemAdmin() {
         const adminContent = UI.elements.adminContent;
         
         adminContent.innerHTML = `
-            <h3>⭐ Award XP / Give Items</h3>
-            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Grant XP via Firestore, or give inventory items to an online player via their HUD (Experience KVP).</p>
-            
-            <h4 style="margin-top: var(--space-lg); color: var(--gold-light);">Award XP</h4>
-            <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">Enter a character ID or player UUID.</p>
-            <div class="form-group">
-                <label for="xp-target">Target Character ID or Player UUID</label>
-                <input type="text" id="xp-target" placeholder="Enter character ID or player UUID...">
-            </div>
-            <div class="form-group">
-                <label for="xp-amount">XP Amount</label>
-                <input type="number" id="xp-amount" value="100" min="1">
-            </div>
-            <div class="form-group">
-                <label for="xp-reason">Reason (Optional)</label>
-                <input type="text" id="xp-reason" placeholder="Quest completion, roleplay excellence, etc...">
-            </div>
-            <div style="display: flex; gap: var(--space-sm); margin-bottom: var(--space-lg);">
-                <button class="action-btn primary" id="btn-award-xp">⭐ Award XP</button>
-                <button class="action-btn secondary" id="btn-clear-xp">Clear XP Form</button>
-            </div>
-            <div id="xp-result" style="margin-bottom: var(--space-lg);"></div>
-            
-            <hr style="border: none; border-top: 1px solid var(--border-color); margin: var(--space-lg) 0;">
+            <h3>📦 Give Items (HUD inventory)</h3>
+            <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">Gameplay XP is stored in Second Life Experience KVP only — use the in-world <strong>F4 Admin XP Tool</strong> to grant or fix XP. This panel gives inventory items to online players.</p>
             
             <h4 style="color: var(--gold-light);">Give Item (in-world inventory)</h4>
             <p style="color: var(--text-secondary); margin-bottom: var(--space-md); font-size: 0.95em;">Player must be online with HUD attached. Items go to Experience KVP inventory (not Firestore).</p>
@@ -4584,13 +4562,6 @@ try {
             <div id="item-result" style="margin-top: var(--space-md);"></div>
         `;
         
-        const clearXpForm = () => {
-            document.getElementById('xp-target').value = '';
-            document.getElementById('xp-amount').value = '100';
-            document.getElementById('xp-reason').value = '';
-            document.getElementById('xp-result').innerHTML = '';
-        };
-        
         const clearItemForm = () => {
             document.getElementById('item-target').value = '';
             document.getElementById('item-name').value = '';
@@ -4599,49 +4570,8 @@ try {
             document.getElementById('item-result').innerHTML = '';
         };
         
-        document.getElementById('btn-clear-xp')?.addEventListener('click', clearXpForm);
         document.getElementById('btn-clear-item')?.addEventListener('click', clearItemForm);
         
-        document.getElementById('btn-award-xp')?.addEventListener('click', async () => {
-            const target = document.getElementById('xp-target').value.trim();
-            const amount = parseInt(document.getElementById('xp-amount').value);
-            const reason = document.getElementById('xp-reason').value.trim();
-            
-            if (!target || !amount || amount <= 0) {
-                UI.showToast('Please enter valid target and positive XP amount', 'warning');
-                return;
-            }
-            
-            const resultDiv = document.getElementById('xp-result');
-            resultDiv.innerHTML = '<p style="color: var(--text-muted);">Granting XP...</p>';
-            
-            try {
-                const result = await API.awardXP(target, amount, reason);
-                if (result.success) {
-                    resultDiv.innerHTML = `
-                        <div style="padding: var(--space-md); background: var(--success-bg); border: 1px solid var(--success); border-radius: 4px;">
-                            <p style="color: var(--success); font-weight: bold;">✅ Successfully granted ${amount} XP!</p>
-                            ${result.data?.newTotal ? `<p style="color: var(--text-secondary);">New Total: ${result.data.newTotal} XP</p>` : ''}
-                        </div>
-                    `;
-                    UI.showToast(`Awarded ${amount} XP!`, 'success');
-                    // Clear target for next grant
-                    document.getElementById('xp-target').value = '';
-                    document.getElementById('xp-reason').value = '';
-                } else {
-                    throw new Error(result.error || 'Unknown error');
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `
-                    <div style="padding: var(--space-md); background: var(--error-bg); border: 1px solid var(--error); border-radius: 4px;">
-                        <p style="color: var(--error); font-weight: bold;">❌ Failed to award XP</p>
-                        <p style="color: var(--text-secondary);">${error.message}</p>
-                    </div>
-                `;
-                UI.showToast('Failed: ' + error.message, 'error');
-            }
-        });
-
         document.getElementById('btn-give-item')?.addEventListener('click', () => {
             const target = document.getElementById('item-target').value.trim();
             const itemName = document.getElementById('item-name').value.trim().toLowerCase();
@@ -4687,7 +4617,7 @@ try {
     },
     
     showGiveItem() {
-        this.showXPAward();
+        this.showGiveItemAdmin();
     },
     
     /**

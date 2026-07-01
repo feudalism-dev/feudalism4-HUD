@@ -194,21 +194,10 @@ const API = {
     },
     
     /**
-     * Award XP to a character (admin only)
-     * @param {string} targetUUID - Character owner UUID
-     * @param {number} amount - XP amount (can be negative)
-     * @param {string} reason - Reason for award
+     * @deprecated Gameplay XP is Experience KVP only — use in-world F4 Admin XP Tool.
      */
     async awardXP(target, amount, reason = '') {
-        // Support both character ID and UUID
-        const isUUID = target.includes('-');
-        
-        return this.request('admin.xp.award', {
-            target: target,
-            target_type: isUUID ? 'uuid' : 'character_id',
-            amount: amount,
-            reason: reason
-        });
+        return { success: false, error: 'XP awards are disabled in Setup HUD. Use the in-world F4 Admin XP Tool (Experience KVP).' };
     },
     
     /**
