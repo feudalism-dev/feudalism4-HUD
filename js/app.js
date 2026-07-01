@@ -556,14 +556,19 @@ try {
                     // Load selected / active / first character
                     const characterId = this.pickCharacterIdToLoad(characters);
                     let character = this.characterFromList(characters, characterId);
-                    if (!character) {
+                    if (!character && characterId) {
                         const charResult = await API.getCharacterById(characterId);
-                        if (!charResult.success) {
+                        if (charResult.success) {
+                            character = charResult.data.character;
+                        } else if (characters.length > 0) {
+                            console.warn('[loadData] Could not load', characterId, '- using first roster entry');
+                            character = characters[0];
+                            this.state.selectedCharacterId = character.id;
+                        } else {
                             UI.showToast('Failed to load character', 'error');
                             return;
                         }
-                        character = charResult.data.character;
-                    } else {
+                    } else if (character) {
                         console.log('[loadData] Using character from listCharacters (saved 1 doc read)');
                     }
                     
@@ -630,7 +635,10 @@ try {
                             // Gameplay XP/pools are authoritative in HUD KVP; Firestore is often stale
                             this.initEconFromUrl();
                             this.mergePoolsFromUrl();
-                            this.migrateLegacyEconIfNeeded();
+                            const hadMoapDraft = this.restoreMoapSessionDraft();
+                            if (!hadMoapDraft) {
+                                this.migrateLegacyEconIfNeeded();
+                            }
                             
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
                             await this.cacheHudStatsForPlayers(this.state.character);
@@ -1988,18 +1996,18 @@ try {
 
         let changed = false;
 
-        if (genders.length > 0 && (force || !genders.some(g => g.id === char.gender))) {
+        if (genders.length > 0 && char.gender && (force || !genders.some(g => g.id === char.gender))) {
             char.gender = genders[0].id;
             changed = true;
         }
 
-        if (species.length > 0 && (force || !species.some(s => s.id === char.species_id))) {
+        if (species.length > 0 && char.species_id && (force || !species.some(s => s.id === char.species_id))) {
             char.species_id = species[0].id;
             this.applySpeciesToCharacter(char, species[0]);
             changed = true;
         }
 
-        if (classes.length > 0 && (force || !classes.some(c => c.id === char.class_id))) {
+        if (classes.length > 0 && char.class_id && (force || !classes.some(c => c.id === char.class_id))) {
             char.class_id = this.pickDefaultClassId(classes, char) || classes[0].id;
             changed = true;
         }
@@ -2301,6 +2309,81 @@ try {
         }
         const merged = window.getMergedCharacterStatsForPoints(char);
         this.state.statsFloor = Object.assign({}, merged.stats);
+    },
+
+    getMoapDraftStorageKey(characterId) {
+        return 'f4_moap_draft_' + (characterId || '');
+    },
+
+    /**
+     * Preserve unsaved stats + AP across MOAP full-page reloads (pushEconToHud / stats_csv sync).
+     */
+    persistMoapSessionDraft(forcePersist) {
+        const char = this.state.character;
+        if (!char || !char.id || !char.stats) {
+            return;
+        }
+        if (!forcePersist && !this.state.dirty && !this.state.econSessionActive) {
+            return;
+        }
+        try {
+            const payload = {
+                stats: Object.assign({}, char.stats),
+                ap_balance: window.getApBalance(char),
+                xp_spent: window.getEconSpent(char),
+                xp_lifetime: window.getEconLifetime(char),
+                updated: Date.now()
+            };
+            sessionStorage.setItem(this.getMoapDraftStorageKey(char.id), JSON.stringify(payload));
+        } catch (e) { /* ignore */ }
+    },
+
+    restoreMoapSessionDraft() {
+        const char = this.state.character;
+        if (!char || !char.id) {
+            return false;
+        }
+        try {
+            const raw = sessionStorage.getItem(this.getMoapDraftStorageKey(char.id));
+            if (!raw) {
+                return false;
+            }
+            const draft = JSON.parse(raw);
+            if (!draft || !draft.stats) {
+                return false;
+            }
+            char.stats = Object.assign({}, draft.stats);
+            if (draft.ap_balance != null) {
+                char.ap_balance = draft.ap_balance;
+            }
+            if (draft.xp_spent != null) {
+                char.xp_spent = draft.xp_spent;
+            }
+            if (draft.xp_lifetime != null) {
+                char.xp_lifetime = draft.xp_lifetime;
+            }
+            if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                App.state.econ = {};
+            }
+            App.state.econ.ap_balance = char.ap_balance;
+            App.state.econ.xp_spent = char.xp_spent;
+            App.state.econ.xp_lifetime = char.xp_lifetime;
+            App.state.econSessionActive = true;
+            window.updateEconUrlParams(char.xp_spent, char.ap_balance);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    },
+
+    clearMoapSessionDraft(characterId) {
+        const id = characterId || (this.state.character && this.state.character.id);
+        if (!id) {
+            return;
+        }
+        try {
+            sessionStorage.removeItem(this.getMoapDraftStorageKey(id));
+        } catch (e) { /* ignore */ }
     },
     
     /**
@@ -2762,19 +2845,19 @@ try {
 
     /**
      * Resolve which character to load on MOAP open (not just first in list).
+     * Setup HUD selection (session / Firestore) wins over Players HUD URL param.
      */
     resolveInitialCharacterId(activeCharFromUrl) {
         const storageKey = this.getActiveCharacterStorageKey();
         let id = null;
-        if (activeCharFromUrl) {
-            id = activeCharFromUrl;
-        } else {
-            try {
-                id = sessionStorage.getItem(storageKey);
-            } catch (e) { /* MOAP may block storage */ }
-        }
+        try {
+            id = sessionStorage.getItem(storageKey);
+        } catch (e) { /* MOAP may block storage */ }
         if (!id && API.activeCharacterId) {
             id = API.activeCharacterId;
+        }
+        if (!id && activeCharFromUrl) {
+            id = activeCharFromUrl;
         }
         if (id) {
             this.state.selectedCharacterId = id;
@@ -2784,19 +2867,33 @@ try {
 
     /**
      * Pick character document id when loading roster from Firestore.
+     * Always honor explicit Setup selection even if roster cache is briefly stale.
      */
     pickCharacterIdToLoad(characters) {
-        if (!characters || characters.length === 0) {
-            return null;
-        }
-        const ids = characters.map(c => c.id);
         const preferred = this.state.selectedCharacterId
             || API.activeCharacterId
             || null;
-        if (preferred && ids.indexOf(preferred) !== -1) {
+        if (preferred) {
             return preferred;
         }
+        if (!characters || characters.length === 0) {
+            return null;
+        }
         return characters[0].id;
+    },
+
+    syncActiveCharToUrl(characterId) {
+        if (!characterId) {
+            return;
+        }
+        try {
+            const currentUrl = new URL(window.location.href);
+            if (currentUrl.searchParams.get('active_char') === characterId) {
+                return;
+            }
+            currentUrl.searchParams.set('active_char', characterId);
+            this.safeHistoryReplaceState(currentUrl.toString());
+        } catch (e) { /* ignore */ }
     },
 
     async rememberSelectedCharacter(characterId) {
@@ -2805,6 +2902,7 @@ try {
         }
         this.state.selectedCharacterId = characterId;
         API.activeCharacterId = characterId;
+        this.syncActiveCharToUrl(characterId);
         try {
             sessionStorage.setItem(this.getActiveCharacterStorageKey(), characterId);
         } catch (e) { /* ignore */ }
@@ -3020,6 +3118,9 @@ try {
             currentUrl.searchParams.set('stats_csv', csv);
             currentUrl.searchParams.set('stats_csv_ts', Date.now().toString());
             this._lastStatsCsvSynced = csv;
+            if (typeof App !== 'undefined' && App.persistMoapSessionDraft) {
+                App.persistMoapSessionDraft(true);
+            }
             // Full navigation — SL reads PRIM_MEDIA_CURRENT_URL; replaceState alone is invisible to LSL
             console.log('[Players HUD Sync] Navigating MOAP URL with stats_csv');
             window.location.assign(currentUrl.toString());
@@ -3398,6 +3499,7 @@ try {
                 this.state.selectedCharacterId = result.data.character.id;
                 this.state.dirty = false;
                 this.applyPendingClassXpChargeAfterSave();
+                await this.rememberSelectedCharacter(result.data.character.id);
                 if (draft) {
                     this.state.isNewCharacter = true;
                     this.state.creationInProgress = true;
@@ -3409,7 +3511,7 @@ try {
                 }
                 this.updateStatusIndicator();
                 this.updateStepGuide();
-                await this.loadData();
+                await this.loadData({ forceRefresh: true });
                 return true;
             } else {
                 // Update existing character (must target the selected doc, not "first" character)
@@ -3485,6 +3587,7 @@ try {
                 this.applyPendingClassXpChargeAfterSave();
                 const finalSpent = window.getEconSpent(this.state.character);
                 this.state.selectedCharacterId = result.data.character.id;
+                await this.rememberSelectedCharacter(result.data.character.id);
                 if (draft) {
                     this.state.isNewCharacter = true;
                     this.state.creationInProgress = true;
@@ -3501,7 +3604,10 @@ try {
                 }
                 this.updateStatusIndicator();
                 this.updateStepGuide();
-                await this.loadData();
+                this.clearMoapSessionDraft(characterId);
+                App.state.econSessionActive = true;
+                window.updateEconUrlParams(finalSpent, savedAp);
+                await this.loadData({ forceRefresh: true });
                 if (this.state.character) {
                     this.state.character.ap_balance = savedAp;
                     this.state.character.xp_spent = finalSpent;
@@ -3509,13 +3615,10 @@ try {
                     App.state.econ.xp_spent = finalSpent;
                 }
                 this.captureStatsFloor(this.state.character);
-                window.updateEconUrlParams(finalSpent, savedAp);
                 // Refresh Players HUD stat cache (LSD only — crafting reads this, not Firestore)
                 await this.cacheHudStatsForPlayers(this.state.character);
-                
-                setTimeout(function () {
-                    window.pushEconToHud();
-                }, 600);
+
+                window.pushEconToHud();
 
                 setTimeout(() => {
                     if (this.state.character) {
@@ -8809,6 +8912,12 @@ window.getEconLifetime = function (character) {
 window.getEconSpent = function (character) {
     window.syncEconToCharacter(character);
     let spent = Math.max(0, parseInt(character.xp_spent, 10) || 0);
+    if (typeof App !== 'undefined' && App.state.econSessionActive && App.state.econ
+        && App.state.econ.xp_spent != null && !isNaN(parseInt(App.state.econ.xp_spent, 10))) {
+        spent = Math.max(0, parseInt(App.state.econ.xp_spent, 10));
+        character.xp_spent = spent;
+        return spent;
+    }
     const url = window.getEconFromUrl();
     if (url.xp_spent > spent) {
         spent = url.xp_spent;
@@ -8830,7 +8939,13 @@ window.getApBalance = function (character) {
         return 0;
     }
     window.syncEconToCharacter(character);
-    return Math.max(0, parseInt(character.ap_balance, 10) || 0);
+    let ap = Math.max(0, parseInt(character.ap_balance, 10) || 0);
+    if (typeof App !== 'undefined' && App.state.econSessionActive && App.state.econ
+        && App.state.econ.ap_balance != null && !isNaN(parseInt(App.state.econ.ap_balance, 10))) {
+        ap = Math.max(0, parseInt(App.state.econ.ap_balance, 10));
+        character.ap_balance = ap;
+    }
+    return ap;
 };
 
 window.updateEconUrlParams = function (spent, ap) {
@@ -8890,6 +9005,9 @@ window.pushEconToHud = function () {
     if (!char) {
         return false;
     }
+    if (typeof App !== 'undefined' && App.persistMoapSessionDraft) {
+        App.persistMoapSessionDraft(true);
+    }
     if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
         window.schedulePushEconToHud();
         return false;
@@ -8907,6 +9025,9 @@ window.pushEconToHud = function () {
         currentUrl.searchParams.set('ap_balance', apStr);
         currentUrl.searchParams.set('econ_ts', ts);
         currentUrl.searchParams.set('moap_tab', window.getMoapActiveTab());
+        if (char.id) {
+            currentUrl.searchParams.set('active_char', char.id);
+        }
         currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
         currentUrl.searchParams.set('lsl_cmd_ts', ts);
         // Full navigation — SL reads face-4 media URL via llGetLinkMedia
@@ -8954,6 +9075,9 @@ window.buyPointsWithXp = function (pointCount) {
     if (App.state.econ) {
         App.state.econ.ap_balance = char.ap_balance;
         App.state.econ.xp_spent = char.xp_spent;
+    }
+    if (App.state.dirty && App.state.pendingChanges && App.state.pendingChanges.stats) {
+        UI.showToast('Buying points — your unsaved stat changes are kept for this session.', 'info', 2500);
     }
     if (typeof UI !== 'undefined' && UI.showToast) {
         UI.showToast('Syncing ' + xpCost + ' XP spend to HUD...', 'info', 2000);
@@ -9074,7 +9198,10 @@ window.onStatChange = async function(stat, action) {
     
     App.state.dirty = true;
     App.updateStatusIndicator();
-    
+    if (typeof App.persistMoapSessionDraft === 'function') {
+        App.persistMoapSessionDraft();
+    }
+
     await App.renderAll();
 };
 
