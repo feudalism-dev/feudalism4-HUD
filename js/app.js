@@ -639,6 +639,12 @@ try {
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
+                            if (window.reconcileStaleApBalance(this.state.character)) {
+                                window.updateEconUrlParams(
+                                    window.getEconSpent(this.state.character),
+                                    window.getApBalance(this.state.character)
+                                );
+                            }
                             
                             // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
                             await this.cacheHudStatsForPlayers(this.state.character);
@@ -3212,6 +3218,11 @@ try {
         if (char.stats) {
             data.stats = this.statsCsvFromChar(char);
         }
+        if (char.id) {
+            data.xp_lifetime = window.getEconLifetime(char);
+            data.xp_spent = window.getEconSpent(char);
+            data.ap_balance = window.getApBalance(char);
+        }
         const pool = function (p) {
             if (!p) {
                 return null;
@@ -3607,17 +3618,23 @@ try {
                 this.clearMoapSessionDraft(characterId);
                 App.state.econSessionActive = true;
                 window.updateEconUrlParams(finalSpent, savedAp);
+                window.pushEconToHud();
+                await this.cacheHudStatsForPlayers(this.state.character);
+                window.pushEconToHud();
                 await this.loadData({ forceRefresh: true });
                 if (this.state.character) {
                     this.state.character.ap_balance = savedAp;
                     this.state.character.xp_spent = finalSpent;
                     App.state.econ.ap_balance = savedAp;
                     App.state.econ.xp_spent = finalSpent;
+                    App.state.econSessionActive = true;
+                    window.reconcileStaleApBalance(this.state.character);
                 }
                 this.captureStatsFloor(this.state.character);
-                // Refresh Players HUD stat cache (LSD only — crafting reads this, not Firestore)
-                await this.cacheHudStatsForPlayers(this.state.character);
-
+                window.updateEconUrlParams(
+                    window.getEconSpent(this.state.character),
+                    window.getApBalance(this.state.character)
+                );
                 window.pushEconToHud();
 
                 setTimeout(() => {
@@ -8948,6 +8965,50 @@ window.getApBalance = function (character) {
     return ap;
 };
 
+/** Species starting AP budget (human bonus only — v2 stores remainder in ap_balance KVP field). */
+window.getSpeciesStartingAp = function (character) {
+    if (!character || character.species_id !== 'human') {
+        return 0;
+    }
+    return 10;
+};
+
+/**
+ * Fix stale KVP ap_balance when Firestore stats prove AP was spent but HUD still shows starting bonus.
+ * Skips when xp_spent > 0 (player bought AP or paid class XP from the XP pool).
+ */
+window.reconcileStaleApBalance = function (character) {
+    if (!character || !character.stats || !character.species_id) {
+        return false;
+    }
+    if (window.getEconSpent(character) > 0) {
+        return false;
+    }
+    const spentAbove = window.calculatePointsSpentAboveDefault(character);
+    if (spentAbove <= 0) {
+        return false;
+    }
+    const currentAp = window.getApBalance(character);
+    const startingAp = window.getSpeciesStartingAp(character);
+    if (startingAp <= 0 || currentAp !== startingAp) {
+        return false;
+    }
+    const corrected = Math.max(0, startingAp - spentAbove);
+    if (corrected >= currentAp) {
+        return false;
+    }
+    character.ap_balance = corrected;
+    if (typeof App !== 'undefined') {
+        if (!App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.ap_balance = corrected;
+        App.state.econSessionActive = true;
+    }
+    console.log('[XP] Reconciled stale AP balance:', currentAp, '→', corrected, '(stats prove', spentAbove, 'AP spent)');
+    return true;
+};
+
 window.updateEconUrlParams = function (spent, ap) {
     try {
         const currentUrl = new URL(window.location.href);
@@ -9018,8 +9079,8 @@ window.pushEconToHud = function () {
     }
     try {
         const currentUrl = new URL(window.location.href);
-        const spentStr = String(char.xp_spent || 0);
-        const apStr = String(char.ap_balance || 0);
+        const spentStr = String(window.getEconSpent(char));
+        const apStr = String(window.getApBalance(char));
         const ts = Date.now().toString();
         currentUrl.searchParams.set('xp_spent', spentStr);
         currentUrl.searchParams.set('ap_balance', apStr);
