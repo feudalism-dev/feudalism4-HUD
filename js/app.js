@@ -356,9 +356,6 @@ try {
             if (UI.cleanMoapUrlParams) UI.cleanMoapUrlParams();
         }
         
-        // Setup "Open in Browser" link
-        this.setupOpenInBrowserLink();
-        
         // Initialize super admin if this is the super admin UUID
         if (API.uuid === API.SUPER_ADMIN_UUID) {
             await API.initializeSuperAdmin();
@@ -765,8 +762,6 @@ try {
                 await this.renderAll();
                 DebugLog.log('renderAll() completed', 'debug');
             }
-            this.setupOpenInBrowserLink();
-            
         } catch (error) {
             DebugLog.log('loadData() ERROR: ' + error.message, 'error');
             DebugLog.log('Stack: ' + (error.stack || 'N/A'), 'error');
@@ -919,105 +914,6 @@ try {
             console.error('Failed to show new character dialog:', error);
             UI.showToast('Failed to load universe data', 'error');
         }
-    },
-    
-    /**
-     * Setup "Open in Browser" link with credentials
-     */
-    setupOpenInBrowserLink() {
-        const link = document.getElementById('open-in-browser-link');
-        if (!link) return;
-        
-        // Only show if we have credentials (UUID is required)
-        if (!API.uuid || API.uuid.trim() === '') {
-            link.style.display = 'none';
-            return;
-        }
-        
-        const baseUrl = window.location.origin + window.location.pathname;
-        const params = new URLSearchParams();
-        const current = new URLSearchParams(window.location.search);
-        params.set('uuid', API.uuid);
-        if (API.username) params.set('username', API.username);
-        if (API.displayName) params.set('displayname', API.displayName);
-        if (API.hudChannel) params.set('channel', API.hudChannel.toString());
-
-        // Carry HUD gameplay + selection params so browser matches in-world Setup
-        const carryKeys = [
-            'active_char', 'xp_lifetime', 'xp_total', 'xp_spent', 'ap_balance',
-            'health_pipe', 'stamina_pipe', 'mana_pipe', 'moap_tab'
-        ];
-        carryKeys.forEach((key) => {
-            const v = current.get(key);
-            if (v) {
-                params.set(key, v);
-            }
-        });
-        if (!params.has('active_char')) {
-            const charId = this.state.selectedCharacterId
-                || this.state.character?.id
-                || current.get('active_char');
-            if (charId) {
-                params.set('active_char', charId);
-            }
-        }
-        const char = this.state.character;
-        if (char) {
-            if (!params.has('xp_lifetime')) {
-                const life = char.xp_lifetime || char.xp_total;
-                if (life) {
-                    params.set('xp_lifetime', String(life));
-                }
-            }
-            if (!params.has('xp_spent') && char.xp_spent != null) {
-                params.set('xp_spent', String(char.xp_spent));
-            }
-            if (!params.has('ap_balance') && char.ap_balance != null) {
-                params.set('ap_balance', String(char.ap_balance));
-            }
-            const poolToPipe = function (pool) {
-                if (!pool || typeof pool !== 'object') {
-                    return null;
-                }
-                const c = pool.current != null ? pool.current : (pool.base != null ? pool.base : 0);
-                const b = pool.base != null ? pool.base : c;
-                const m = pool.max != null ? pool.max : b;
-                return c + '|' + b + '|' + m;
-            };
-            if (!params.has('health_pipe')) {
-                const pipe = poolToPipe(char.health);
-                if (pipe) {
-                    params.set('health_pipe', pipe);
-                }
-            }
-            if (!params.has('stamina_pipe')) {
-                const pipe = poolToPipe(char.stamina);
-                if (pipe) {
-                    params.set('stamina_pipe', pipe);
-                }
-            }
-            if (!params.has('mana_pipe')) {
-                const pipe = poolToPipe(char.mana);
-                if (pipe) {
-                    params.set('mana_pipe', pipe);
-                }
-            }
-        }
-
-        const fullUrl = baseUrl + '?' + params.toString();
-        link.href = fullUrl;
-        link.style.display = 'inline-block';
-    },
-    
-    /**
-     * Open Setup HUD in external browser
-     */
-    openInBrowser() {
-        const link = document.getElementById('open-in-browser-link');
-        if (!link || !link.href) return;
-        
-        // Open in new window/tab
-        window.open(link.href, '_blank', 'noopener,noreferrer');
     },
     
     /**
@@ -2625,39 +2521,6 @@ try {
         // New Character link in banner
         document.getElementById('new-character-link')?.addEventListener('click', () => {
             this.showNewCharacterDialog();
-        });
-        
-        // Open in Browser link - use click handler for MOAP browser compatibility
-        document.getElementById('open-in-browser-link')?.addEventListener('click', (e) => {
-            const link = e.currentTarget;
-            if (link && link.href && link.href !== '#' && link.href !== window.location.href) {
-                // Try window.open first (works in regular browsers)
-                const newWindow = window.open(link.href, '_blank', 'noopener,noreferrer');
-                // If window.open was blocked or failed, fall back to navigating
-                if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-                    // For MOAP browsers that don't support window.open, try direct navigation
-                    // This will at least show the URL so user can copy it
-                    console.log('window.open failed, URL is:', link.href);
-                    // In MOAP, we might need to use llOpenURL via secondlife:// protocol
-                    // But for now, just prevent default and show the URL
-                    e.preventDefault();
-                    // Show the URL in an alert or copy to clipboard if possible
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(link.href).then(() => {
-                            UI.showToast('URL copied to clipboard! Paste it in your browser.', 'info', 3000);
-                        }).catch(() => {
-                            UI.showToast('URL: ' + link.href, 'info', 5000);
-                        });
-                    } else {
-                        UI.showToast('URL: ' + link.href, 'info', 5000);
-                    }
-                } else {
-                    e.preventDefault(); // Prevent default navigation since window.open worked
-                }
-            } else {
-                e.preventDefault();
-                UI.showToast('Link not ready yet', 'warning');
-            }
         });
         
         // New Character button (old location - keep for compatibility)

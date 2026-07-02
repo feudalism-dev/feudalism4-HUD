@@ -56,7 +56,6 @@
             </div>
             <div class="header-info">
                 <button id="btn-new-character-nav" class="action-btn secondary" style="display: inline-block; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 12px; border-radius: 4px;">🆕 New Character</button>
-                <a id="open-in-browser-link" href="#" style="display: none; color: #10b981; text-decoration: none; margin-right: var(--space-sm); font-size: 0.9em; padding: 4px 8px; border: 1px solid #10b981; border-radius: 4px;">🌐 Open in Browser</a>
                 <span id="user-role" class="role-badge">Player</span>
                 <span id="hud-build-badge" style="font-size:0.75rem;color:#94a3b8;margin-right:var(--space-sm);" title="HUD web build">HUD …</span>
                 <button id="debug-toggle-btn" class="status-dot online" title="Toggle Debug Panel" aria-label="Toggle Debug Panel"></button>
@@ -576,7 +575,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.8';
+            window.HUD_BUILD_LABEL = '4.2.9';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
