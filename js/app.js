@@ -394,10 +394,19 @@ try {
         await this.loadData();
         DebugLog.log('loadData() completed', 'debug');
         
-        // If LSL requested data, refresh stat cache when character is ready
+        // If LSL requested data, refresh stat cache when character is ready (not after econ-only sync)
         if (requestData === '1' && this.state.character) {
-            console.log('[Players HUD] Character found — caching stats for Players HUD');
-            this.cacheHudStatsForPlayers(this.state.character);
+            const skipHudStatsPush = (function () {
+                try {
+                    return new URLSearchParams(window.location.search).get('econ_sync') === '1';
+                } catch (e) {
+                    return false;
+                }
+            })();
+            if (!skipHudStatsPush) {
+                console.log('[Players HUD] Character found — caching stats for Players HUD');
+                this.cacheHudStatsForPlayers(this.state.character);
+            }
         }
         
         // Setup event handlers
@@ -667,7 +676,7 @@ try {
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
-                            if (window.reconcileStaleApBalance(this.state.character)) {
+                            if (!econSyncOnly && window.reconcileStaleApBalance(this.state.character)) {
                                 window.updateEconUrlParams(
                                     window.getEconSpent(this.state.character),
                                     window.getApBalance(this.state.character)
@@ -740,9 +749,22 @@ try {
             if (typeof window.restoreMoapTabFromUrl === 'function') {
                 window.restoreMoapTabFromUrl();
             }
-            DebugLog.log('Calling renderAll()...', 'debug');
-            await this.renderAll();
-            DebugLog.log('renderAll() completed', 'debug');
+            const econSyncReload = (function () {
+                try {
+                    return new URLSearchParams(window.location.search).get('econ_sync') === '1';
+                } catch (e) {
+                    return false;
+                }
+            })();
+            if (econSyncReload) {
+                DebugLog.log('Calling renderEconSyncRefresh()...', 'debug');
+                this.renderEconSyncRefresh();
+                DebugLog.log('renderEconSyncRefresh() completed', 'debug');
+            } else {
+                DebugLog.log('Calling renderAll()...', 'debug');
+                await this.renderAll();
+                DebugLog.log('renderAll() completed', 'debug');
+            }
             this.setupOpenInBrowserLink();
             
         } catch (error) {
@@ -2092,6 +2114,34 @@ try {
     },
 
     /**
+     * After buy AP / stat spend: refresh econ + stats grid only (no full character reload).
+     */
+    renderEconSyncRefresh() {
+        const char = this.state.character;
+        if (!char) {
+            return;
+        }
+        this.updateStatusIndicator();
+        this.updateStepGuide();
+        const stats = char.stats || this.getDefaultStats();
+        const caps = this.calculateStatCaps();
+        const availablePoints = window.getApBalance(char);
+        if (typeof UI.renderEconDisplay === 'function') {
+            UI.renderEconDisplay(char);
+        }
+        if (typeof UI.renderStatsGrid === 'function') {
+            UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
+        }
+        try {
+            const u = new URL(window.location.href);
+            if (u.searchParams.has('econ_sync')) {
+                u.searchParams.delete('econ_sync');
+                this.safeHistoryReplaceState(u.toString());
+            }
+        } catch (e) { /* ignore */ }
+    },
+
+    /**
      * Render all UI components
      */
     async renderAll() {
@@ -2421,7 +2471,9 @@ try {
             App.state.econ.xp_spent = char.xp_spent;
             App.state.econ.xp_lifetime = char.xp_lifetime;
             App.state.econSessionActive = true;
-            window.updateEconUrlParams(char.xp_spent, char.ap_balance);
+            if (!urlHasEconPush) {
+                window.updateEconUrlParams(char.xp_spent, char.ap_balance);
+            }
             return true;
         } catch (e) {
             return false;
@@ -9100,6 +9152,8 @@ window.pushEconToHud = function () {
         const spentStr = String(window.getEconSpent(char));
         const apStr = String(window.getApBalance(char));
         const ts = Date.now().toString();
+        const lifeStr = String(window.getEconLifetime(char));
+        currentUrl.searchParams.set('xp_lifetime', lifeStr);
         currentUrl.searchParams.set('xp_spent', spentStr);
         currentUrl.searchParams.set('ap_balance', apStr);
         currentUrl.searchParams.set('econ_ts', ts);
@@ -9167,6 +9221,14 @@ window.buyPointsWithXp = function (pointCount) {
     }
     if (typeof UI !== 'undefined' && UI.showToast) {
         UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — syncing to HUD...', 'info', 2000);
+    }
+    if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
+        UI.renderEconDisplay(char);
+        const stats = char.stats || (typeof App.getDefaultStats === 'function' ? App.getDefaultStats() : {});
+        const caps = typeof App.calculateStatCaps === 'function' ? App.calculateStatCaps() : {};
+        if (typeof UI.renderStatsGrid === 'function') {
+            UI.renderStatsGrid(stats, caps, newAp, App.state.statsFloor || {});
+        }
     }
     window.pushEconToHud();
     return true;
@@ -9288,9 +9350,14 @@ window.onStatChange = async function(stat, action) {
     if (typeof App.persistMoapSessionDraft === 'function') {
         App.persistMoapSessionDraft(true);
     }
+    if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
+        UI.renderEconDisplay(App.state.character);
+        const stats = App.state.character.stats;
+        const caps = App.calculateStatCaps();
+        const ap = window.getApBalance(App.state.character);
+        UI.renderStatsGrid(stats, caps, ap, App.state.statsFloor || {});
+    }
     window.schedulePushEconToHud();
-
-    await App.renderAll();
 };
 
 // =========================== INITIALIZATION =============================
