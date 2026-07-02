@@ -671,6 +671,9 @@ try {
                             this.mergePoolsFromUrl();
                             const hadMoapDraft = this.restoreMoapSessionDraft();
                             this.mergeUrlEconIntoCharacter();
+                            if (this.mergeStatsFromUrlIntoCharacter()) {
+                                this.captureStatsFloor(this.state.character);
+                            }
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -2108,6 +2111,10 @@ try {
         if (!char) {
             return;
         }
+        this.mergeUrlEconIntoCharacter();
+        if (this.mergeStatsFromUrlIntoCharacter()) {
+            this.captureStatsFloor(char);
+        }
         this.clearStatsPendingAfterHudSave();
         this.updateStatusIndicator();
         this.updateStepGuide();
@@ -3166,12 +3173,7 @@ try {
         if (!char || !char.stats) {
             return '';
         }
-        const statNames = [
-            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
-            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
-            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
-            'stealth', 'survival', 'thievery', 'will', 'wisdom'
-        ];
+        const statNames = this.getStatNamesOrdered();
         return statNames.map(function (s, idx) {
             if (char.stats[s] != null) {
                 return char.stats[s];
@@ -3182,6 +3184,62 @@ try {
             }
             return 1;
         }).join(',');
+    },
+
+    getStatNamesOrdered() {
+        return [
+            'agility', 'animal_handling', 'athletics', 'awareness', 'crafting',
+            'deception', 'endurance', 'entertaining', 'fighting', 'healing',
+            'influence', 'intelligence', 'knowledge', 'marksmanship', 'persuasion',
+            'stealth', 'survival', 'thievery', 'will', 'wisdom'
+        ];
+    },
+
+    statsObjectFromCsv(csv) {
+        if (!csv || typeof csv !== 'string') {
+            return null;
+        }
+        const parts = csv.split(',');
+        if (parts.length !== 20) {
+            return null;
+        }
+        const statNames = this.getStatNamesOrdered();
+        const stats = {};
+        let idx;
+        for (idx = 0; idx < statNames.length; idx++) {
+            const val = parseInt(parts[idx], 10);
+            stats[statNames[idx]] = (!isNaN(val) && val >= 0) ? val : 1;
+        }
+        return stats;
+    },
+
+    /**
+     * Apply stats_csv from MOAP URL (Save Stats push or HUD LSD on setup open).
+     * Gameplay stats live in HUD LSD; Firestore is often stale until Save Character.
+     */
+    mergeStatsFromUrlIntoCharacter() {
+        const char = this.state.character;
+        if (!char) {
+            return false;
+        }
+        let csv = '';
+        try {
+            csv = new URLSearchParams(window.location.search).get('stats_csv') || '';
+        } catch (e) {
+            return false;
+        }
+        if (!csv) {
+            return false;
+        }
+        const stats = this.statsObjectFromCsv(csv);
+        if (!stats) {
+            return false;
+        }
+        char.stats = stats;
+        if (this.state.pendingChanges) {
+            this.state.pendingChanges.stats = Object.assign({}, stats);
+        }
+        return true;
     },
 
     /**
