@@ -222,7 +222,7 @@
 
             <!-- Stats Tab -->
             <section id="tab-stats" class="tab-content">
-                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy points and allocate stats here — changes stay in this screen until you click <strong>Save Stats</strong>. Spend all Available Points, then use <strong>Next »</strong>. Without a class, stats are capped at 2.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy points and allocate stats here — click <strong>Save Stats</strong> to apply to your HUD. If you close Setup without saving, changes are discarded (your saved XP and AP are unchanged). Spend all Available Points, then use <strong>Next »</strong>. Without a class, stats are capped at 2.</p>
                 <div class="panel">
                     <div class="stats-header">
                         <h2>Attributes</h2>
@@ -576,7 +576,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.11';
+            window.HUD_BUILD_LABEL = '4.2.12';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

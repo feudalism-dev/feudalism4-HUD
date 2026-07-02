@@ -179,7 +179,7 @@ try {
             name: 'Enter your character\'s name and optional title, then click <strong>Next »</strong>. Use <strong>Save Progress</strong> anytime.',
             gender: 'Click a <strong>portrait</strong> below to view details, then press <strong>Select This Gender</strong>.',
             species: 'Click a <strong>species card</strong> below to view details, then press <strong>Select This Species</strong>.',
-            stats: 'Buy points and allocate stats — click <strong>Save Stats</strong> to apply to your HUD. Spend all Available Points, then <strong>Next »</strong>.',
+            stats: 'Buy points and allocate stats — click <strong>Save Stats</strong> to apply to your HUD (unsaved changes are lost if you close Setup). Spend all Available Points, then <strong>Next »</strong>.',
             career: 'Click a <strong>class card</strong> to view details and select your starting class, then click <strong>Finish</strong>.'
         }
     },
@@ -680,9 +680,7 @@ try {
                                     window.getApBalance(this.state.character)
                                 );
                             }
-                            if (hadMoapDraft) {
-                                this.markStatsPending();
-                            } else if (!econSyncOnly) {
+                            if (!econSyncOnly) {
                                 this.state.statsPending = false;
                                 this.updateSaveStatsButton();
                             }
@@ -2399,14 +2397,14 @@ try {
     },
 
     /**
-     * Preserve unsaved stats + AP across MOAP full-page reloads (pushEconToHud / stats_csv sync).
+     * In-session draft only (same MOAP page life). Never survives setup close/reopen.
      */
     persistMoapSessionDraft(forcePersist) {
         const char = this.state.character;
         if (!char || !char.id || !char.stats) {
             return;
         }
-        if (!forcePersist && !this.state.dirty && !this.state.econSessionActive) {
+        if (!forcePersist && !this.state.statsPending) {
             return;
         }
         try {
@@ -2418,7 +2416,6 @@ try {
                 updated: Date.now()
             };
             sessionStorage.setItem(this.getMoapDraftStorageKey(char.id), JSON.stringify(payload));
-            localStorage.setItem(this.getMoapDraftStorageKey(char.id), JSON.stringify(payload));
         } catch (e) { /* ignore */ }
     },
 
@@ -2428,10 +2425,16 @@ try {
             return false;
         }
         try {
-            let raw = sessionStorage.getItem(this.getMoapDraftStorageKey(char.id));
-            if (!raw) {
-                raw = localStorage.getItem(this.getMoapDraftStorageKey(char.id));
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('request_data') === '1') {
+                this.clearMoapSessionDraft(char.id);
+                return false;
             }
+            if (params.get('econ_sync') === '1') {
+                this.clearMoapSessionDraft(char.id);
+                return false;
+            }
+            const raw = sessionStorage.getItem(this.getMoapDraftStorageKey(char.id));
             if (!raw) {
                 return false;
             }
@@ -2527,6 +2530,7 @@ try {
         }
         try {
             sessionStorage.removeItem(this.getMoapDraftStorageKey(id));
+            localStorage.removeItem(this.getMoapDraftStorageKey(id));
         } catch (e) { /* ignore */ }
     },
     
