@@ -1,2 +1,2 @@
-GitHub Pages rebuild stamp — 2026-07-02T20:55:00Z
-Build: 4.2.13
+GitHub Pages rebuild stamp — 2026-07-02T21:10:00Z
+Build: 4.2.14 (GitHub Actions deploy)
