@@ -2323,6 +2323,7 @@ try {
                 updated: Date.now()
             };
             sessionStorage.setItem(this.getMoapDraftStorageKey(char.id), JSON.stringify(payload));
+            localStorage.setItem(this.getMoapDraftStorageKey(char.id), JSON.stringify(payload));
         } catch (e) { /* ignore */ }
     },
 
@@ -2332,7 +2333,10 @@ try {
             return false;
         }
         try {
-            const raw = sessionStorage.getItem(this.getMoapDraftStorageKey(char.id));
+            let raw = sessionStorage.getItem(this.getMoapDraftStorageKey(char.id));
+            if (!raw) {
+                raw = localStorage.getItem(this.getMoapDraftStorageKey(char.id));
+            }
             if (!raw) {
                 return false;
             }
@@ -2341,15 +2345,15 @@ try {
                 return false;
             }
             char.stats = Object.assign({}, draft.stats);
-            const urlHasEconPush = (function () {
+            const urlHasLiveEconPush = (function () {
                 try {
                     const p = new URLSearchParams(window.location.search);
-                    return p.has('econ_ts') || p.has('xp_spent') || p.has('ap_balance');
+                    return p.has('econ_ts') || p.get('econ_sync') === '1';
                 } catch (e) {
                     return false;
                 }
             })();
-            if (!urlHasEconPush) {
+            if (!urlHasLiveEconPush) {
                 if (draft.ap_balance != null) {
                     char.ap_balance = draft.ap_balance;
                 }
@@ -2359,6 +2363,11 @@ try {
                 if (draft.xp_lifetime != null) {
                     char.xp_lifetime = draft.xp_lifetime;
                 }
+            } else if (draft.ap_balance != null && (char.ap_balance || 0) < draft.ap_balance) {
+                char.ap_balance = draft.ap_balance;
+                if (draft.xp_spent != null) {
+                    char.xp_spent = draft.xp_spent;
+                }
             }
             if (typeof App.state.econ === 'undefined' || !App.state.econ) {
                 App.state.econ = {};
@@ -2367,7 +2376,7 @@ try {
             App.state.econ.xp_spent = char.xp_spent;
             App.state.econ.xp_lifetime = char.xp_lifetime;
             App.state.econSessionActive = true;
-            if (!urlHasEconPush) {
+            if (!urlHasLiveEconPush) {
                 window.updateEconUrlParams(char.xp_spent, char.ap_balance);
             }
             return true;
@@ -2384,19 +2393,25 @@ try {
         }
         const url = window.getEconFromUrl();
         let changed = false;
+        let params;
+        let isLiveEconPush = false;
+        try {
+            params = new URLSearchParams(window.location.search);
+            isLiveEconPush = params.has('econ_ts') || params.get('econ_sync') === '1';
+        } catch (e) { /* ignore */ }
         if (!isNaN(url.xp_lifetime) && url.xp_lifetime >= 0) {
             char.xp_lifetime = url.xp_lifetime;
             changed = true;
         }
-        if (!isNaN(url.xp_spent) && url.xp_spent >= 0
-            && new URLSearchParams(window.location.search).has('xp_spent')) {
+        if (!isNaN(url.xp_spent) && url.xp_spent >= 0 && params && params.has('xp_spent')) {
             char.xp_spent = url.xp_spent;
             changed = true;
         }
-        if (!isNaN(url.ap_balance) && url.ap_balance >= 0
-            && new URLSearchParams(window.location.search).has('ap_balance')) {
-            char.ap_balance = url.ap_balance;
-            changed = true;
+        if (!isNaN(url.ap_balance) && url.ap_balance >= 0 && params && params.has('ap_balance')) {
+            if (isLiveEconPush || url.ap_balance > 0 || !(char.ap_balance > 0)) {
+                char.ap_balance = url.ap_balance;
+                changed = true;
+            }
         }
         if (!changed) {
             return;
