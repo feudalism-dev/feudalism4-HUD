@@ -401,16 +401,10 @@ const UI = {
             const icon = sp.icon || this.speciesIcons[sp.id] || '👤';
             const hasImage = sp.image ? true : false;
             
-            // Show mana chance only if universe allows mana
-            let manaInfo = '';
-            if (universeManaEnabled && sp.mana_chance && sp.mana_chance > 0) {
-                manaInfo = `<div class="card-meta" style="font-size: 0.85em; color: var(--azure); margin-top: var(--space-xxs);">✨ ${sp.mana_chance}% chance for mana</div>`;
-            }
-            
             return `
-                <div class="gallery-card ${sp.id === selectedId ? 'selected' : ''}" 
+                <div class="gallery-card gallery-tile ${sp.id === selectedId ? 'selected' : ''}" 
                      data-species-id="${sp.id}"
-                     title="${sp.description || ''}">
+                     title="${sp.name}${sp.description ? ' — ' + sp.description : ''}">
                     ${hasImage ? `
                         <div class="card-image">
                             <img src="${sp.image.startsWith('images/') ? sp.image : 'images/' + sp.image}" alt="${sp.name}" 
@@ -420,9 +414,6 @@ const UI = {
                     ` : `
                         <div class="card-icon">${icon}</div>
                     `}
-                    <div class="card-name">${sp.name}</div>
-                    <span class="gallery-select-hint">Click to select</span>
-                    ${manaInfo}
                 </div>
             `;
         }).join('');
@@ -773,9 +764,9 @@ const UI = {
             }
             
             return `
-                <div class="${cardClasses}${isDisabled ? ' disabled' : ''}" 
+                <div class="${cardClasses} gallery-tile${isDisabled ? ' disabled' : ''}" 
                      data-class-id="${cls.id}"
-                     title="${tooltip}"
+                     title="${cls.name}${tooltip ? ' — ' + tooltip : ''}"
                      style="${isDisabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}">
                     ${hasImage ? `
                         <div class="card-image">
@@ -789,9 +780,6 @@ const UI = {
                     ` : `
                         <div class="card-icon">${icon}</div>
                     `}
-                    <div class="card-name">${cls.name}</div>
-                    <div class="card-desc">${isDisabled ? 'Locked' : (isBeginnerClass ? 'Free' : (cls.xp_cost ? cls.xp_cost + ' XP' : 'Free'))}</div>
-                    ${isDisabled ? '' : '<span class="gallery-select-hint">Click to select</span>'}
                 </div>
             `;
         }).join('');
@@ -1354,9 +1342,9 @@ const UI = {
             const isSelected = selectedGender === gender.id;
             
             return `
-                <button class="choice-btn gender-btn ${isSelected ? 'selected' : ''}" 
+                <button class="choice-btn gender-btn gallery-tile ${isSelected ? 'selected' : ''}" 
                         data-gender="${gender.id}" 
-                        title="${gender.description || gender.name}">
+                        title="${gender.name}${gender.description ? ' — ' + gender.description : ''}">
                     ${imagePath ? `
                         <div class="gender-image-container">
                             <img src="${imagePath}" alt="${gender.name}" 
@@ -1366,8 +1354,6 @@ const UI = {
                     ` : `
                         <span class="gender-icon">${icon}</span>
                     `}
-                    <span class="gender-label">${gender.name}</span>
-                    <span class="gallery-select-hint">Click to select</span>
                 </button>
             `;
         }).join('');

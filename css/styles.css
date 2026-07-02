@@ -426,41 +426,57 @@ input::placeholder {
     gap: var(--space-md);
 }
 
-.gallery-card {
-    background: var(--bg-light);
+.gallery-card,
+.gallery-tile.gender-btn {
+    background: var(--bg-dark);
     border: 2px solid var(--border-color);
     border-radius: 8px;
-    padding: var(--space-md);
+    padding: 0;
     text-align: center;
     cursor: pointer;
     transition: all var(--transition-normal);
+    overflow: hidden;
 }
 
-.gallery-card:hover {
+.gallery-card:hover,
+.gallery-tile.gender-btn:hover {
     border-color: var(--gold-dark);
     transform: translateY(-2px);
     box-shadow: 0 6px 16px var(--shadow-color);
 }
 
-.gallery-card.selected {
+.gallery-card.selected,
+.gallery-tile.gender-btn.selected {
     border-color: var(--gold);
-    background: linear-gradient(180deg, rgba(201, 162, 39, 0.15) 0%, var(--bg-light) 100%);
+    box-shadow: 0 0 0 1px var(--gold), 0 6px 16px rgba(201, 162, 39, 0.25);
+}
+
+.gallery-tile.gender-btn.selected {
+    background: var(--bg-dark);
+    color: inherit;
 }
 
 .gallery-card .card-icon {
-    font-size: 2rem;
-    margin-bottom: var(--space-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    font-size: 3rem;
+    margin: 0;
+    background: var(--bg-dark);
 }
 
 .gallery-card .card-image {
-    width: 80px;
-    height: 80px;
-    margin: 0 auto var(--space-sm);
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    margin: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    border-radius: 8px;
+    border-radius: 0;
     background: var(--bg-dark);
 }
 
@@ -468,28 +484,16 @@ input::placeholder {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
     transition: transform var(--transition-normal);
 }
 
 .gallery-card:hover .card-image img {
-    transform: scale(1.1);
+    transform: scale(1.05);
 }
 
 .gallery-card .card-icon-fallback {
-    font-size: 2.5rem;
-}
-
-.gallery-card .card-name {
-    font-family: var(--font-display);
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.gallery-card .card-desc {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-top: var(--space-xs);
+    font-size: 3rem;
 }
 
 /* === Stats Grid === */
@@ -1592,10 +1596,6 @@ input::placeholder {
     line-height: 1;
 }
 
-.career-card.beginner .card-name::before {
-    content: '🌟 ';
-}
-
 .current-career-header {
     display: flex;
     gap: var(--space-md);
@@ -1604,81 +1604,78 @@ input::placeholder {
 
 /* === Gender Gallery === */
 .gender-gallery {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--space-md);
 }
 
 .gender-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    min-width: 60px;
-    padding: var(--space-sm) var(--space-md);
-    background: var(--bg-medium);
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    aspect-ratio: 3 / 4;
+    background: var(--bg-dark);
     border: 2px solid var(--border-color);
     border-radius: 8px;
     cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.gender-btn:hover {
-    background: var(--bg-light);
-    border-color: var(--gold-dark);
-}
-
-.gender-btn.selected {
-    background: rgba(201, 162, 39, 0.2);
-    border-color: var(--gold);
+    transition: all var(--transition-normal);
+    overflow: hidden;
 }
 
 .gender-icon {
-    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 3rem;
     line-height: 1;
 }
 
 .gender-image-container {
-    width: 48px;
-    height: 48px;
-    border-radius: 4px;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
     background: var(--bg-dark);
-    border: 1px solid var(--border-color);
-    margin-bottom: 4px;
+    border: none;
+    margin: 0;
 }
 
 .gender-image-container img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
+    transition: transform var(--transition-normal);
+}
+
+.gender-btn:hover .gender-image-container img {
+    transform: scale(1.05);
 }
 
 .gender-icon-fallback {
-    font-size: 1.5rem;
+    font-size: 3rem;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
+    height: 100%;
 }
 
-.gender-label {
-    font-family: var(--font-ui);
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    text-transform: uppercase;
+.gender-btn.choice-btn {
+    font-size: inherit;
+    color: inherit;
 }
 
-.gender-btn.selected .gender-label {
-    color: var(--gold);
-}
-
-.gender-btn.selected .gender-image-container {
-    border-color: var(--gold);
-    box-shadow: 0 0 8px rgba(201, 162, 39, 0.4);
+.gender-btn.choice-btn:hover,
+.gender-btn.choice-btn.selected {
+    color: inherit;
 }
 
 /* Gender Detail Modal - reuses species-detail styles */
@@ -2300,7 +2297,8 @@ input::placeholder {
         grid-template-columns: 1fr;
     }
     
-    .gallery {
+    .gallery,
+    .gender-gallery {
         grid-template-columns: repeat(2, 1fr);
     }
     
