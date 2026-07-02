@@ -1,0 +1,5 @@
+# Place class images here
+# Naming: {class_id}.png (lowercase, use the ID from Firestore)
+# Examples: academic.png, knight.png, soldier.png
+# Recommended size: 256x256 or 512x512 PNG
+
