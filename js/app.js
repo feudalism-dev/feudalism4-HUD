@@ -535,7 +535,34 @@ try {
             // SECURITY: listCharacters() validates owner_uuid matches API.uuid
             try {
                 console.log('[loadData] Loading characters for UUID:', API.uuid);
-                const charsResult = await API.listCharacters(forceRefresh);
+                let charsResult = null;
+                let usedRosterCache = false;
+                const econSyncOnly = (function () {
+                    try {
+                        return new URLSearchParams(window.location.search).get('econ_sync') === '1';
+                    } catch (e) {
+                        return false;
+                    }
+                })();
+                const rosterCacheKey = 'f4_roster_' + API.uuid;
+                if (econSyncOnly && !forceRefresh) {
+                    try {
+                        const cached = sessionStorage.getItem(rosterCacheKey);
+                        if (cached) {
+                            charsResult = { success: true, data: JSON.parse(cached) };
+                            usedRosterCache = true;
+                            console.log('[loadData] Using session roster cache (econ sync reload)');
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+                if (!charsResult) {
+                    charsResult = await API.listCharacters(forceRefresh);
+                }
+                if (charsResult.success && charsResult.data && !usedRosterCache) {
+                    try {
+                        sessionStorage.setItem(rosterCacheKey, JSON.stringify(charsResult.data));
+                    } catch (e) { /* ignore */ }
+                }
                 console.log('[loadData] listCharacters result:', charsResult);
                 
                 if (!charsResult.success) {
@@ -636,6 +663,7 @@ try {
                             this.initEconFromUrl();
                             this.mergePoolsFromUrl();
                             const hadMoapDraft = this.restoreMoapSessionDraft();
+                            this.mergeUrlEconIntoCharacter();
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -645,9 +673,17 @@ try {
                                     window.getApBalance(this.state.character)
                                 );
                             }
-                            
-                            // Setup / UPDATE: pull stats from Firestore into Players HUD LSD cache
-                            await this.cacheHudStatsForPlayers(this.state.character);
+
+                            const skipHudStatsPush = (function () {
+                                try {
+                                    return new URLSearchParams(window.location.search).get('econ_sync') === '1';
+                                } catch (e) {
+                                    return false;
+                                }
+                            })();
+                            if (!skipHudStatsPush) {
+                                await this.cacheHudStatsForPlayers(this.state.character);
+                            }
                             
                             // Load and set up buffs listener
                             await this.loadBuffs();
@@ -700,12 +736,12 @@ try {
                 }
             }
             
-            // Render UI
-            DebugLog.log('Calling renderAll()...', 'debug');
-            await this.renderAll();
+            // Render UI (restore tab before render so econ sync reload stays on Stats)
             if (typeof window.restoreMoapTabFromUrl === 'function') {
                 window.restoreMoapTabFromUrl();
             }
+            DebugLog.log('Calling renderAll()...', 'debug');
+            await this.renderAll();
             DebugLog.log('renderAll() completed', 'debug');
             this.setupOpenInBrowserLink();
             
@@ -2359,14 +2395,24 @@ try {
                 return false;
             }
             char.stats = Object.assign({}, draft.stats);
-            if (draft.ap_balance != null) {
-                char.ap_balance = draft.ap_balance;
-            }
-            if (draft.xp_spent != null) {
-                char.xp_spent = draft.xp_spent;
-            }
-            if (draft.xp_lifetime != null) {
-                char.xp_lifetime = draft.xp_lifetime;
+            const urlHasEconPush = (function () {
+                try {
+                    const p = new URLSearchParams(window.location.search);
+                    return p.has('econ_ts') || p.has('xp_spent') || p.has('ap_balance');
+                } catch (e) {
+                    return false;
+                }
+            })();
+            if (!urlHasEconPush) {
+                if (draft.ap_balance != null) {
+                    char.ap_balance = draft.ap_balance;
+                }
+                if (draft.xp_spent != null) {
+                    char.xp_spent = draft.xp_spent;
+                }
+                if (draft.xp_lifetime != null) {
+                    char.xp_lifetime = draft.xp_lifetime;
+                }
             }
             if (typeof App.state.econ === 'undefined' || !App.state.econ) {
                 App.state.econ = {};
@@ -2380,6 +2426,40 @@ try {
         } catch (e) {
             return false;
         }
+    },
+
+    /** Re-apply URL econ after draft merge — pushEconToHud navigation is authoritative. */
+    mergeUrlEconIntoCharacter() {
+        const char = this.state.character;
+        if (!char) {
+            return;
+        }
+        const url = window.getEconFromUrl();
+        let changed = false;
+        if (!isNaN(url.xp_lifetime) && url.xp_lifetime >= 0) {
+            char.xp_lifetime = url.xp_lifetime;
+            changed = true;
+        }
+        if (!isNaN(url.xp_spent) && url.xp_spent >= 0
+            && new URLSearchParams(window.location.search).has('xp_spent')) {
+            char.xp_spent = url.xp_spent;
+            changed = true;
+        }
+        if (!isNaN(url.ap_balance) && url.ap_balance >= 0
+            && new URLSearchParams(window.location.search).has('ap_balance')) {
+            char.ap_balance = url.ap_balance;
+            changed = true;
+        }
+        if (!changed) {
+            return;
+        }
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = char.xp_lifetime;
+        App.state.econ.xp_spent = char.xp_spent;
+        App.state.econ.ap_balance = char.ap_balance;
+        App.state.econSessionActive = true;
     },
 
     clearMoapSessionDraft(characterId) {
@@ -2945,19 +3025,8 @@ try {
             if (!isNaN(urlSpent) && urlSpent >= 0) {
                 spent = urlSpent;
             }
-            if (!this.state.econSessionActive && !isNaN(urlAp) && urlAp >= 0) {
+            if (!isNaN(urlAp) && urlAp >= 0) {
                 ap = urlAp;
-            } else {
-                const sessionAp = (App.state.econ && App.state.econ.ap_balance != null)
-                    ? parseInt(App.state.econ.ap_balance, 10) : NaN;
-                const charAp = parseInt(char.ap_balance, 10);
-                if (!isNaN(sessionAp) && sessionAp >= 0) {
-                    ap = sessionAp;
-                } else if (!isNaN(charAp) && charAp >= 0) {
-                    ap = charAp;
-                } else {
-                    ap = 0;
-                }
             }
         } catch (e) { /* ignore */ }
         const allowFirestoreEcon = !window.hasHudEconInUrl();
@@ -9040,6 +9109,7 @@ window.pushEconToHud = function () {
         }
         currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
         currentUrl.searchParams.set('lsl_cmd_ts', ts);
+        currentUrl.searchParams.set('econ_sync', '1');
         // Full navigation — SL reads face-4 media URL via llGetLinkMedia
         window.location.assign(currentUrl.toString());
         return true;
@@ -9079,18 +9149,24 @@ window.buyPointsWithXp = function (pointCount) {
         UI.showToast('Need ' + xpCost + ' unused XP (have ' + unused + ')', 'warning');
         return false;
     }
-    char.xp_spent = window.getEconSpent(char) + xpCost;
-    char.ap_balance = window.getApBalance(char) + n;
+    const newSpent = window.getEconSpent(char) + xpCost;
+    const newAp = window.getApBalance(char) + n;
+    char.xp_spent = newSpent;
+    char.ap_balance = newAp;
     App.state.econSessionActive = true;
-    if (App.state.econ) {
-        App.state.econ.ap_balance = char.ap_balance;
-        App.state.econ.xp_spent = char.xp_spent;
+    if (!App.state.econ) {
+        App.state.econ = {};
     }
+    App.state.econ.ap_balance = newAp;
+    App.state.econ.xp_spent = newSpent;
     if (App.state.dirty && App.state.pendingChanges && App.state.pendingChanges.stats) {
         UI.showToast('Buying points — your unsaved stat changes are kept for this session.', 'info', 2500);
     }
+    if (typeof App.persistMoapSessionDraft === 'function') {
+        App.persistMoapSessionDraft(true);
+    }
     if (typeof UI !== 'undefined' && UI.showToast) {
-        UI.showToast('Syncing ' + xpCost + ' XP spend to HUD...', 'info', 2000);
+        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — syncing to HUD...', 'info', 2000);
     }
     window.pushEconToHud();
     return true;
