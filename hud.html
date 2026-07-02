@@ -222,7 +222,7 @@
 
             <!-- Stats Tab -->
             <section id="tab-stats" class="tab-content">
-                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy points with XP if needed, spend all Available Points, then use <strong>Next »</strong>. Without a class, stats are capped at 2.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy points and allocate stats here — changes stay in this screen until you click <strong>Save Stats</strong>. Spend all Available Points, then use <strong>Next »</strong>. Without a class, stats are capped at 2.</p>
                 <div class="panel">
                     <div class="stats-header">
                         <h2>Attributes</h2>
@@ -248,6 +248,7 @@
                         <button type="button" class="stat-btn" id="buy-points-plus" title="More points">+</button>
                         <span class="econ-hint" id="buy-points-cost">(1,000 XP)</span>
                         <button type="button" class="action-btn primary" id="buy-points-ok" style="padding: 4px 14px; font-size: 0.85rem;">Buy</button>
+                        <button type="button" class="action-btn primary" id="btn-save-stats" disabled title="No stat or AP changes to save" style="padding: 4px 14px; font-size: 0.85rem; margin-left: auto;">Save Stats</button>
                     </div>
                     <div id="stats-grid" class="stats-grid">
                     </div>
@@ -575,7 +576,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.10';
+            window.HUD_BUILD_LABEL = '4.2.11';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

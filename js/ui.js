@@ -178,6 +178,7 @@ const UI = {
             xpUnused: document.getElementById('xp-unused'),
             buyPointsQty: document.getElementById('buy-points-qty'),
             buyPointsCost: document.getElementById('buy-points-cost'),
+            btnSaveStats: document.getElementById('btn-save-stats'),
             statsGrid: document.getElementById('stats-grid'),
             vocationDisplay: document.getElementById('vocation-display'),
             
@@ -1128,6 +1129,9 @@ const UI = {
         if (this.elements.buyPointsCost && this.elements.buyPointsQty) {
             const qty = parseInt(this.elements.buyPointsQty.textContent, 10) || 1;
             this.elements.buyPointsCost.textContent = '(' + (qty * (window.XP_PER_AP || 1000)).toLocaleString() + ' XP)';
+        }
+        if (typeof App !== 'undefined' && App.updateSaveStatsButton) {
+            App.updateSaveStatsButton();
         }
     },
     

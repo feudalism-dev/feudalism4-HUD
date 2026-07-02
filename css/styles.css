@@ -547,6 +547,16 @@ input::placeholder {
     border-radius: 4px;
 }
 
+#btn-save-stats:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.35);
+}
+
+#btn-save-stats:not(:disabled) {
+    box-shadow: 0 0 12px rgba(212, 175, 55, 0.35);
+}
+
 .econ-hint {
     font-size: 0.85rem;
     color: var(--text-muted);

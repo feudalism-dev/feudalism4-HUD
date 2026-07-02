@@ -173,12 +173,13 @@ try {
         creationInProgress: false,
         lastAutoSaveMessage: '',
         dirty: false,  // UX 2: Track unsaved changes
+        statsPending: false,  // AP / stat grid edits not yet pushed to HUD LSD/KVP
         econSessionActive: false,  // AP/XP edits this session override stale URL params
         creationStepHints: {
             name: 'Enter your character\'s name and optional title, then click <strong>Next »</strong>. Use <strong>Save Progress</strong> anytime.',
             gender: 'Click a <strong>portrait</strong> below to view details, then press <strong>Select This Gender</strong>.',
             species: 'Click a <strong>species card</strong> below to view details, then press <strong>Select This Species</strong>.',
-            stats: 'Allocate all stat points (Available Points must reach 0), then click <strong>Next »</strong>.',
+            stats: 'Buy points and allocate stats — click <strong>Save Stats</strong> to apply to your HUD. Spend all Available Points, then <strong>Next »</strong>.',
             career: 'Click a <strong>class card</strong> to view details and select your starting class, then click <strong>Finish</strong>.'
         }
     },
@@ -679,6 +680,12 @@ try {
                                     window.getApBalance(this.state.character)
                                 );
                             }
+                            if (hadMoapDraft) {
+                                this.markStatsPending();
+                            } else if (!econSyncOnly) {
+                                this.state.statsPending = false;
+                                this.updateSaveStatsButton();
+                            }
 
                             const skipHudStatsPush = (function () {
                                 try {
@@ -687,7 +694,7 @@ try {
                                     return false;
                                 }
                             })();
-                            if (!skipHudStatsPush) {
+                            if (!skipHudStatsPush && !this.state.statsPending) {
                                 await this.cacheHudStatsForPlayers(this.state.character);
                             }
                             
@@ -1219,6 +1226,92 @@ try {
                 saveBtn.textContent = '💾 Save Character';
             }
         }
+    },
+
+    markStatsPending() {
+        this.state.statsPending = true;
+        this.state.econSessionActive = true;
+        this.updateSaveStatsButton();
+    },
+
+    updateSaveStatsButton() {
+        const btn = document.getElementById('btn-save-stats');
+        if (!btn) {
+            return;
+        }
+        const pending = !!this.state.statsPending;
+        btn.disabled = !pending;
+        btn.title = pending
+            ? 'Apply AP, XP spent, and stat changes to your HUD'
+            : 'No stat or AP changes to save';
+    },
+
+    clearStatsPendingAfterHudSave() {
+        this.state.statsPending = false;
+        if (this.state.character) {
+            this.captureStatsFloor(this.state.character);
+            this.clearMoapSessionDraft(this.state.character.id);
+        }
+        this.updateSaveStatsButton();
+    },
+
+    /**
+     * Push pending AP, XP spent, and stats to HUD LSD/KVP in one MOAP navigation.
+     */
+    saveStatsToHud() {
+        const char = this.state.character;
+        if (!char) {
+            UI.showToast('No character loaded', 'warning');
+            return false;
+        }
+        if (!this.state.statsPending) {
+            UI.showToast('No stat or AP changes to save', 'info', 1500);
+            return false;
+        }
+        if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
+            UI.showToast('Close the dialog first, then Save Stats', 'warning');
+            return false;
+        }
+        if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
+            UI.showToast('Finish editing the text field first', 'warning');
+            return false;
+        }
+        if (typeof this.persistMoapSessionDraft === 'function') {
+            this.persistMoapSessionDraft(true);
+        }
+        try {
+            const currentUrl = new URL(window.location.href);
+            const spentStr = String(window.getEconSpent(char));
+            const apStr = String(window.getApBalance(char));
+            const ts = Date.now().toString();
+            const lifeStr = String(window.getEconLifetime(char));
+            const csv = this.statsCsvFromChar(char);
+            if (!csv) {
+                UI.showToast('Could not build stats for HUD sync', 'error');
+                return false;
+            }
+            currentUrl.searchParams.set('xp_lifetime', lifeStr);
+            currentUrl.searchParams.set('xp_spent', spentStr);
+            currentUrl.searchParams.set('ap_balance', apStr);
+            currentUrl.searchParams.set('econ_ts', ts);
+            currentUrl.searchParams.set('stats_csv', csv);
+            currentUrl.searchParams.set('stats_csv_ts', ts);
+            currentUrl.searchParams.set('moap_tab', window.getMoapActiveTab());
+            if (char.id) {
+                currentUrl.searchParams.set('active_char', char.id);
+            }
+            currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
+            currentUrl.searchParams.set('lsl_cmd_ts', ts);
+            currentUrl.searchParams.set('econ_sync', '1');
+            this._lastStatsCsvSynced = csv;
+            UI.showToast('Saving stats to HUD...', 'info', 1200);
+            window.location.assign(currentUrl.toString());
+            return true;
+        } catch (e) {
+            console.error('[Save Stats] failed:', e);
+            UI.showToast('Failed to save stats to HUD', 'error');
+        }
+        return false;
     },
     
     /**
@@ -2017,6 +2110,7 @@ try {
         if (!char) {
             return;
         }
+        this.clearStatsPendingAfterHudSave();
         this.updateStatusIndicator();
         this.updateStepGuide();
         const stats = char.stats || this.getDefaultStats();
@@ -2028,6 +2122,7 @@ try {
         if (typeof UI.renderStatsGrid === 'function') {
             UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
         }
+        UI.showToast('Stats saved to HUD', 'success', 2500);
         try {
             const u = new URL(window.location.href);
             if (u.searchParams.has('econ_sync')) {
@@ -2493,7 +2588,13 @@ try {
         });
         document.getElementById('buy-points-ok')?.addEventListener('click', function () {
             if (window.buyPointsWithXp && window.buyPointsWithXp(buyQty)) {
-                // pushEconToHud navigates — page reloads; do not renderAll here
+                buyQty = 1;
+                refreshBuyCost();
+            }
+        });
+        document.getElementById('btn-save-stats')?.addEventListener('click', function () {
+            if (typeof App.saveStatsToHud === 'function') {
+                App.saveStatsToHud();
             }
         });
         refreshBuyCost();
@@ -9091,14 +9192,14 @@ window.buyPointsWithXp = function (pointCount) {
     }
     App.state.econ.ap_balance = newAp;
     App.state.econ.xp_spent = newSpent;
-    if (App.state.dirty && App.state.pendingChanges && App.state.pendingChanges.stats) {
-        UI.showToast('Buying points — your unsaved stat changes are kept for this session.', 'info', 2500);
+    if (typeof App.markStatsPending === 'function') {
+        App.markStatsPending();
     }
     if (typeof App.persistMoapSessionDraft === 'function') {
         App.persistMoapSessionDraft(true);
     }
     if (typeof UI !== 'undefined' && UI.showToast) {
-        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — syncing to HUD...', 'info', 2000);
+        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — click Save Stats when ready', 'info', 2500);
     }
     if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
         UI.renderEconDisplay(char);
@@ -9108,7 +9209,6 @@ window.buyPointsWithXp = function (pointCount) {
             UI.renderStatsGrid(stats, caps, newAp, App.state.statsFloor || {});
         }
     }
-    window.pushEconToHud();
     return true;
 };
 
@@ -9186,11 +9286,9 @@ window.onStatChange = async function(stat, action) {
         App.state.character.ap_balance = availablePoints + refund;
         App.state.pendingChanges.stats = App.state.character.stats;
         App.state.pendingChanges.ap_balance = App.state.character.ap_balance;
-        App.state.econSessionActive = true;
         if (App.state.econ) {
             App.state.econ.ap_balance = App.state.character.ap_balance;
         }
-        window.updateEconUrlParams(null, App.state.character.ap_balance);
         UI.showToast(`−1 ${stat} (refund: ${refund} AP)`, 'info', 1500);
     } else if (action === 'increase') {
         if (!App.state.character.class_id && currentValue >= 2) {
@@ -9212,18 +9310,18 @@ window.onStatChange = async function(stat, action) {
         App.state.character.ap_balance = availablePoints - cost;
         App.state.pendingChanges.stats = App.state.character.stats;
         App.state.pendingChanges.ap_balance = App.state.character.ap_balance;
-        App.state.econSessionActive = true;
         if (App.state.econ) {
             App.state.econ.ap_balance = App.state.character.ap_balance;
         }
-        window.updateEconUrlParams(null, App.state.character.ap_balance);
         UI.showToast(`+1 ${stat} (cost: ${cost} AP)`, 'info', 1500);
     } else {
         return;
     }
     
     App.state.dirty = true;
-    App.state.econSessionActive = true;
+    if (typeof App.markStatsPending === 'function') {
+        App.markStatsPending();
+    }
     App.updateStatusIndicator();
     if (typeof App.persistMoapSessionDraft === 'function') {
         App.persistMoapSessionDraft(true);
@@ -9235,7 +9333,6 @@ window.onStatChange = async function(stat, action) {
         const ap = window.getApBalance(App.state.character);
         UI.renderStatsGrid(stats, caps, ap, App.state.statsFloor || {});
     }
-    window.schedulePushEconToHud();
 };
 
 // =========================== INITIALIZATION =============================
