@@ -461,7 +461,7 @@ input::placeholder {
     align-items: center;
     justify-content: center;
     width: 100%;
-    aspect-ratio: 3 / 4;
+    aspect-ratio: 1 / 1;
     font-size: 3rem;
     margin: 0;
     background: var(--bg-dark);
@@ -470,7 +470,7 @@ input::placeholder {
 .gallery-card .card-image {
     position: relative;
     width: 100%;
-    aspect-ratio: 3 / 4;
+    aspect-ratio: 1 / 1;
     margin: 0;
     display: flex;
     align-items: center;
@@ -1614,7 +1614,7 @@ input::placeholder {
     width: 100%;
     min-width: 0;
     padding: 0;
-    aspect-ratio: 3 / 4;
+    aspect-ratio: 1 / 1;
     background: var(--bg-dark);
     border: 2px solid var(--border-color);
     border-radius: 8px;
