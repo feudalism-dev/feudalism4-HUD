@@ -3699,6 +3699,18 @@ try {
         } else if (char.has_mana === false) {
             data.has_mana = '0';
         }
+        const factors = char.species_factors;
+        if (factors) {
+            if (factors.health_factor != null) {
+                data.health_factor = String(factors.health_factor);
+            }
+            if (factors.stamina_factor != null) {
+                data.stamina_factor = String(factors.stamina_factor);
+            }
+            if (factors.mana_factor != null) {
+                data.mana_factor = String(factors.mana_factor);
+            }
+        }
         if (char.mode) {
             data.mode = char.mode;
         }
@@ -3719,8 +3731,14 @@ try {
         if (staminaStr) {
             data.stamina = staminaStr;
         }
-        const manaStr = pool(char.mana);
-        if (manaStr) {
+        let manaStr = pool(char.mana);
+        if (char.has_mana === true && (!manaStr || manaStr === '0|0|0')) {
+            if (typeof this.recalculateResourcePools === 'function') {
+                this.recalculateResourcePools();
+            }
+            manaStr = pool(char.mana);
+        }
+        if (manaStr && (char.has_mana === true || manaStr !== '0|0|0')) {
             data.mana = manaStr;
         }
         if (this._pendingAutoHideSetup) {
@@ -3752,6 +3770,12 @@ try {
             const charResult = await API.getCharacterById(characterId);
             if (charResult.success && charResult.data && charResult.data.character) {
                 char = charResult.data.character;
+            }
+        }
+        if (char && typeof this.recalculateResourcePools === 'function') {
+            if (this.state.character && this.state.character.id === characterId) {
+                this.recalculateResourcePools();
+                char = this.state.character;
             }
         }
         const payload = this.buildCharacterSyncPayload(characterId, char);
@@ -4034,7 +4058,8 @@ try {
                 
                 const savedAp = window.getApBalance(char);
                 const savedSpent = window.getEconSpent(char);
-                
+                this.recalculateResourcePools();
+
                 const result = await API.updateCharacter({
                     name: char.name,
                     title: char.title,
