@@ -134,6 +134,9 @@
                     
                     <!-- Save + step navigation (creation flow) -->
                     <div class="creation-toolbar" style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm);">
+                        <button type="button" id="btn-abandon-character" class="action-btn abandon" style="display: none; padding: 10px 20px; font-weight: 600;" title="Revert unsaved character edits">
+                            ↩ Abandon Changes
+                        </button>
                         <button type="button" id="btn-save-character" class="action-btn primary" style="padding: 10px 20px; font-weight: 600;">
                             💾 Save Character
                         </button>
@@ -248,7 +251,8 @@
                         <button type="button" class="stat-btn" id="buy-points-plus" title="More points">+</button>
                         <span class="econ-hint" id="buy-points-cost">(1,000 XP)</span>
                         <button type="button" class="action-btn primary" id="buy-points-ok" style="padding: 4px 14px; font-size: 0.85rem;">Buy</button>
-                        <button type="button" class="action-btn primary" id="btn-save-stats" disabled title="No stat or AP changes to save" style="padding: 4px 14px; font-size: 0.85rem; margin-left: auto;">Save Stats</button>
+                        <button type="button" class="action-btn abandon" id="btn-abandon-stats" disabled title="Revert stat and AP changes since last Save Stats" style="padding: 4px 14px; font-size: 0.85rem; margin-left: auto;">Abandon</button>
+                        <button type="button" class="action-btn primary" id="btn-save-stats" disabled title="No stat or AP changes to save" style="padding: 4px 14px; font-size: 0.85rem;">Save Stats</button>
                     </div>
                     <div id="stats-grid" class="stats-grid">
                     </div>
@@ -576,7 +580,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.20';
+            window.HUD_BUILD_LABEL = '4.2.21';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

@@ -169,6 +169,8 @@ try {
         selectedCharacterId: null,
         pendingChanges: {},
         statsFloor: null,
+        apFloor: null,
+        xpSpentFloor: null,
         isNewCharacter: false,
         creationInProgress: false,
         lastAutoSaveMessage: '',
@@ -1106,6 +1108,12 @@ try {
     async goToNextCreationStep() {
         const steps = this.getCreationSteps();
         const currentId = this.getCurrentCreationStepId(steps);
+        if (currentId === 'stats' && this.state.statsPending) {
+            const mayLeave = await this.resolveUnsavedStatsPrompt();
+            if (!mayLeave) {
+                return;
+            }
+        }
         const validation = this.validateCreationStep(currentId);
         if (!validation.ok) {
             UI.showToast(validation.message, 'warning');
@@ -1190,6 +1198,25 @@ try {
         if (!char && stepId !== 'name') {
             return;
         }
+
+        const steps = this.getCreationSteps();
+        const currentId = this.getCurrentCreationStepId(steps);
+        if (currentId === 'stats' && stepId !== 'stats' && this.state.statsPending) {
+            this.resolveUnsavedStatsPrompt().then((mayLeave) => {
+                if (mayLeave) {
+                    this.navigateToStepImmediate(stepId);
+                }
+            });
+            return;
+        }
+        this.navigateToStepImmediate(stepId);
+    },
+
+    navigateToStepImmediate(stepId) {
+        const char = this.state.character;
+        if (!char && stepId !== 'name') {
+            return;
+        }
         
         switch(stepId) {
             case 'name':
@@ -1262,6 +1289,18 @@ try {
                 saveBtn.style.cursor = 'pointer';
                 saveBtn.textContent = '💾 Save Character';
             }
+        } else if (this.state.statsPending) {
+            statusText.textContent = 'Unsaved Stats';
+            statusBadge.style.background = 'rgba(251, 146, 60, 0.25)';
+            statusBadge.style.color = '#fdba74';
+            statusBadge.style.border = '1px solid rgba(251, 146, 60, 0.45)';
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+                saveBtn.title = 'Use Save Stats on the Stats tab';
+                saveBtn.textContent = '💾 Save Character';
+            }
         } else {
             const autoMsg = this.state.lastAutoSaveMessage;
             statusText.textContent = autoMsg ? autoMsg : 'Saved';
@@ -1278,24 +1317,38 @@ try {
                 saveBtn.textContent = '💾 Save Character';
             }
         }
+
+        const abandonCharBtn = document.getElementById('btn-abandon-character');
+        if (abandonCharBtn) {
+            const showCharAbandon = !!this.state.dirty && !!this.state.character;
+            abandonCharBtn.style.display = showCharAbandon ? '' : 'none';
+            abandonCharBtn.disabled = !showCharAbandon;
+        }
     },
 
     markStatsPending() {
         this.state.statsPending = true;
         this.state.econSessionActive = true;
         this.updateSaveStatsButton();
+        this.updateStatusIndicator();
     },
 
     updateSaveStatsButton() {
         const btn = document.getElementById('btn-save-stats');
-        if (!btn) {
-            return;
-        }
+        const abandonBtn = document.getElementById('btn-abandon-stats');
         const pending = !!this.state.statsPending;
-        btn.disabled = !pending;
-        btn.title = pending
-            ? 'Apply AP, XP spent, and stat changes to your HUD'
-            : 'No stat or AP changes to save';
+        if (btn) {
+            btn.disabled = !pending;
+            btn.title = pending
+                ? 'Apply AP, XP spent, and stat changes to your HUD'
+                : 'No stat or AP changes to save';
+        }
+        if (abandonBtn) {
+            abandonBtn.disabled = !pending;
+            abandonBtn.title = pending
+                ? 'Revert stat and AP changes since last Save Stats'
+                : 'No stat or AP changes to abandon';
+        }
     },
 
     clearStatsPendingAfterHudSave() {
@@ -1305,11 +1358,8 @@ try {
             this.clearMoapSessionDraft(this.state.character.id);
         }
         this.updateSaveStatsButton();
+        this.updateStatusIndicator();
     },
-
-    /**
-     * Push pending AP, XP spent, and stats to HUD LSD/KVP and Firestore, then reload MOAP.
-     */
     async saveStatsToHud() {
         const char = this.state.character;
         if (!char) {
@@ -1387,50 +1437,178 @@ try {
     },
     
     /**
+     * Prompt when leaving the Stats tab with unsaved stat/AP edits.
+     * @returns {Promise<boolean>} true if navigation may continue
+     */
+    async resolveUnsavedStatsPrompt() {
+        if (!this.state.statsPending) {
+            return true;
+        }
+        if (typeof MoapDialogs === 'undefined' || !MoapDialogs.showChoice) {
+            return true;
+        }
+        const choice = await MoapDialogs.showChoice({
+            title: 'Unsaved stat changes',
+            message: 'You have stat or AP changes that are not saved to your HUD.\n\nSave them, abandon them, or stay on this tab.',
+            buttons: [
+                { id: 'stat-prompt-save', label: 'Save Stats', value: 'save', primary: true },
+                { id: 'stat-prompt-abandon', label: 'Abandon Changes', value: 'abandon', danger: true },
+                { id: 'stat-prompt-cancel', label: 'Cancel', value: 'cancel' }
+            ]
+        });
+        if (choice === 'cancel' || choice == null) {
+            return false;
+        }
+        if (choice === 'save') {
+            const ok = await this.saveStatsToHud();
+            return ok !== false && !this.state.statsPending;
+        }
+        if (choice === 'abandon') {
+            this.abandonStatsChanges();
+            return true;
+        }
+        return false;
+    },
+
+    async confirmLeaveCurrentTab(fromTab, toTab) {
+        if (!fromTab || fromTab === toTab) {
+            return true;
+        }
+        if (fromTab === 'stats' && toTab !== 'stats') {
+            return this.resolveUnsavedStatsPrompt();
+        }
+        return true;
+    },
+
+    async saveAllPendingChanges() {
+        if (this.state.statsPending) {
+            const statsOk = await this.saveStatsToHud();
+            if (!statsOk && this.state.statsPending) {
+                return false;
+            }
+        }
+        if (this.state.dirty) {
+            const draft = this.isInCreationFlow();
+            const saved = await this.saveCharacter({ draft: draft });
+            if (saved === false) {
+                return false;
+            }
+        }
+        return true;
+    },
+
+    /**
      * Show unsaved changes warning modal (UX 2)
+     * @returns {Promise<boolean>} true if caller may proceed (saved or abandoned)
      */
     async showUnsavedChangesModal() {
-        return new Promise((resolve) => {
-            const modalContent = `
-                <h2>You have unsaved changes</h2>
-                <p>Save to apply changes to your character. Unsaved changes will be lost if you leave.</p>
-                <div style="display: flex; gap: var(--space-md); margin-top: var(--space-lg);">
-                    <button class="action-btn primary" id="unsaved-save-btn">Save Changes</button>
-                    <button class="action-btn secondary" id="unsaved-discard-btn">Discard Changes</button>
-                    <button class="action-btn" id="unsaved-cancel-btn">Cancel</button>
-                </div>
-            `;
-            
-            UI.showModal('Unsaved Changes', modalContent);
-            
-            document.getElementById('unsaved-save-btn')?.addEventListener('click', async () => {
-                await this.saveCharacter();
-                UI.hideModal();
-                resolve(true);
-            }, { once: true });
-            
-            document.getElementById('unsaved-discard-btn')?.addEventListener('click', () => {
-                this.discardChanges();
-                UI.hideModal();
-                resolve(true);
-            }, { once: true });
-            
-            document.getElementById('unsaved-cancel-btn')?.addEventListener('click', () => {
-                UI.hideModal();
-                resolve(false);
-            }, { once: true });
+        const hasChar = !!this.state.dirty;
+        const hasStats = !!this.state.statsPending;
+        if (!hasChar && !hasStats) {
+            return true;
+        }
+        if (typeof MoapDialogs === 'undefined' || !MoapDialogs.showChoice) {
+            return false;
+        }
+
+        let message = '';
+        if (hasChar && hasStats) {
+            message = 'You have unsaved character edits and unsaved stat/AP changes.\n\nSave applies both. Abandon reverts everything to the last saved state.';
+        } else if (hasStats) {
+            message = 'You have stat or AP changes that are not saved to your HUD.\n\nSave applies them. Abandon reverts to the values from your last Save Stats.';
+        } else {
+            message = 'You have unsaved character changes.\n\nSave applies them to the cloud. Abandon reloads the last saved character.';
+        }
+
+        const choice = await MoapDialogs.showChoice({
+            title: 'Unsaved Changes',
+            message: message,
+            buttons: [
+                { id: 'unsaved-save-btn', label: 'Save Changes', value: 'save', primary: true },
+                { id: 'unsaved-abandon-btn', label: 'Abandon Changes', value: 'abandon', danger: true },
+                { id: 'unsaved-cancel-btn', label: 'Cancel', value: 'cancel' }
+            ]
         });
+
+        if (choice === 'cancel' || choice == null) {
+            return false;
+        }
+        if (choice === 'save') {
+            return this.saveAllPendingChanges();
+        }
+        if (choice === 'abandon') {
+            this.abandonAllUnsavedChanges();
+            return true;
+        }
+        return false;
     },
-    
+
+    abandonStatsChanges() {
+        const char = this.state.character;
+        if (!char || !this.state.statsPending) {
+            return;
+        }
+        const floor = this.state.statsFloor;
+        if (floor) {
+            char.stats = Object.assign({}, floor);
+        }
+        if (this.state.apFloor != null) {
+            char.ap_balance = this.state.apFloor;
+            if (!this.state.econ) {
+                this.state.econ = {};
+            }
+            this.state.econ.ap_balance = this.state.apFloor;
+        }
+        if (this.state.xpSpentFloor != null) {
+            char.xp_spent = this.state.xpSpentFloor;
+            if (!this.state.econ) {
+                this.state.econ = {};
+            }
+            this.state.econ.xp_spent = this.state.xpSpentFloor;
+        }
+        if (typeof window.updateEconUrlParams === 'function') {
+            window.updateEconUrlParams(char.xp_spent, char.ap_balance);
+        }
+        this.state.statsPending = false;
+        this.state.econSessionActive = false;
+        this.clearMoapSessionDraft(char.id);
+        this.updateSaveStatsButton();
+        this.updateStatusIndicator();
+        const stats = char.stats || this.getDefaultStats();
+        const caps = this.calculateStatCaps();
+        const availablePoints = window.getApBalance(char);
+        if (typeof UI.renderEconDisplay === 'function') {
+            UI.renderEconDisplay(char);
+        }
+        if (typeof UI.renderStatsGrid === 'function') {
+            UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
+        }
+        UI.showToast('Stat changes abandoned', 'info', 2000);
+    },
+
+    abandonAllUnsavedChanges() {
+        if (this.state.statsPending) {
+            this.abandonStatsChanges();
+        }
+        this.discardCharacterChanges();
+    },
+
     /**
-     * Discard unsaved changes (UX 2)
+     * Discard unsaved character edits (reload from cloud). Does not touch stats unless statsPending (use abandonAllUnsavedChanges).
      */
-    discardChanges() {
+    discardCharacterChanges() {
         this.state.dirty = false;
-        if (this.state.selectedCharacterId) {
+        if (this.state.selectedCharacterId || this.state.character?.id) {
             this.loadData();
         }
         this.updateStatusIndicator();
+    },
+
+    /**
+     * Discard unsaved changes (UX 2) — alias for abandon all
+     */
+    discardChanges() {
+        this.abandonAllUnsavedChanges();
     },
     
     /**
@@ -2448,10 +2626,14 @@ try {
     captureStatsFloor(char) {
         if (!char) {
             this.state.statsFloor = null;
+            this.state.apFloor = null;
+            this.state.xpSpentFloor = null;
             return;
         }
         const merged = window.getMergedCharacterStatsForPoints(char);
         this.state.statsFloor = Object.assign({}, merged.stats);
+        this.state.apFloor = window.getApBalance(char);
+        this.state.xpSpentFloor = window.getEconSpent(char);
     },
 
     getMoapDraftStorageKey(characterId) {
@@ -2666,6 +2848,48 @@ try {
                 });
             }
         });
+        document.getElementById('btn-abandon-stats')?.addEventListener('click', function () {
+            if (typeof App.abandonStatsChanges === 'function') {
+                App.abandonStatsChanges();
+            }
+        });
+        document.getElementById('btn-abandon-character')?.addEventListener('click', async function () {
+            if (!App.state.dirty) {
+                return;
+            }
+            if (typeof MoapDialogs !== 'undefined' && MoapDialogs.showConfirm) {
+                const ok = await MoapDialogs.showConfirm({
+                    title: 'Abandon character changes?',
+                    message: 'Reload this character from the cloud and discard unsaved name, identity, and career edits.',
+                    confirmLabel: 'Abandon Changes',
+                    danger: true
+                });
+                if (!ok) {
+                    return;
+                }
+            }
+            if (typeof App.discardCharacterChanges === 'function') {
+                App.discardCharacterChanges();
+                UI.showToast('Character changes abandoned', 'info', 2000);
+            }
+        });
+
+        if (!UI._switchTabWrapped && typeof UI.switchTab === 'function') {
+            UI._switchTabWrapped = true;
+            const origSwitchTab = UI.switchTab.bind(UI);
+            UI.switchTab = async function (tabId) {
+                const activeBtn = document.querySelector('.tab-btn.active');
+                const currentTab = activeBtn ? activeBtn.dataset.tab : null;
+                if (currentTab && currentTab !== tabId && typeof App.confirmLeaveCurrentTab === 'function') {
+                    const allowed = await App.confirmLeaveCurrentTab(currentTab, tabId);
+                    if (!allowed) {
+                        return;
+                    }
+                }
+                origSwitchTab(tabId);
+            };
+        }
+
         refreshBuyCost();
         
         // Challenge Test button (renamed from "Roll")
@@ -2753,7 +2977,7 @@ try {
                     if (tempOption) tempOption.remove();
                 }
                 // Handle character selection - check for unsaved changes
-                else if (this.state.dirty) {
+                else if (this.state.dirty || this.state.statsPending) {
                     const shouldProceed = await this.showUnsavedChangesModal();
                     if (!shouldProceed) {
                         // Reset selector

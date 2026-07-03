@@ -941,6 +941,23 @@ input::placeholder {
     background: linear-gradient(180deg, var(--gold-light) 0%, var(--gold) 100%);
 }
 
+.action-btn.abandon {
+    background: rgba(180, 83, 9, 0.25);
+    border: 1px solid rgba(251, 146, 60, 0.55);
+    color: #fdba74;
+}
+
+.action-btn.abandon:hover:not(:disabled) {
+    background: rgba(180, 83, 9, 0.4);
+    border-color: #fb923c;
+    color: #ffedd5;
+}
+
+.action-btn.abandon:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 /* === Modal === */
 .modal {
     position: fixed;

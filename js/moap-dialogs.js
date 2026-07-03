@@ -285,9 +285,69 @@
         });
     }
 
+    function showChoice(options) {
+        installGlobalHandlers();
+        var opts = options || {};
+        var title = opts.title || 'Choose';
+        var message = opts.message || '';
+        var buttons = opts.buttons || [];
+        var allowBackdropCancel = opts.allowBackdropCancel === true;
+        var els = ensureOverlay();
+
+        return new Promise(function (resolve) {
+            var settled = false;
+            function done(value) {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                activeDone = null;
+                hideOverlay(els);
+                resolve(value);
+            }
+
+            activeDone = function () {
+                done(null);
+            };
+
+            var safeMessage = escapeHtml(String(message)).replace(/\n/g, '<br>');
+            var actionsHtml = '';
+            var i;
+            for (i = 0; i < buttons.length; i++) {
+                var b = buttons[i];
+                var btnClass = 'moap-dialog-btn';
+                if (b.primary) {
+                    btnClass += ' moap-dialog-btn-primary';
+                }
+                if (b.danger) {
+                    btnClass += ' moap-dialog-btn-danger';
+                }
+                actionsHtml += '<button type="button" class="' + btnClass + '" id="' + escapeHtml(String(b.id)) + '">'
+                    + escapeHtml(String(b.label)) + '</button>';
+            }
+
+            var content =
+                '<div class="moap-dialog">' +
+                '<h2 class="moap-dialog-title">' + escapeHtml(String(title)) + '</h2>' +
+                '<p class="moap-dialog-message">' + safeMessage + '</p>' +
+                '<div class="moap-dialog-actions">' + actionsHtml + '</div></div>';
+
+            showOverlay(els, content, allowBackdropCancel);
+
+            for (i = 0; i < buttons.length; i++) {
+                (function (btn) {
+                    bindActionButton(btn.id, function () {
+                        done(btn.value);
+                    });
+                })(buttons[i]);
+            }
+        });
+    }
+
     global.MoapDialogs = {
         showConfirm: showConfirm,
         showAlert: showAlert,
+        showChoice: showChoice,
         cancelActiveDialog: cancelActiveDialog,
         isActive: isActive
     };
