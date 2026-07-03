@@ -224,15 +224,29 @@ const API = {
     
     // =========================== TEMPLATES (Public Read) ====================
 
-    /** Seed-data.js is the baseline catalog; Firestore overlays custom entries and edits. */
+    /** Seed-data.js is the runtime catalog; Firestore only when admin forces refresh. */
     _USE_STATIC_TEMPLATES: true,
+
+    _templateSessionKey(cacheKey) {
+        var build = (typeof window !== 'undefined' && window.HUD_BUILD_LABEL) ? window.HUD_BUILD_LABEL : 'seed';
+        return 'f4_tpl_' + cacheKey + '_' + build;
+    },
 
     invalidateTemplateCache(collectionName) {
         if (collectionName) {
             delete this._templateCache[collectionName];
+            try {
+                sessionStorage.removeItem(this._templateSessionKey(collectionName));
+            } catch (e) { /* ignore */ }
             return;
         }
         this._templateCache = {};
+        var self = this;
+        ['classes', 'species', 'genders', 'vocations'].forEach(function (k) {
+            try {
+                sessionStorage.removeItem(self._templateSessionKey(k));
+            } catch (e) { /* ignore */ }
+        });
     },
 
     _mergeTemplateMaps(baselineById, firestoreById) {
@@ -278,7 +292,7 @@ const API = {
 
     _USER_SESSION_TTL_MS: 30 * 60 * 1000,
     _LAST_LOGIN_WRITE_INTERVAL_MS: 60 * 60 * 1000,
-    _LIST_CHARACTERS_TTL_MS: 5 * 60 * 1000,
+    _LIST_CHARACTERS_TTL_MS: 30 * 60 * 1000,
     _listCharactersCache: null,
     _listCharactersCacheTs: 0,
     _createCharacterInFlight: null,
@@ -303,15 +317,33 @@ const API = {
     },
 
     _getCachedTemplate(cacheKey) {
-        const entry = this._templateCache[cacheKey];
+        var entry = this._templateCache[cacheKey];
         if (entry && (Date.now() - entry.ts) < this._TEMPLATE_CACHE_TTL_MS) {
             return entry.data;
         }
+        try {
+            var raw = sessionStorage.getItem(this._templateSessionKey(cacheKey));
+            if (raw) {
+                var parsed = JSON.parse(raw);
+                if (parsed && parsed.data && parsed.ts &&
+                    (Date.now() - parsed.ts) < this._TEMPLATE_CACHE_TTL_MS) {
+                    this._templateCache[cacheKey] = { ts: parsed.ts, data: parsed.data };
+                    return parsed.data;
+                }
+            }
+        } catch (e) { /* quota / private mode */ }
         return null;
     },
 
     _setCachedTemplate(cacheKey, data) {
-        this._templateCache[cacheKey] = { ts: Date.now(), data: data };
+        var ts = Date.now();
+        this._templateCache[cacheKey] = { ts: ts, data: data };
+        try {
+            sessionStorage.setItem(this._templateSessionKey(cacheKey), JSON.stringify({
+                ts: ts,
+                data: data
+            }));
+        } catch (e) { /* quota */ }
     },
 
     _staticVocationList() {
@@ -368,63 +400,72 @@ const API = {
         return { success: true, data: items };
     },
 
-    /** Seed baseline + Firestore overlay (1 collection read when cache cold). */
-    async _loadTemplateCollection(collectionName, seedFn, mapDoc) {
-        const cached = this._getCachedTemplate(collectionName);
+    /** Seed baseline; Firestore overlay only when options.forceFirestore (admin). */
+    async _loadTemplateCollection(collectionName, seedFn, mapDoc, options) {
+        options = options || {};
+        var forceFirestore = !!options.forceFirestore;
+
+        var cached = this._getCachedTemplate(collectionName);
         if (cached) {
+            console.log('[API] ' + collectionName + ': cached (' + (cached.data ? cached.data.length : 0) + ', 0 reads)');
             return cached;
         }
 
-        let baselineItems = [];
-        if (this._USE_STATIC_TEMPLATES) {
-            const seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
-            if (seeded && seeded.data) {
-                baselineItems = seeded.data;
-            }
+        var baselineItems = [];
+        var seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
+        if (seeded && seeded.data) {
+            baselineItems = seeded.data;
         }
 
-        let snapshot = await db.collection(collectionName).get();
+        if (this._USE_STATIC_TEMPLATES && !forceFirestore && baselineItems.length > 0) {
+            var staticResult = { success: true, data: baselineItems };
+            this._setCachedTemplate(collectionName, staticResult);
+            console.log('[API] ' + collectionName + ': ' + baselineItems.length + ' from seed (0 Firestore reads)');
+            return staticResult;
+        }
+
+        var snapshot = await db.collection(collectionName).get();
         if (snapshot.empty && seedFn && baselineItems.length === 0) {
             console.log('[API] Seeding empty collection:', collectionName);
             await seedFn.call(this);
             await new Promise(function (resolve) { setTimeout(resolve, 500); });
             snapshot = await db.collection(collectionName).get();
             if (baselineItems.length === 0) {
-                const seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
+                seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
                 if (seeded && seeded.data) {
                     baselineItems = seeded.data;
                 }
             }
         }
 
-        const firestoreById = {};
+        var firestoreById = {};
         snapshot.forEach(function (doc) {
-            const data = doc.data();
+            var data = doc.data();
             if (data.enabled === false) {
                 return;
             }
-            const mapped = mapDoc ? mapDoc(doc, data) : { id: doc.id, ...data };
+            var mapped = mapDoc ? mapDoc(doc, data) : { id: doc.id, ...data };
             firestoreById[doc.id] = mapped;
         });
 
-        const baselineById = this._indexTemplatesById(baselineItems);
-        const items = this._mergeTemplateMaps(baselineById, firestoreById);
+        var baselineById = this._indexTemplatesById(baselineItems);
+        var items = this._mergeTemplateMaps(baselineById, firestoreById);
 
-        const result = { success: true, data: items };
+        var result = { success: true, data: items };
         this._setCachedTemplate(collectionName, result);
         console.log('[API] ' + collectionName + ': ' + items.length + ' templates (seed '
-            + baselineItems.length + ', firestore ' + snapshot.size + ')');
+            + baselineItems.length + ', firestore ' + snapshot.size + ' reads)');
         return result;
     },
 
     /**
      * Get all species templates (single read + session cache)
      */
-    async getSpecies() {
+    async getSpecies(options) {
+        options = options || {};
         try {
-            const loaded = await this._loadTemplateCollection('species', this.seedDefaultSpecies, null);
+            const loaded = await this._loadTemplateCollection('species', this.seedDefaultSpecies, null, options);
             const species = loaded.data || [];
-            console.log('[API] getSpecies:', species.length, 'reads: 1 collection get (cached 30m)');
             return { success: true, data: { species: species } };
         } catch (error) {
             console.error('getSpecies error:', error);
@@ -454,7 +495,8 @@ const API = {
     /**
      * Get all class templates (single read + session cache)
      */
-    async getClasses() {
+    async getClasses(options) {
+        options = options || {};
         try {
             const self = this;
             const loaded = await this._loadTemplateCollection('classes', this.seedDefaultClasses, function (doc, data) {
@@ -463,9 +505,8 @@ const API = {
                     ...data,
                     image: self.normalizeClassImagePath(doc.id, data.image)
                 };
-            });
+            }, options);
             const classes = loaded.data || [];
-            console.log('[API] getClasses:', classes.length, 'reads: 1 collection get (cached 30m)');
             return { success: true, data: { classes: classes } };
         } catch (error) {
             console.error('getClasses error:', error);
@@ -577,9 +618,10 @@ const API = {
     /**
      * Get all vocation templates
      */
-    async getVocations() {
+    async getVocations(options) {
+        options = options || {};
         try {
-            const loaded = await this._loadTemplateCollection('vocations', this.seedDefaultVocations, null);
+            const loaded = await this._loadTemplateCollection('vocations', this.seedDefaultVocations, null, options);
             const vocations = loaded.data || [];
             return { success: true, data: { vocations: vocations } };
         } catch (error) {
@@ -600,8 +642,23 @@ const API = {
 
         if (!forceRefresh && this._listCharactersCache &&
             (Date.now() - this._listCharactersCacheTs) < this._LIST_CHARACTERS_TTL_MS) {
-            console.log('[listCharacters] session cache:', this._listCharactersCache.length, '(0 reads)');
+            console.log('[listCharacters] memory cache:', this._listCharactersCache.length, '(0 reads)');
             return { success: true, data: { characters: this._dedupeCharactersById(this._listCharactersCache) }, cached: true };
+        }
+
+        if (!forceRefresh && this.uuid) {
+            try {
+                var rosterRaw = sessionStorage.getItem('f4_roster_' + this.uuid);
+                if (rosterRaw) {
+                    var rosterParsed = JSON.parse(rosterRaw);
+                    if (rosterParsed && rosterParsed.characters && rosterParsed.characters.length) {
+                        this._listCharactersCache = this._dedupeCharactersById(rosterParsed.characters);
+                        this._listCharactersCacheTs = Date.now();
+                        console.log('[listCharacters] session cache:', this._listCharactersCache.length, '(0 reads)');
+                        return { success: true, data: { characters: this._listCharactersCache }, cached: true };
+                    }
+                }
+            } catch (e) { /* ignore */ }
         }
         
         try {
@@ -690,6 +747,11 @@ const API = {
             const deduped = this._dedupeCharactersById(characters);
             this._listCharactersCache = deduped;
             this._listCharactersCacheTs = Date.now();
+            if (this.uuid) {
+                try {
+                    sessionStorage.setItem('f4_roster_' + this.uuid, JSON.stringify({ characters: deduped }));
+                } catch (e) { /* ignore */ }
+            }
             console.log(`[listCharacters] Found ${deduped.length} character(s) for UUID: ${this.uuid}`);
             return { success: true, data: { characters: deduped } };
         } catch (error) {
@@ -1442,11 +1504,11 @@ const API = {
         console.log('Gender seeding complete!');
     },
     
-    async getGenders() {
+    async getGenders(options) {
+        options = options || {};
         try {
-            const loaded = await this._loadTemplateCollection('genders', this.seedDefaultGenders, null);
+            const loaded = await this._loadTemplateCollection('genders', this.seedDefaultGenders, null, options);
             const genders = loaded.data || [];
-            console.log('[API] getGenders:', genders.length, 'reads: 1 collection get (cached 30m)');
             return { success: true, data: { genders: genders } };
         } catch (error) {
             console.error('getGenders error:', error);

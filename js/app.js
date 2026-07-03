@@ -435,7 +435,7 @@ try {
     },
     
     /**
-     * Load species/classes/vocations/genders once per session (API layer caches 30m).
+     * Load species/classes/vocations/genders once per session (seed + sessionStorage; 0 Firestore reads).
      */
     async ensureTemplatesLoaded(forceReload) {
         if (forceReload) {
@@ -445,18 +445,19 @@ try {
             return { success: true, cached: true };
         }
 
+        const tplOpts = forceReload ? { forceFirestore: true } : {};
         let speciesResult, classesResult, vocationsResult, gendersResult;
         if (window.IS_SL_BROWSER) {
-            speciesResult = await API.getSpecies();
-            classesResult = await API.getClasses();
-            vocationsResult = await API.getVocations();
-            gendersResult = await API.getGenders();
+            speciesResult = await API.getSpecies(tplOpts);
+            classesResult = await API.getClasses(tplOpts);
+            vocationsResult = await API.getVocations(tplOpts);
+            gendersResult = await API.getGenders(tplOpts);
         } else {
             [speciesResult, classesResult, vocationsResult, gendersResult] = await Promise.all([
-                API.getSpecies(),
-                API.getClasses(),
-                API.getVocations(),
-                API.getGenders()
+                API.getSpecies(tplOpts),
+                API.getClasses(tplOpts),
+                API.getVocations(tplOpts),
+                API.getGenders(tplOpts)
             ]);
         }
 
@@ -470,6 +471,58 @@ try {
         this.state.genders = gendersResult.data?.genders || [];
         this.state.templatesLoaded = true;
         return { success: true, cached: false };
+    },
+
+    /**
+     * Refresh UI after save without re-fetching templates or full loadData().
+     */
+    async refreshAfterCharacterSave(savedCharacter, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (savedCharacter && API._listCharactersCache) {
+            let found = false;
+            API._listCharactersCache = API._listCharactersCache.map(function (c) {
+                if (c.id === savedCharacter.id) {
+                    found = true;
+                    return Object.assign({}, savedCharacter);
+                }
+                return c;
+            });
+            if (!found) {
+                API._listCharactersCache.unshift(savedCharacter);
+            }
+            API._listCharactersCache = API._dedupeCharactersById(API._listCharactersCache);
+            API._listCharactersCacheTs = Date.now();
+            if (API.uuid) {
+                try {
+                    sessionStorage.setItem(
+                        'f4_roster_' + API.uuid,
+                        JSON.stringify({ characters: API._listCharactersCache })
+                    );
+                } catch (e) { /* ignore */ }
+            }
+        }
+        this.state.character = savedCharacter;
+        this.state.selectedCharacterId = savedCharacter.id;
+        if (savedCharacter.class_id) {
+            this.state.currentClass = this.state.classes.find(function (c) {
+                return c.id === savedCharacter.class_id;
+            });
+        }
+        if (savedCharacter.species_id) {
+            this.state.currentSpecies = this.state.species.find(function (s) {
+                return s.id === savedCharacter.species_id;
+            });
+        }
+        if (options.refreshSelector !== false) {
+            await this.loadCharacterSelector(API._listCharactersCache || [savedCharacter]);
+        }
+        this.updateStatusIndicator();
+        this.updateStepGuide();
+        if (options.render !== false) {
+            await this.renderAll();
+        }
     },
 
     /**
@@ -699,9 +752,8 @@ try {
                                 await this.cacheHudStatsForPlayers(this.state.character);
                             }
                             
-                            // Load and set up buffs listener
+                            // One-shot buff load (no onSnapshot — saves Firestore reads in Setup HUD)
                             await this.loadBuffs();
-                            this.setupBuffsListener();
                         }
                     }
                 } else {
@@ -2324,7 +2376,7 @@ try {
     },
     
     /**
-     * Load and display active buffs
+     * Load and display active buffs (one-shot GET; no realtime listener in Setup HUD).
      */
     async loadBuffs() {
         if (!API.uuid) {
@@ -2340,29 +2392,13 @@ try {
             console.error('[loadBuffs] Error:', error);
         }
     },
-    
-    /**
-     * Set up real-time listener for buffs
-     */
+
+    /** @deprecated Setup HUD no longer uses onSnapshot for buffs (Firestore read multiplier). */
     setupBuffsListener() {
-        // Unsubscribe from previous listener if exists
         if (this.buffsUnsubscribe) {
             this.buffsUnsubscribe();
             this.buffsUnsubscribe = null;
         }
-        
-        if (!API.uuid) {
-            return;
-        }
-        
-        this.buffsUnsubscribe = API.subscribeToActiveBuffs(
-            API.uuid,
-            (result) => {
-                if (result.success) {
-                    UI.renderBuffs(result.data.buffs || []);
-                }
-            }
-        );
     },
     
     /**
@@ -3684,7 +3720,7 @@ try {
                 }
                 this.updateStatusIndicator();
                 this.updateStepGuide();
-                await this.loadData({ forceRefresh: true });
+                await this.refreshAfterCharacterSave(result.data.character);
                 return true;
             } else {
                 // Update existing character (must target the selected doc, not "first" character)
@@ -3781,9 +3817,8 @@ try {
                 App.state.econSessionActive = true;
                 window.updateEconUrlParams(finalSpent, savedAp);
                 this.clearMoapSessionDraft(characterId);
-                window.pushEconToHud();
                 await this.cacheHudStatsForPlayers(this.state.character);
-                await this.loadData({ forceRefresh: true });
+                window.pushEconToHud();
                 if (this.state.character) {
                     this.state.character.ap_balance = savedAp;
                     this.state.character.xp_spent = finalSpent;
@@ -3797,7 +3832,6 @@ try {
                     window.getEconSpent(this.state.character),
                     window.getApBalance(this.state.character)
                 );
-                window.pushEconToHud();
 
                 setTimeout(() => {
                     if (this.state.character) {
@@ -6456,18 +6490,18 @@ try {
         
         try {
             API.invalidateTemplateCache(type);
-            // Reload templates to ensure we have latest data
+            const tplOpts = { forceFirestore: true };
             let templates = [];
             if (type === 'species') {
-                const result = await API.getSpecies();
+                const result = await API.getSpecies(tplOpts);
                 templates = result.data?.species || [];
                 this.state.species = templates;
             } else if (type === 'classes') {
-                const result = await API.getClasses();
+                const result = await API.getClasses(tplOpts);
                 templates = result.data?.classes || [];
                 this.state.classes = templates;
             } else if (type === 'genders') {
-                const result = await API.getGenders();
+                const result = await API.getGenders(tplOpts);
                 templates = result.data?.genders || [];
                 this.state.genders = templates;
             } else {
