@@ -3688,6 +3688,11 @@ try {
         if (char.class_id) {
             data.class_id = char.class_id;
         }
+        if (char.has_mana === true) {
+            data.has_mana = '1';
+        } else if (char.has_mana === false) {
+            data.has_mana = '0';
+        }
         if (char.mode) {
             data.mode = char.mode;
         }
