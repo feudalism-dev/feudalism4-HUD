@@ -673,7 +673,6 @@ try {
                                 this.state.isNewCharacter = false;
                             }
                             this.state.selectedCharacterId = character.id; // Ensure selected ID is set
-                            this.captureStatsFloor(this.state.character);
                             
                             // Load universe data for the character
                             if (character.universe_id) {
@@ -1309,9 +1308,9 @@ try {
     },
 
     /**
-     * Push pending AP, XP spent, and stats to HUD LSD/KVP in one MOAP navigation.
+     * Push pending AP, XP spent, and stats to HUD LSD/KVP and Firestore, then reload MOAP.
      */
-    saveStatsToHud() {
+    async saveStatsToHud() {
         const char = this.state.character;
         if (!char) {
             UI.showToast('No character loaded', 'warning');
@@ -1331,6 +1330,26 @@ try {
         }
         if (typeof this.persistMoapSessionDraft === 'function') {
             this.persistMoapSessionDraft(true);
+        }
+        UI.showToast('Saving stats...', 'info', 2000);
+        try {
+            const patch = {
+                stats: Object.assign({}, char.stats),
+                ap_balance: window.getApBalance(char),
+                xp_spent: window.getEconSpent(char)
+            };
+            const result = await API.updateCharacter(patch, char.id);
+            if (!result.success) {
+                UI.showToast('Cloud save failed: ' + (result.error || 'unknown'), 'warning', 5000);
+            } else if (result.data && result.data.character) {
+                Object.assign(this.state.character, result.data.character);
+            }
+            try {
+                sessionStorage.removeItem('f4_roster_' + API.uuid);
+            } catch (e) { /* ignore */ }
+        } catch (e) {
+            console.warn('[Save Stats] Firestore update failed:', e);
+            UI.showToast('Cloud save failed — HUD sync will still run', 'warning', 4000);
         }
         try {
             const currentUrl = new URL(window.location.href);
@@ -2641,7 +2660,10 @@ try {
         });
         document.getElementById('btn-save-stats')?.addEventListener('click', function () {
             if (typeof App.saveStatsToHud === 'function') {
-                App.saveStatsToHud();
+                App.saveStatsToHud().catch(function (err) {
+                    console.error('[Save Stats]', err);
+                    UI.showToast('Save Stats failed', 'error');
+                });
             }
         });
         refreshBuyCost();
