@@ -725,9 +725,8 @@ try {
                             this.mergePoolsFromUrl();
                             const hadMoapDraft = this.restoreMoapSessionDraft();
                             this.mergeUrlEconIntoCharacter();
-                            if (this.mergeStatsFromUrlIntoCharacter()) {
-                                this.captureStatsFloor(this.state.character);
-                            }
+                            this.mergeStatsFromUrlIntoCharacter();
+                            this.captureStatsFloor(this.state.character);
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -1326,6 +1325,15 @@ try {
         }
     },
 
+    /**
+     * Snapshot stat/AP/XP baseline for Abandon — call before first pending edit in a session.
+     */
+    captureStatsFloorIfNeeded() {
+        if (!this.state.statsPending && this.state.character) {
+            this.captureStatsFloor(this.state.character);
+        }
+    },
+
     markStatsPending() {
         this.state.statsPending = true;
         this.state.econSessionActive = true;
@@ -1552,36 +1560,34 @@ try {
         if (floor) {
             char.stats = Object.assign({}, floor);
         }
-        if (this.state.apFloor != null) {
-            char.ap_balance = this.state.apFloor;
-            if (!this.state.econ) {
-                this.state.econ = {};
-            }
-            this.state.econ.ap_balance = this.state.apFloor;
+        const restoredAp = this.state.apFloor != null
+            ? this.state.apFloor
+            : (Math.max(0, parseInt(char.ap_balance, 10) || 0));
+        const restoredSpent = this.state.xpSpentFloor != null
+            ? this.state.xpSpentFloor
+            : window.getEconSpent(char);
+        char.ap_balance = restoredAp;
+        char.xp_spent = restoredSpent;
+        if (!this.state.econ) {
+            this.state.econ = {};
         }
-        if (this.state.xpSpentFloor != null) {
-            char.xp_spent = this.state.xpSpentFloor;
-            if (!this.state.econ) {
-                this.state.econ = {};
-            }
-            this.state.econ.xp_spent = this.state.xpSpentFloor;
-        }
+        this.state.econ.ap_balance = restoredAp;
+        this.state.econ.xp_spent = restoredSpent;
         if (typeof window.updateEconUrlParams === 'function') {
-            window.updateEconUrlParams(char.xp_spent, char.ap_balance);
+            window.updateEconUrlParams(restoredSpent, restoredAp);
         }
         this.state.statsPending = false;
-        this.state.econSessionActive = false;
+        this.state.econSessionActive = true;
         this.clearMoapSessionDraft(char.id);
         this.updateSaveStatsButton();
         this.updateStatusIndicator();
         const stats = char.stats || this.getDefaultStats();
         const caps = this.calculateStatCaps();
-        const availablePoints = window.getApBalance(char);
         if (typeof UI.renderEconDisplay === 'function') {
             UI.renderEconDisplay(char);
         }
         if (typeof UI.renderStatsGrid === 'function') {
-            UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
+            UI.renderStatsGrid(stats, caps, restoredAp, this.state.statsFloor || {});
         }
         UI.showToast('Stat changes abandoned', 'info', 2000);
     },
@@ -9575,6 +9581,9 @@ window.buyPointsWithXp = function (pointCount) {
     if (!char) {
         return false;
     }
+    if (typeof App.captureStatsFloorIfNeeded === 'function') {
+        App.captureStatsFloorIfNeeded();
+    }
     const n = parseInt(pointCount, 10);
     if (isNaN(n) || n <= 0) {
         UI.showToast('Enter a positive number of points', 'warning');
@@ -9673,6 +9682,10 @@ window.getStatSavedFloor = function(statName) {
  */
 window.onStatChange = async function(stat, action) {
     if (!App.state.character) return;
+
+    if (typeof App.captureStatsFloorIfNeeded === 'function') {
+        App.captureStatsFloorIfNeeded();
+    }
     
     const currentValue = App.state.character.stats[stat] || 1;
     const caps = App.calculateStatCaps();
