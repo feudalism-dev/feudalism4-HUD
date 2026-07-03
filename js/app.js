@@ -810,12 +810,11 @@ try {
             if (econSyncReload) {
                 DebugLog.log('Calling renderEconSyncRefresh()...', 'debug');
                 this.renderEconSyncRefresh();
-                DebugLog.log('renderEconSyncRefresh() completed', 'debug');
-            } else {
-                DebugLog.log('Calling renderAll()...', 'debug');
-                await this.renderAll();
-                DebugLog.log('renderAll() completed', 'debug');
+                DebugLog.log('renderEconSyncRefresh() completed — re-rendering galleries', 'debug');
             }
+            DebugLog.log('Calling renderAll()...', 'debug');
+            await this.renderAll();
+            DebugLog.log('renderAll() completed', 'debug');
         } catch (error) {
             DebugLog.log('loadData() ERROR: ' + error.message, 'error');
             DebugLog.log('Stack: ' + (error.stack || 'N/A'), 'error');
@@ -3644,17 +3643,24 @@ try {
     },
 
     /**
-     * Setup open / save: push stats into Players HUD LSD (LOAD_CHARACTER + UPDATE_STATS).
+     * Setup open / save: push identity (and optionally stats) into Players HUD LSD.
+     * @param {object} char
+     * @param {{ syncStats?: boolean }} options — syncStats false avoids location.assign on identity save
      */
-    async cacheHudStatsForPlayers(char) {
+    async cacheHudStatsForPlayers(char, options) {
+        if (options === undefined) {
+            options = {};
+        }
         if (!char || !char.id) {
             return;
         }
-        if (this.urlHasAuthoritativeStats()) {
-            return;
+        const wantStatsSync = options.syncStats !== false;
+        if (wantStatsSync && !this.urlHasAuthoritativeStats()) {
+            this.scheduleSyncStatsToPlayersHUD(char);
         }
-        this.scheduleSyncStatsToPlayersHUD(char);
-        await this.pushCharacterToPlayersHUD(char.id);
+        if (options.pushCharacter !== false) {
+            await this.pushCharacterToPlayersHUD(char.id);
+        }
     },
 
     /**
@@ -4090,10 +4096,6 @@ try {
                 this.updateStepGuide();
                 this.captureStatsFloor(this.state.character);
                 App.state.econSessionActive = true;
-                window.updateEconUrlParams(finalSpent, savedAp);
-                this.clearMoapSessionDraft(characterId);
-                await this.cacheHudStatsForPlayers(this.state.character);
-                window.pushEconToHud();
                 if (this.state.character) {
                     this.state.character.ap_balance = savedAp;
                     this.state.character.xp_spent = finalSpent;
@@ -4102,62 +4104,14 @@ try {
                     App.state.econSessionActive = true;
                     window.reconcileStaleApBalance(this.state.character);
                 }
-                this.captureStatsFloor(this.state.character);
-                window.updateEconUrlParams(
-                    window.getEconSpent(this.state.character),
-                    window.getApBalance(this.state.character)
-                );
-
-                setTimeout(() => {
-                    if (this.state.character) {
-                        // Trigger the heartbeat update manually
-                        const stats = this.state.character.stats || {};
-                        const statsList = [
-                            stats.agility || 2, stats.animal_handling || 2, stats.athletics || 2,
-                            stats.awareness || 2, stats.crafting || 2, stats.deception || 2,
-                            stats.endurance || 2, stats.entertaining || 2, stats.fighting || 2,
-                            stats.healing || 2, stats.influence || 2, stats.intelligence || 2,
-                            stats.knowledge || 2, stats.marksmanship || 2, stats.persuasion || 2,
-                            stats.stealth || 2, stats.survival || 2, stats.thievery || 2,
-                            stats.will || 2, stats.wisdom || 2
-                        ];
-                        // Get class_id - check both character.class_id and currentClass.id
-                        let classId = this.state.character.class_id || "";
-                        if (!classId && this.state.currentClass) {
-                            classId = this.state.currentClass.id || "";
-                            console.log('[Save] Using currentClass.id as fallback: ' + classId);
-                        }
-                        if (!classId) {
-                            console.warn('[Save] WARNING: class_id is empty! character.class_id=' + this.state.character.class_id + ', currentClass=' + (this.state.currentClass ? this.state.currentClass.id : 'null'));
-                        } else {
-                            console.log('[Save] Including class in JSON: ' + classId);
-                        }
-                        
-                        // Build character data as JSON object
-                        const characterJSON = {
-                            class_id: classId,
-                            stats: this.state.character.stats || {},
-                            health: this.state.character.health || { current: 0, base: 0, max: 0 },
-                            stamina: this.state.character.stamina || { current: 0, base: 0, max: 0 },
-                            mana: this.state.character.mana || { current: 0, base: 0, max: 0 },
-                            xp_lifetime: this.state.character.xp_lifetime || 0,
-                            xp_spent: this.state.character.xp_spent || 0,
-                            ap_balance: this.state.character.ap_balance || 0,
-                            has_mana: this.state.character.has_mana || false,
-                            species_factors: this.state.character.species_factors || { health_factor: 25, stamina_factor: 25, mana_factor: 25 }
-                        };
-                        
-                        // Convert to JSON string and encode for URL
-                        const jsonString = JSON.stringify(characterJSON);
-                        const currentUrl = new URL(window.location.href);
-                        const encodedData = encodeURIComponent(jsonString);
-                        currentUrl.searchParams.set('char_data', encodedData);
-                        currentUrl.searchParams.set('char_data_ts', Date.now().toString());
-                        if (this.safeHistoryReplaceState(currentUrl.toString())) {
-                            console.log('[Save] Updated CHARACTER_DATA in URL as JSON with class: ' + classId);
-                        }
-                    }
-                }, 500);
+                window.updateEconUrlParams(finalSpent, savedAp);
+                this.clearMoapSessionDraft(characterId);
+                // Identity save: push LOAD_CHARACTER only — no pushEconToHud (that reloads MOAP and breaks galleries).
+                await this.cacheHudStatsForPlayers(this.state.character, { syncStats: false });
+                if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
+                    UI.cleanMoapUrlParams();
+                }
+                await this.refreshAfterCharacterSave(this.state.character);
                 return true;
             }
             
