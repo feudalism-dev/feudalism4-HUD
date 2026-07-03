@@ -730,7 +730,8 @@ try {
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
-                            if (!econSyncOnly && window.reconcileStaleApBalance(this.state.character)) {
+                            if (!econSyncOnly && !window.hasHudEconInUrl()
+                                && window.reconcileStaleApBalance(this.state.character)) {
                                 window.updateEconUrlParams(
                                     window.getEconSpent(this.state.character),
                                     window.getApBalance(this.state.character)
@@ -1416,17 +1417,27 @@ try {
             this.persistMoapSessionDraft(true);
         }
         UI.showToast('Saving stats...', 'info', 2000);
+        const savedAp = window.getApBalance(char);
+        const savedSpent = window.getEconSpent(char);
         try {
             const patch = {
                 stats: Object.assign({}, char.stats),
-                ap_balance: window.getApBalance(char),
-                xp_spent: window.getEconSpent(char)
+                ap_balance: savedAp,
+                xp_spent: savedSpent
             };
             const result = await API.updateCharacter(patch, char.id);
             if (!result.success) {
                 UI.showToast('Cloud save failed: ' + (result.error || 'unknown'), 'warning', 5000);
             } else if (result.data && result.data.character) {
                 Object.assign(this.state.character, result.data.character);
+                this.state.character.ap_balance = savedAp;
+                this.state.character.xp_spent = savedSpent;
+                if (!this.state.econ) {
+                    this.state.econ = {};
+                }
+                this.state.econ.ap_balance = savedAp;
+                this.state.econ.xp_spent = savedSpent;
+                this.state.econSessionActive = true;
             }
             try {
                 sessionStorage.removeItem('f4_roster_' + API.uuid);
@@ -1437,8 +1448,8 @@ try {
         }
         try {
             const currentUrl = new URL(window.location.href);
-            const spentStr = String(window.getEconSpent(char));
-            const apStr = String(window.getApBalance(char));
+            const spentStr = String(savedSpent);
+            const apStr = String(savedAp);
             const ts = Date.now().toString();
             const lifeStr = String(window.getEconLifetime(char));
             const csv = this.statsCsvFromChar(char);
@@ -2396,7 +2407,7 @@ try {
         }
         this.mergeUrlEconIntoCharacter();
         if (this.mergeStatsFromUrlIntoCharacter()) {
-            this.captureStatsFloor(char);
+            this.captureAbandonBaseline(char);
         }
         this.clearStatsPendingAfterHudSave();
         this.updateStatusIndicator();
@@ -9459,11 +9470,15 @@ window.calculateApSpentFromBaseline = function (character, baselineLevel) {
 };
 
 /**
- * Fix stale KVP ap_balance when saved stats prove AP was spent but HUD still shows starting bonus.
- * Uses baseline 1 (v2 new chars), not species default line at 2.
+ * Fix stale KVP ap_balance when HUD still shows the full species starting AP pool
+ * but saved stats already prove AP was spent from the v2 baseline (all stats at 1).
+ * Does not run when AP is already below the starting pool — that is a valid remainder.
  */
 window.reconcileStaleApBalance = function (character) {
     if (!character || !character.stats || !character.species_id) {
+        return false;
+    }
+    if (window.hasHudEconInUrl && window.hasHudEconInUrl()) {
         return false;
     }
     const spentFromStats = window.calculateApSpentFromBaseline(character, 1);
@@ -9472,7 +9487,7 @@ window.reconcileStaleApBalance = function (character) {
     }
     const currentAp = window.getApBalance(character);
     const startingAp = window.getSpeciesStartingAp(character);
-    if (startingAp <= 0 || currentAp > startingAp) {
+    if (startingAp <= 0 || currentAp !== startingAp) {
         return false;
     }
     const corrected = Math.max(0, startingAp - spentFromStats);
