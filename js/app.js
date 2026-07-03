@@ -171,6 +171,7 @@ try {
         statsFloor: null,
         apFloor: null,
         xpSpentFloor: null,
+        statsAbandonBaseline: null,
         isNewCharacter: false,
         creationInProgress: false,
         lastAutoSaveMessage: '',
@@ -726,7 +727,6 @@ try {
                             const hadMoapDraft = this.restoreMoapSessionDraft();
                             this.mergeUrlEconIntoCharacter();
                             this.mergeStatsFromUrlIntoCharacter();
-                            this.captureStatsFloor(this.state.character);
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -736,6 +736,7 @@ try {
                                     window.getApBalance(this.state.character)
                                 );
                             }
+                            this.captureAbandonBaseline(this.state.character);
                             if (!econSyncOnly) {
                                 this.state.statsPending = false;
                                 this.updateSaveStatsButton();
@@ -1329,9 +1330,34 @@ try {
      * Snapshot stat/AP/XP baseline for Abandon — call before first pending edit in a session.
      */
     captureStatsFloorIfNeeded() {
+        this.freezeAbandonBaselineBeforeEdit();
+    },
+
+    freezeAbandonBaselineBeforeEdit() {
         if (!this.state.statsPending && this.state.character) {
-            this.captureStatsFloor(this.state.character);
+            this.captureAbandonBaseline(this.state.character);
         }
+    },
+
+    captureAbandonBaseline(char) {
+        if (!char) {
+            this.state.statsAbandonBaseline = null;
+            this.state.statsFloor = null;
+            this.state.apFloor = null;
+            this.state.xpSpentFloor = null;
+            return;
+        }
+        const merged = window.getMergedCharacterStatsForPoints(char);
+        const ap = window.getApBalance(char);
+        const xpSpent = window.getEconSpent(char);
+        this.state.statsAbandonBaseline = {
+            stats: Object.assign({}, merged.stats),
+            ap_balance: ap,
+            xp_spent: xpSpent
+        };
+        this.state.statsFloor = Object.assign({}, merged.stats);
+        this.state.apFloor = ap;
+        this.state.xpSpentFloor = xpSpent;
     },
 
     markStatsPending() {
@@ -1362,7 +1388,7 @@ try {
     clearStatsPendingAfterHudSave() {
         this.state.statsPending = false;
         if (this.state.character) {
-            this.captureStatsFloor(this.state.character);
+            this.captureAbandonBaseline(this.state.character);
             this.clearMoapSessionDraft(this.state.character.id);
         }
         this.updateSaveStatsButton();
@@ -1556,16 +1582,17 @@ try {
         if (!char || !this.state.statsPending) {
             return;
         }
-        const floor = this.state.statsFloor;
+        const baseline = this.state.statsAbandonBaseline;
+        const floor = baseline ? baseline.stats : this.state.statsFloor;
         if (floor) {
             char.stats = Object.assign({}, floor);
         }
-        const restoredAp = this.state.apFloor != null
-            ? this.state.apFloor
-            : (Math.max(0, parseInt(char.ap_balance, 10) || 0));
-        const restoredSpent = this.state.xpSpentFloor != null
-            ? this.state.xpSpentFloor
-            : window.getEconSpent(char);
+        const restoredAp = baseline
+            ? baseline.ap_balance
+            : (this.state.apFloor != null ? this.state.apFloor : (Math.max(0, parseInt(char.ap_balance, 10) || 0)));
+        const restoredSpent = baseline
+            ? baseline.xp_spent
+            : (this.state.xpSpentFloor != null ? this.state.xpSpentFloor : window.getEconSpent(char));
         char.ap_balance = restoredAp;
         char.xp_spent = restoredSpent;
         if (!this.state.econ) {
@@ -1577,6 +1604,7 @@ try {
             window.updateEconUrlParams(restoredSpent, restoredAp);
         }
         this.state.statsPending = false;
+        this.state.statsAbandonBaseline = null;
         this.state.econSessionActive = true;
         this.clearMoapSessionDraft(char.id);
         this.updateSaveStatsButton();
@@ -2630,16 +2658,7 @@ try {
      * Snapshot saved stat values for this session — decreases cannot go below this floor until Save.
      */
     captureStatsFloor(char) {
-        if (!char) {
-            this.state.statsFloor = null;
-            this.state.apFloor = null;
-            this.state.xpSpentFloor = null;
-            return;
-        }
-        const merged = window.getMergedCharacterStatsForPoints(char);
-        this.state.statsFloor = Object.assign({}, merged.stats);
-        this.state.apFloor = window.getApBalance(char);
-        this.state.xpSpentFloor = window.getEconSpent(char);
+        this.captureAbandonBaseline(char);
     },
 
     getMoapDraftStorageKey(characterId) {
@@ -3437,7 +3456,11 @@ try {
             const legacyAp = window.calculateLegacyAvailablePoints(char);
             if (legacyAp > 0) {
                 char.ap_balance = legacyAp;
+                if (!App.state.econ) {
+                    App.state.econ = {};
+                }
                 App.state.econ.ap_balance = legacyAp;
+                App.state.econSessionActive = true;
                 console.log('[XP] Migrated legacy AP balance (MOAP session):', legacyAp);
             }
         }
