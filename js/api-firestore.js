@@ -228,8 +228,33 @@ const API = {
     _USE_STATIC_TEMPLATES: true,
 
     _templateSessionKey(cacheKey) {
-        var build = (typeof window !== 'undefined' && window.HUD_BUILD_LABEL) ? window.HUD_BUILD_LABEL : 'seed';
-        return 'f4_tpl_' + cacheKey + '_' + build;
+        var ver = '';
+        try {
+            ver = sessionStorage.getItem('f4_cdn_tpl_version') || '';
+        } catch (e) { /* ignore */ }
+        if (!ver) {
+            ver = (typeof window !== 'undefined' && window.HUD_BUILD_LABEL) ? window.HUD_BUILD_LABEL : 'seed';
+        }
+        return 'f4_tpl_' + cacheKey + '_' + String(ver).replace(/\./g, '');
+    },
+
+    _clearCdnRawCache() {
+        var ver = '';
+        try {
+            ver = sessionStorage.getItem('f4_cdn_tpl_version') || '';
+        } catch (e) { /* ignore */ }
+        var slug = String(ver).replace(/\./g, '');
+        var self = this;
+        ['classes', 'species', 'genders', 'vocations'].forEach(function (k) {
+            try {
+                sessionStorage.removeItem('f4_cdn_raw_' + k + '_' + slug);
+            } catch (e) { /* ignore */ }
+        });
+        try {
+            sessionStorage.removeItem('f4_cdn_tpl_version');
+        } catch (e) { /* ignore */ }
+        this._cdnManifestCache = null;
+        this._cdnManifestFetchPromise = null;
     },
 
     invalidateTemplateCache(collectionName) {
@@ -247,6 +272,105 @@ const API = {
                 sessionStorage.removeItem(self._templateSessionKey(k));
             } catch (e) { /* ignore */ }
         });
+        this._clearCdnRawCache();
+    },
+
+    _cdnManifestCache: null,
+    _cdnManifestFetchPromise: null,
+
+    _cdnDataUrl(relativePath) {
+        var path = (relativePath || '').replace(/^\//, '');
+        if (typeof window === 'undefined' || !window.location) {
+            return path;
+        }
+        var base = window.location.pathname.replace(/\/[^/]*$/, '/');
+        if (base === '/') {
+            base = './';
+        }
+        return base + path;
+    },
+
+    async _fetchCdnManifest() {
+        if (this._cdnManifestCache) {
+            return this._cdnManifestCache;
+        }
+        if (this._cdnManifestFetchPromise) {
+            return this._cdnManifestFetchPromise;
+        }
+        var self = this;
+        this._cdnManifestFetchPromise = fetch(this._cdnDataUrl('data/manifest.json'), { cache: 'no-cache' })
+            .then(function (res) {
+                if (!res.ok) {
+                    throw new Error('manifest HTTP ' + res.status);
+                }
+                return res.json();
+            })
+            .then(function (manifest) {
+                self._cdnManifestCache = manifest;
+                if (manifest && manifest.version) {
+                    try {
+                        sessionStorage.setItem('f4_cdn_tpl_version', manifest.version);
+                    } catch (e) { /* ignore */ }
+                }
+                return manifest;
+            })
+            .catch(function (err) {
+                console.warn('[API] CDN manifest unavailable:', err.message);
+                return null;
+            });
+        return this._cdnManifestFetchPromise;
+    },
+
+    _processCdnTemplateItems(items, mapDoc) {
+        items = (items || []).filter(function (row) {
+            return row && row.enabled !== false;
+        });
+        if (mapDoc) {
+            items = items.map(function (row) {
+                return mapDoc({ id: row.id }, row);
+            });
+        } else {
+            items = items.map(function (row) {
+                return { id: row.id, ...row };
+            });
+        }
+        return { success: true, data: items };
+    },
+
+    async _loadTemplatesFromCdn(collectionName, mapDoc) {
+        var manifest = await this._fetchCdnManifest();
+        if (!manifest || !manifest[collectionName]) {
+            return null;
+        }
+        var relPath = manifest[collectionName];
+        var version = manifest.version || 'cdn';
+        var slug = String(version).replace(/\./g, '');
+        var rawKey = 'f4_cdn_raw_' + collectionName + '_' + slug;
+
+        try {
+            var raw = sessionStorage.getItem(rawKey);
+            if (raw) {
+                var parsed = JSON.parse(raw);
+                if (parsed && parsed.length) {
+                    return this._processCdnTemplateItems(parsed, mapDoc);
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        try {
+            var res = await fetch(this._cdnDataUrl(relPath), { cache: 'default' });
+            if (!res.ok) {
+                throw new Error('HTTP ' + res.status);
+            }
+            var items = await res.json();
+            try {
+                sessionStorage.setItem(rawKey, JSON.stringify(items));
+            } catch (e) { /* quota */ }
+            return this._processCdnTemplateItems(items, mapDoc);
+        } catch (err) {
+            console.warn('[API] CDN ' + collectionName + ' fetch failed:', err.message);
+            return null;
+        }
     },
 
     _mergeTemplateMaps(baselineById, firestoreById) {
@@ -400,15 +524,28 @@ const API = {
         return { success: true, data: items };
     },
 
-    /** Seed baseline; Firestore overlay only when options.forceFirestore (admin). */
+    /** CDN → seed baseline; Firestore overlay only when options.forceFirestore (admin). */
     async _loadTemplateCollection(collectionName, seedFn, mapDoc, options) {
         options = options || {};
         var forceFirestore = !!options.forceFirestore;
+
+        if (!forceFirestore) {
+            await this._fetchCdnManifest();
+        }
 
         var cached = this._getCachedTemplate(collectionName);
         if (cached) {
             console.log('[API] ' + collectionName + ': cached (' + (cached.data ? cached.data.length : 0) + ', 0 reads)');
             return cached;
+        }
+
+        if (!forceFirestore) {
+            var cdnLoaded = await this._loadTemplatesFromCdn(collectionName, mapDoc);
+            if (cdnLoaded && cdnLoaded.data && cdnLoaded.data.length > 0) {
+                this._setCachedTemplate(collectionName, cdnLoaded);
+                console.log('[API] ' + collectionName + ': ' + cdnLoaded.data.length + ' from CDN (0 Firestore reads)');
+                return cdnLoaded;
+            }
         }
 
         var baselineItems = [];
@@ -420,7 +557,7 @@ const API = {
         if (this._USE_STATIC_TEMPLATES && !forceFirestore && baselineItems.length > 0) {
             var staticResult = { success: true, data: baselineItems };
             this._setCachedTemplate(collectionName, staticResult);
-            console.log('[API] ' + collectionName + ': ' + baselineItems.length + ' from seed (0 Firestore reads)');
+            console.log('[API] ' + collectionName + ': ' + baselineItems.length + ' from seed fallback (0 Firestore reads)');
             return staticResult;
         }
 

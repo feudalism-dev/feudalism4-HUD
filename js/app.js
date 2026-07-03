@@ -6517,6 +6517,7 @@ try {
                     ${canManageGlobal ? `<div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
                         ${type === 'classes' ? `
                             <button class="action-btn" id="btn-sync-free-advances" title="Sync free advances with prerequisites">🔄 Sync Free Advances</button>
+                            <button class="action-btn" id="btn-publish-cdn" title="Download CDN JSON bundle for GitHub Pages">☁️ Publish to CDN</button>
                         ` : ''}
                         <button class="action-btn" id="btn-export-${type}" title="Export to CSV">📥 Export CSV</button>
                         <label class="action-btn" for="file-input-${type}" style="cursor: pointer;" title="Import from CSV">
@@ -6579,6 +6580,9 @@ try {
                 if (type === 'classes') {
                     document.getElementById('btn-sync-free-advances')?.addEventListener('click', () => {
                         this.syncFreeAdvances(templates);
+                    });
+                    document.getElementById('btn-publish-cdn')?.addEventListener('click', () => {
+                        this.downloadTemplateCdnBundle();
                     });
                 }
 
@@ -7551,6 +7555,64 @@ try {
         }
     },
     
+    /**
+     * Trigger browser download of a JSON file (admin CDN bundle export).
+     */
+    _downloadJsonFile(filename, data) {
+        const blob = new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    },
+
+    /**
+     * Export all template collections as versioned CDN JSON + manifest (admin).
+     * Copy files into MOAP Interface/data/ then run deploy-moap-to-public-quick.ps1.
+     */
+    async downloadTemplateCdnBundle() {
+        if (!this.canManageGlobalTemplates()) {
+            UI.showToast('Only system administrators can publish templates to CDN.', 'warning');
+            return;
+        }
+        UI.showToast('Loading templates from Firestore for CDN export…', 'info');
+        try {
+            API.invalidateTemplateCache();
+            await this.ensureTemplatesLoaded(true);
+            const version = (typeof window !== 'undefined' && window.HUD_BUILD_LABEL)
+                ? window.HUD_BUILD_LABEL
+                : ('v' + Date.now());
+            const slug = String(version).replace(/\./g, '');
+            const manifest = {
+                version: version,
+                generated: new Date().toISOString(),
+                source: 'firestore+seed-merge',
+                classes: 'data/classes.v' + slug + '.json',
+                species: 'data/species.v' + slug + '.json',
+                genders: 'data/genders.v' + slug + '.json',
+                vocations: 'data/vocations.v' + slug + '.json'
+            };
+            const classes = (this.state.classes || []).map(function (cls) {
+                return Object.assign({}, cls, {
+                    image: API.normalizeClassImagePath(cls.id, cls.image)
+                });
+            });
+            this._downloadJsonFile('manifest.json', manifest);
+            this._downloadJsonFile('classes.v' + slug + '.json', classes);
+            this._downloadJsonFile('species.v' + slug + '.json', this.state.species || []);
+            this._downloadJsonFile('genders.v' + slug + '.json', this.state.genders || []);
+            this._downloadJsonFile('vocations.v' + slug + '.json', this.state.vocations || API._staticVocationList());
+            UI.showToast(
+                'CDN bundle downloaded. Place manifest.json in data/ and JSON files in data/, then deploy.',
+                'success',
+                10000
+            );
+        } catch (error) {
+            UI.showToast('CDN export failed: ' + error.message, 'error');
+        }
+    },
+
     /**
      * Export classes to CSV format
      */
