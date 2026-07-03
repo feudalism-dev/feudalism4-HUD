@@ -395,21 +395,6 @@ try {
         await this.loadData();
         DebugLog.log('loadData() completed', 'debug');
         
-        // If LSL requested data, refresh stat cache when character is ready (not after econ-only sync)
-        if (requestData === '1' && this.state.character) {
-            const skipHudStatsPush = (function () {
-                try {
-                    return new URLSearchParams(window.location.search).get('econ_sync') === '1';
-                } catch (e) {
-                    return false;
-                }
-            })();
-            if (!skipHudStatsPush) {
-                console.log('[Players HUD] Character found — caching stats for Players HUD');
-                this.cacheHudStatsForPlayers(this.state.character);
-            }
-        }
-        
         // Setup event handlers
         this.setupEventHandlers();
         
@@ -745,7 +730,14 @@ try {
 
                             const skipHudStatsPush = (function () {
                                 try {
-                                    return new URLSearchParams(window.location.search).get('econ_sync') === '1';
+                                    const params = new URLSearchParams(window.location.search);
+                                    if (params.get('econ_sync') === '1') {
+                                        return true;
+                                    }
+                                    if (params.get('request_data') === '1' && App.urlHasAuthoritativeStats()) {
+                                        return true;
+                                    }
+                                    return App.urlHasAuthoritativeStats();
                                 } catch (e) {
                                     return false;
                                 }
@@ -1420,44 +1412,15 @@ try {
         const savedAp = window.getApBalance(char);
         const savedSpent = window.getEconSpent(char);
         try {
-            const patch = {
-                stats: Object.assign({}, char.stats),
-                ap_balance: savedAp,
-                xp_spent: savedSpent
-            };
-            const result = await API.updateCharacter(patch, char.id);
-            if (!result.success) {
-                UI.showToast('Cloud save failed: ' + (result.error || 'unknown'), 'warning', 5000);
-            } else if (result.data && result.data.character) {
-                Object.assign(this.state.character, result.data.character);
-                this.state.character.ap_balance = savedAp;
-                this.state.character.xp_spent = savedSpent;
-                if (!this.state.econ) {
-                    this.state.econ = {};
-                }
-                this.state.econ.ap_balance = savedAp;
-                this.state.econ.xp_spent = savedSpent;
-                this.state.econSessionActive = true;
-            }
-            try {
-                sessionStorage.removeItem('f4_roster_' + API.uuid);
-            } catch (e) { /* ignore */ }
-        } catch (e) {
-            console.warn('[Save Stats] Firestore update failed:', e);
-            UI.showToast('Cloud save failed — HUD sync will still run', 'warning', 4000);
-        }
-        try {
             const currentUrl = new URL(window.location.href);
             const spentStr = String(savedSpent);
             const apStr = String(savedAp);
             const ts = Date.now().toString();
-            const lifeStr = String(window.getEconLifetime(char));
             const csv = this.statsCsvFromChar(char);
             if (!csv) {
                 UI.showToast('Could not build stats for HUD sync', 'error');
                 return false;
             }
-            currentUrl.searchParams.set('xp_lifetime', lifeStr);
             currentUrl.searchParams.set('xp_spent', spentStr);
             currentUrl.searchParams.set('ap_balance', apStr);
             currentUrl.searchParams.set('econ_ts', ts);
@@ -2777,7 +2740,7 @@ try {
             params = new URLSearchParams(window.location.search);
             isLiveEconPush = params.has('econ_ts') || params.get('econ_sync') === '1';
         } catch (e) { /* ignore */ }
-        if (!isNaN(url.xp_lifetime) && url.xp_lifetime >= 0) {
+        if (!isNaN(url.xp_lifetime) && url.xp_lifetime > 0) {
             char.xp_lifetime = url.xp_lifetime;
             changed = true;
         }
@@ -3377,9 +3340,9 @@ try {
             const urlLegacy = parseInt(params.get('xp_total'), 10);
             const urlSpent = parseInt(params.get('xp_spent'), 10);
             const urlAp = parseInt(params.get('ap_balance'), 10);
-            if (!isNaN(urlLife) && urlLife >= 0) {
+            if (!isNaN(urlLife) && urlLife > 0) {
                 lifetime = urlLife;
-            } else if (!isNaN(urlLegacy) && urlLegacy >= 0) {
+            } else if (!isNaN(urlLegacy) && urlLegacy > 0) {
                 lifetime = urlLegacy;
             }
             if (!isNaN(urlSpent) && urlSpent >= 0) {
@@ -3535,9 +3498,39 @@ try {
         return stats;
     },
 
+    csvIsStarterDefault(csv) {
+        if (!csv || typeof csv !== 'string') {
+            return true;
+        }
+        const parts = csv.split(',');
+        if (parts.length !== 20) {
+            return false;
+        }
+        let idx;
+        for (idx = 0; idx < parts.length; idx++) {
+            const val = parseInt(parts[idx], 10);
+            if (isNaN(val) || val !== 2) {
+                return false;
+            }
+        }
+        return true;
+    },
+
+    urlHasAuthoritativeStats() {
+        try {
+            const csv = new URLSearchParams(window.location.search).get('stats_csv') || '';
+            if (!this.statsObjectFromCsv(csv)) {
+                return false;
+            }
+            return !this.csvIsStarterDefault(csv);
+        } catch (e) {
+            return false;
+        }
+    },
+
     /**
-     * Apply stats_csv from MOAP URL (Save Stats push or HUD LSD on setup open).
-     * Gameplay stats live in HUD LSD; Firestore is often stale until Save Character.
+     * Apply stats_csv from MOAP URL (Save Stats push or HUD EXP/LSD on setup open).
+     * Gameplay stats live in Experience KVP; Firestore is fallback only.
      */
     mergeStatsFromUrlIntoCharacter() {
         const char = this.state.character;
@@ -3557,6 +3550,9 @@ try {
         if (!stats) {
             return false;
         }
+        if (this.csvIsStarterDefault(csv)) {
+            return false;
+        }
         char.stats = stats;
         if (this.state.pendingChanges) {
             this.state.pendingChanges.stats = Object.assign({}, stats);
@@ -3574,6 +3570,14 @@ try {
         }
         if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
             this.scheduleSyncStatsToPlayersHUD(char);
+            return;
+        }
+        let urlCsv = '';
+        try {
+            urlCsv = new URLSearchParams(window.location.search).get('stats_csv') || '';
+        } catch (e) { /* ignore */ }
+        if (urlCsv && this.statsObjectFromCsv(urlCsv)) {
+            this._lastStatsCsvSynced = urlCsv;
             return;
         }
         const csv = this.statsCsvFromChar(char);
@@ -3646,19 +3650,11 @@ try {
         if (!char || !char.id) {
             return;
         }
+        if (this.urlHasAuthoritativeStats()) {
+            return;
+        }
         this.scheduleSyncStatsToPlayersHUD(char);
         await this.pushCharacterToPlayersHUD(char.id);
-        // One deferred pass — only if URL still lacks matching stats_csv (avoids reload loops)
-        const self = this;
-        setTimeout(function () {
-            try {
-                const csv = self.statsCsvFromChar(char);
-                const urlCsv = new URL(window.location.href).searchParams.get('stats_csv');
-                if (csv && urlCsv !== csv) {
-                    self.scheduleSyncStatsToPlayersHUD(char);
-                }
-            } catch (e) { /* ignore */ }
-        }, 2000);
     },
 
     /**
@@ -3688,24 +3684,12 @@ try {
         }
         if (char.species_id) {
             data.species_id = char.species_id;
-            const startingXp = this.getSpeciesStartingXp(char.species_id);
-            if (startingXp > 0 && (!char.xp_lifetime || char.xp_lifetime === 0)) {
-                data.starting_xp = startingXp;
-            }
         }
         if (char.class_id) {
             data.class_id = char.class_id;
         }
         if (char.mode) {
             data.mode = char.mode;
-        }
-        if (char.stats) {
-            data.stats = this.statsCsvFromChar(char);
-        }
-        if (char.id) {
-            data.xp_lifetime = window.getEconLifetime(char);
-            data.xp_spent = window.getEconSpent(char);
-            data.ap_balance = window.getApBalance(char);
         }
         const pool = function (p) {
             if (!p) {
@@ -9322,11 +9306,12 @@ window.getMergedCharacterStatsForPoints = function(character) {
  */
 window.XP_PER_AP = 1000;
 
-/** True when Setup was opened from HUD with KVP economy in the URL. */
+/** True when Setup URL carries authoritative HUD lifetime XP (KVP), not just spent/AP params. */
 window.hasHudEconInUrl = function () {
     try {
         const p = new URLSearchParams(window.location.search);
-        return p.has('xp_lifetime') || p.has('xp_total') || p.has('ap_balance');
+        const life = parseInt(p.get('xp_lifetime') || p.get('xp_total') || '', 10);
+        return !isNaN(life) && life > 0;
     } catch (e) {
         return false;
     }
@@ -9352,9 +9337,9 @@ window.getEconFromUrl = function () {
         const urlLegacy = parseInt(params.get('xp_total'), 10);
         const urlSpent = parseInt(params.get('xp_spent'), 10);
         const urlAp = parseInt(params.get('ap_balance'), 10);
-        if (!isNaN(urlLife) && urlLife >= 0) {
+        if (!isNaN(urlLife) && urlLife > 0) {
             lifetime = urlLife;
-        } else if (!isNaN(urlLegacy) && urlLegacy >= 0) {
+        } else if (!isNaN(urlLegacy) && urlLegacy > 0) {
             lifetime = urlLegacy;
         }
         if (!isNaN(urlSpent) && urlSpent >= 0) {
@@ -9579,8 +9564,6 @@ window.pushEconToHud = function () {
         const spentStr = String(window.getEconSpent(char));
         const apStr = String(window.getApBalance(char));
         const ts = Date.now().toString();
-        const lifeStr = String(window.getEconLifetime(char));
-        currentUrl.searchParams.set('xp_lifetime', lifeStr);
         currentUrl.searchParams.set('xp_spent', spentStr);
         currentUrl.searchParams.set('ap_balance', apStr);
         currentUrl.searchParams.set('econ_ts', ts);
