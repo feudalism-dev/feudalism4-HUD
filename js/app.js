@@ -744,6 +744,10 @@ try {
                             })();
                             if (!skipHudStatsPush && !this.state.statsPending) {
                                 await this.cacheHudStatsForPlayers(this.state.character);
+                            } else if (this.state.character && !this.state.statsPending) {
+                                // Local-first skips stats push when URL has stats_csv, but has_mana
+                                // still must sync from Firestore or MOAP state into Players HUD LSD.
+                                await this.pushCharacterToPlayersHUD(this.state.character.id);
                             }
                             
                             // One-shot buff load (no onSnapshot — saves Firestore reads in Setup HUD)
@@ -3694,9 +3698,10 @@ try {
         if (char.class_id) {
             data.class_id = char.class_id;
         }
-        if (char.has_mana === true) {
+        const hm = char.has_mana;
+        if (hm === true || hm === 1 || hm === '1') {
             data.has_mana = '1';
-        } else if (char.has_mana === false) {
+        } else if (hm === false || hm === 0 || hm === '0') {
             data.has_mana = '0';
         }
         const factors = char.species_factors;
