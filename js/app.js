@@ -3092,6 +3092,7 @@ try {
         this.state.dirty = true;
         this.updateStatusIndicator();
         UI.renderResourceBars(this.state.character);
+        this.sendToLSL('UPDATE_HAS_MANA', { has_mana: enabled ? '1' : '0' });
     },
 
     /**
@@ -3699,9 +3700,9 @@ try {
             data.class_id = char.class_id;
         }
         const hm = char.has_mana;
-        if (hm === true || hm === 1 || hm === '1') {
+        if (hm === true || hm === 1 || hm === '1' || hm === 'true') {
             data.has_mana = '1';
-        } else if (hm === false || hm === 0 || hm === '0') {
+        } else {
             data.has_mana = '0';
         }
         const factors = char.species_factors;
