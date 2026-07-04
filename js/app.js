@@ -3093,6 +3093,11 @@ try {
         this.updateStatusIndicator();
         UI.renderResourceBars(this.state.character);
         this.sendToLSL('UPDATE_HAS_MANA', { has_mana: enabled ? '1' : '0' });
+        try {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('has_mana', enabled ? '1' : '0');
+            this.safeHistoryReplaceState(currentUrl.toString());
+        } catch (e) { /* ignore */ }
     },
 
     /**
@@ -3798,6 +3803,18 @@ try {
             if (char && char.title != null) {
                 currentUrl.searchParams.set('char_title', char.title);
             }
+            if (payload.has_mana != null) {
+                currentUrl.searchParams.set('has_mana', String(payload.has_mana));
+            }
+            if (payload.health) {
+                currentUrl.searchParams.set('health_pipe', payload.health);
+            }
+            if (payload.stamina) {
+                currentUrl.searchParams.set('stamina_pipe', payload.stamina);
+            }
+            if (payload.mana) {
+                currentUrl.searchParams.set('mana_pipe', payload.mana);
+            }
             this.safeHistoryReplaceState(currentUrl.toString());
         } catch (e) { /* ignore */ }
     },
@@ -4139,9 +4156,12 @@ try {
                 this.clearMoapSessionDraft(characterId);
                 // Identity save: push LOAD_CHARACTER only — no pushEconToHud (that reloads MOAP and breaks galleries).
                 await this.cacheHudStatsForPlayers(this.state.character, { syncStats: false });
-                if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
-                    UI.cleanMoapUrlParams();
-                }
+                // Defer lsl_cmd cleanup — immediate cleanMoapUrlParams erased LOAD_CHARACTER before LSL poll.
+                setTimeout(function () {
+                    if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
+                        UI.cleanMoapUrlParams();
+                    }
+                }, 8000);
                 await this.refreshAfterCharacterSave(this.state.character);
                 return true;
             }
