@@ -3585,13 +3585,17 @@ try {
         try {
             urlCsv = new URLSearchParams(window.location.search).get('stats_csv') || '';
         } catch (e) { /* ignore */ }
-        if (urlCsv && this.statsObjectFromCsv(urlCsv)) {
+        if (this.urlHasAuthoritativeStats()) {
             this._lastStatsCsvSynced = urlCsv;
             return;
         }
         const csv = this.statsCsvFromChar(char);
         if (!csv) {
             console.warn('[Players HUD Sync] statsCsvFromChar empty — char.stats missing?');
+            return;
+        }
+        if (this.csvIsStarterDefault(csv)) {
+            console.warn('[Players HUD Sync] refusing to push factory all-2s stats from Firestore');
             return;
         }
         const parts = csv.split(',');
