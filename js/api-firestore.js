@@ -1113,6 +1113,7 @@ const API = {
                 
                 // Auto-provisioned starter — player can customize in Setup HUD
                 provisional: charData.provisional === true,
+                setup_complete: charData.setup_complete === true ? true : false,
                 
                 created_at: firebase.firestore.FieldValue.serverTimestamp(),
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()

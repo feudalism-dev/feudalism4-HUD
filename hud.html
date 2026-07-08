@@ -106,19 +106,9 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-md);">
                     <!-- Step Indicators -->
                     <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center;">
-                        <div class="step-item" data-step="name" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                        <div class="step-item" data-step="identity" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
                             <span class="step-marker" style="font-size: 1.2em;">○</span>
-                            <span class="step-name">Name/Title</span>
-                        </div>
-                        <div style="color: #6b7280;">→</div>
-                        <div class="step-item" data-step="gender" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
-                            <span class="step-marker" style="font-size: 1.2em;">○</span>
-                            <span class="step-name">Gender</span>
-                        </div>
-                        <div style="color: #6b7280;">→</div>
-                        <div class="step-item" data-step="species" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
-                            <span class="step-marker" style="font-size: 1.2em;">○</span>
-                            <span class="step-name">Species</span>
+                            <span class="step-name">Character</span>
                         </div>
                         <div style="color: #6b7280;">→</div>
                         <div class="step-item" data-step="stats" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
@@ -126,9 +116,9 @@
                             <span class="step-name">Stats</span>
                         </div>
                         <div style="color: #6b7280;">→</div>
-                        <div class="step-item" data-step="career" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                        <div class="step-item" data-step="class" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
                             <span class="step-marker" style="font-size: 1.2em;">○</span>
-                            <span class="step-name">Classes</span>
+                            <span class="step-name">Class</span>
                         </div>
                     </div>
                     
@@ -175,6 +165,7 @@
                     </div>
                 </div>
 
+                <p class="field-hint tab-step-hint" data-creation-step="identity" style="display: none;">Enter name and title, pick gender and species on this page. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.</p>
                 <div id="character-identity-section">
                 <div class="panel">
                     <h2>Identity</h2>
@@ -268,7 +259,7 @@
 
             <!-- Classes tab (internal id: tab-career / data-tab career) -->
             <section id="tab-career" class="tab-content">
-                <p class="field-hint tab-step-hint" data-creation-step="career" style="display: none;">Click a class card below to view details and select your starting class.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="class" style="display: none;">Click a class card below to view details and select your starting class.</p>
                 <div class="panel">
                     <h2>Current Class</h2>
                     <div id="current-career" class="career-display">
@@ -580,7 +571,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.40';
+            window.HUD_BUILD_LABEL = '4.2.41';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
