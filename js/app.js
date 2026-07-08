@@ -6930,7 +6930,9 @@ try {
                     ${canManageGlobal ? `<div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
                         ${type === 'classes' ? `
                             <button class="action-btn" id="btn-sync-free-advances" title="Sync free advances with prerequisites">🔄 Sync Free Advances</button>
-                            <button class="action-btn" id="btn-publish-cdn" title="Download CDN JSON bundle for GitHub Pages">☁️ Publish to CDN</button>
+                        ` : ''}
+                        ${(type === 'classes' || type === 'species' || type === 'genders') ? `
+                            <button class="action-btn" id="btn-publish-cdn" title="Download CDN JSON backup (automated publish: publish-templates.ps1 in repo)">☁️ CDN bundle (backup)</button>
                         ` : ''}
                         <button class="action-btn" id="btn-export-${type}" title="Export to CSV">📥 Export CSV</button>
                         <label class="action-btn" for="file-input-${type}" style="cursor: pointer;" title="Import from CSV">
@@ -6942,20 +6944,24 @@ try {
                 </div>
                 ${type === 'classes' && canManageGlobal ? `
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
-                    <strong>📝 CSV Format Note:</strong> When editing prerequisites or free_advances, use <strong>semicolons (;)</strong> to separate multiple values, not commas. 
-                    Example: <code>courtier;scholar;monk</code> (not <code>courtier,scholar,monk</code>)
-                    <br><strong>☁️ After Import:</strong> CSV updates <em>Firestore</em> only. The Setup HUD reads prerequisites from the <em>CDN bundle</em> until you click <strong>Publish to CDN</strong>, copy files into <code>MOAP Interface/data/</code>, and deploy Pages.
+                    <strong>📝 CSV:</strong> Use <strong>semicolons (;)</strong> between prerequisites / free_advances.
+                    Example: <code>courtier;scholar;monk</code>
+                    <br><strong>✅ After import:</strong> Changes are live from <em>Firestore</em> in the Setup HUD (HUD 4.2.34+).
+                    Optional CDN refresh for faster loads: run <code>publish-templates.ps1</code> from the repo (or ask your developer).
                 </div>
                 ` : ''}
                 ${type === 'species' && canManageGlobal ? `
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
-                    <strong>📝 CSV:</strong> <code>base_stats</code>, <code>stat_minimums</code>, and <code>stat_maximums</code> are JSON objects. Portrait files still go under <code>images/species/&lt;id&gt;.png</code> on GitHub Pages (full MOAP deploy).
-                    <br><strong>☁️ After Import:</strong> New species appear from Firestore immediately. Publish CDN + deploy for portraits and faster loads for everyone.
+                    <strong>📝 CSV:</strong> <code>base_stats</code>, <code>stat_minimums</code>, and <code>stat_maximums</code> are JSON objects.
+                    Portraits: <code>images/species/&lt;id&gt;.png</code> on GitHub Pages.
+                    <br><strong>✅ After import:</strong> New species are live from Firestore immediately.
+                    Optional: <code>publish-templates.ps1</code> updates CDN cache + deploys portraits path.
                 </div>
                 ` : ''}
                 ${type === 'genders' && canManageGlobal ? `
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
-                    <strong>📝 CSV:</strong> Portrait files go under <code>images/genders/&lt;id&gt;.png</code> on GitHub Pages (full MOAP deploy).
+                    <strong>📝 CSV:</strong> Portraits under <code>images/genders/&lt;id&gt;.png</code>.
+                    <br><strong>✅ After import:</strong> Live from Firestore. Optional CDN: <code>publish-templates.ps1</code>.
                 </div>
                 ` : ''}
                 <div class="admin-search" style="margin-bottom: var(--space-md);">
@@ -6996,6 +7002,8 @@ try {
                     document.getElementById('btn-sync-free-advances')?.addEventListener('click', () => {
                         this.syncFreeAdvances(templates);
                     });
+                }
+                if (type === 'classes' || type === 'species' || type === 'genders') {
                     document.getElementById('btn-publish-cdn')?.addEventListener('click', () => {
                         this.downloadTemplateCdnBundle();
                     });
@@ -8019,7 +8027,7 @@ try {
             this._downloadJsonFile('genders.v' + slug + '.json', this.state.genders || []);
             this._downloadJsonFile('vocations.v' + slug + '.json', this.state.vocations || API._staticVocationList());
             UI.showToast(
-                'CDN bundle downloaded. Place manifest.json in data/ and JSON files in data/, then deploy.',
+                'CDN backup downloaded (manual fallback). For normal publishing run publish-templates.ps1 from the repo.',
                 'success',
                 10000
             );
@@ -8444,11 +8452,7 @@ try {
 
             if (imported > 0) {
                 API.markTemplatesImportedFromFirestore();
-                UI.showToast(
-                    'This browser will use Firestore class data for 24h. All players still need Publish to CDN + Pages deploy.',
-                    'info',
-                    10000
-                );
+                UI.showToast('Classes are live from Firestore. Say "publish templates" to refresh CDN for all players.', 'info', 9000);
             }
             
             // Refresh admin list from Firestore (not stale CDN)
@@ -8457,21 +8461,6 @@ try {
             // Reload character UI from Firestore for this session
             await this.ensureTemplatesLoaded(true);
             await this.renderAll();
-
-            if (imported > 0 && errors === 0) {
-                const publish = await UI.showConfirmDialog({
-                    title: 'Publish prerequisites to CDN?',
-                    message:
-                        'Firestore is updated with your CSV prerequisites.\n\n' +
-                        'The in-world Setup HUD loads classes from GitHub Pages CDN until you publish a new bundle and deploy.\n\n' +
-                        'Download the CDN JSON bundle now?',
-                    confirmLabel: 'Download CDN bundle',
-                    cancelLabel: 'Later'
-                });
-                if (publish) {
-                    await this.downloadTemplateCdnBundle();
-                }
-            }
             
         } catch (error) {
             console.error('Import error:', error);
@@ -8649,30 +8638,12 @@ try {
                 8000
             );
             if (imported > 0) {
-                UI.showToast(
-                    'New species should appear on your next character draft. Publish CDN for portraits + faster loads.',
-                    'info',
-                    10000
-                );
+                API.markTemplatesImportedFromFirestore();
+                UI.showToast('Species are live from Firestore. Say "publish templates" to refresh CDN for all players.', 'info', 9000);
             }
             await this.showTemplateManager('species');
             await this.ensureTemplatesLoaded(true);
             await this.renderAll();
-
-            if (imported > 0 && errors === 0) {
-                const publish = await UI.showConfirmDialog({
-                    title: 'Publish species to CDN?',
-                    message:
-                        'Firestore is updated with your species.\n\n' +
-                        'Download the CDN bundle for portraits and faster template loads?\n' +
-                        '(Add images under images/species/ before deploy.)',
-                    confirmLabel: 'Download CDN bundle',
-                    cancelLabel: 'Later'
-                });
-                if (publish) {
-                    await this.downloadTemplateCdnBundle();
-                }
-            }
         } catch (error) {
             console.error('importSpeciesFromCSV', error);
             UI.showToast('Failed to import: ' + error.message, 'error');
