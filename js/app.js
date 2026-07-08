@@ -2002,8 +2002,18 @@ try {
             this.state.isNewCharacter = false;
             this.state.creationInProgress = false;
             this.state.currentUniverse = universe;
-            const starterGrant = this.getStartingXpGrant('human');
+            // New chars: all stats at 1 (already in template), 0 AP, 20000 + species bonus XP.
+            character.ap_balance = 0;
+            character.xp_spent = Math.max(0, parseInt(character.xp_spent, 10) || 0);
+            const starterGrant = this.getStartingXpGrant(character.species_id || 'human');
             character.xp_lifetime = Math.max(parseInt(character.xp_lifetime, 10) || 0, starterGrant);
+            if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                App.state.econ = {};
+            }
+            App.state.econ.xp_lifetime = character.xp_lifetime;
+            App.state.econ.xp_spent = character.xp_spent;
+            App.state.econ.ap_balance = 0;
+            App.state.econSessionActive = true;
             this.recalculateResourcePools();
 
             if (API.setActiveCharacter) {
@@ -2059,6 +2069,7 @@ try {
             class_id: null,
             currency: 50,
             ap_balance: 0,
+            // Lifetime XP is seeded on Create / starter provision (20000 + species.starting_xp).
             xp_lifetime: 0,
             xp_spent: 0,
             stats: defaultStats,
@@ -3482,6 +3493,10 @@ try {
         if (!character || !character.id) {
             return;
         }
+        // Always keep new-economy characters at 0 AP until they Buy AP with XP.
+        if (character.ap_balance == null || character.ap_balance === '') {
+            character.ap_balance = 0;
+        }
         const grant = this.getStartingXpGrant(character.species_id || 'human');
         if (grant <= 0) {
             return;
@@ -3495,6 +3510,9 @@ try {
             App.state.econ = {};
         }
         App.state.econ.xp_lifetime = grant;
+        if (App.state.econ.ap_balance == null) {
+            App.state.econ.ap_balance = Math.max(0, parseInt(character.ap_balance, 10) || 0);
+        }
         App.state.econSessionActive = true;
         if (options.forceNavigate) {
             try {
@@ -9334,30 +9352,15 @@ window.getStatTotalCost = function(level) {
 };
 
 /**
- * Default stat line for a species (all 1s, merged with species base_stats / mins).
- * XP economy v2: new characters start at 1, not 2.
+ * New-character default stats: ALL stats at 1.
+ * Species bonuses are XP (species.starting_xp), not free raised stats.
+ * Class/species mins are checked when selecting a class — they do not inflate the starting line.
  */
 window.getSpeciesDefaultStats = function(speciesId) {
-    const defaultStats = (typeof App.getNewCharacterStats === 'function')
-        ? App.getNewCharacterStats()
-        : App.getDefaultStats();
-    const species = App.state.species?.find(s => s.id === speciesId);
-    const merged = Object.assign({}, defaultStats);
-    if (!species) {
-        return merged;
+    if (typeof App.getNewCharacterStats === 'function') {
+        return App.getNewCharacterStats();
     }
-    const speciesStats = species.base_stats || {};
-    Object.keys(speciesStats).forEach(function (stat) {
-        merged[stat] = speciesStats[stat];
-    });
-    const mins = species.stat_minimums || {};
-    Object.keys(mins).forEach(function (stat) {
-        const minVal = parseInt(mins[stat], 10) || 0;
-        if ((merged[stat] || 1) < minVal) {
-            merged[stat] = minVal;
-        }
-    });
-    return merged;
+    return App.getDefaultStats();
 };
 
 /**
@@ -9532,12 +9535,9 @@ window.getApBalance = function (character) {
     return ap;
 };
 
-/** Species starting AP budget (human bonus only — v2 stores remainder in ap_balance KVP field). */
+/** Species free AP at creation — always 0 in XP economy v2 (players buy AP with XP). */
 window.getSpeciesStartingAp = function (character) {
-    if (!character || character.species_id !== 'human') {
-        return 0;
-    }
-    return 10;
+    return 0;
 };
 
 /**
