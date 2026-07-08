@@ -536,6 +536,7 @@ try {
             options = {};
         }
         const forceRefresh = !!options.forceRefresh;
+        const characterSwitch = !!options.characterSwitch;
         try {
             DebugLog.log('loadData() called', 'debug');
             UI.setConnectionStatus(true);
@@ -710,8 +711,10 @@ try {
                             this.initEconFromUrl();
                             this.mergePoolsFromUrl();
                             const hadMoapDraft = this.restoreMoapSessionDraft();
-                            this.mergeUrlEconIntoCharacter();
-                            this.mergeStatsFromUrlIntoCharacter();
+                            if (!characterSwitch) {
+                                this.mergeUrlEconIntoCharacter();
+                                this.mergeStatsFromUrlIntoCharacter();
+                            }
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -734,15 +737,17 @@ try {
                                     if (params.get('econ_sync') === '1') {
                                         return true;
                                     }
-                                    if (params.get('request_data') === '1' && App.urlHasAuthoritativeStats()) {
+                                    if (params.get('request_data') === '1' && App.urlHasAuthoritativeStats(App.state.character?.id)) {
                                         return true;
                                     }
-                                    return App.urlHasAuthoritativeStats();
+                                    return App.urlHasAuthoritativeStats(App.state.character?.id);
                                 } catch (e) {
                                     return false;
                                 }
                             })();
-                            if (!skipHudStatsPush && !this.state.statsPending) {
+                            if (characterSwitch && !econSyncOnly && !this.state.statsPending) {
+                                await this.cacheHudStatsForPlayers(this.state.character, { syncStats: true });
+                            } else if (!skipHudStatsPush && !this.state.statsPending) {
                                 await this.cacheHudStatsForPlayers(this.state.character);
                             } else if (this.state.character && !this.state.statsPending) {
                                 // Local-first skips stats push when URL has stats_csv, but has_mana
@@ -1432,6 +1437,7 @@ try {
             currentUrl.searchParams.set('moap_tab', window.getMoapActiveTab());
             if (char.id) {
                 currentUrl.searchParams.set('active_char', char.id);
+                currentUrl.searchParams.set('stats_char_id', char.id);
             }
             currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
             currentUrl.searchParams.set('lsl_cmd_ts', ts);
@@ -3001,9 +3007,14 @@ try {
                         return;
                     }
                 }
+                const switchingFrom = this.state.selectedCharacterId || this.state.character?.id;
+                const isCharacterSwitch = !!(switchingFrom && switchingFrom !== value);
+                if (isCharacterSwitch) {
+                    this.clearStaleHudUrlParamsForCharacterSwitch(value);
+                }
                 await this.rememberSelectedCharacter(value);
                 this.state.dirty = false;
-                await this.loadData();
+                await this.loadData({ characterSwitch: isCharacterSwitch });
                 if (this.state.character && this.state.character.id === value) {
                     await this.pushCharacterToPlayersHUD(value);
                 }
@@ -3609,16 +3620,86 @@ try {
         return allOnes || allTwos;
     },
 
-    urlHasAuthoritativeStats() {
+    statsCharIdFromUrl() {
         try {
+            return new URLSearchParams(window.location.search).get('stats_char_id') || '';
+        } catch (e) {
+            return '';
+        }
+    },
+
+    /**
+     * True when stats_csv in the MOAP URL belongs to the character being loaded.
+     * Prevents roster switches from applying the previous slot's HUD stats.
+     */
+    urlStatsBelongToCharacter(characterId) {
+        if (!characterId) {
+            return false;
+        }
+        let csv = '';
+        let statsCharId = '';
+        let activeChar = '';
+        try {
+            const params = new URLSearchParams(window.location.search);
+            csv = params.get('stats_csv') || '';
+            statsCharId = params.get('stats_char_id') || '';
+            activeChar = params.get('active_char') || '';
+        } catch (e) {
+            return false;
+        }
+        if (!csv || !this.statsObjectFromCsv(csv) || this.csvIsStarterDefault(csv)) {
+            return false;
+        }
+        if (statsCharId) {
+            return statsCharId === characterId;
+        }
+        // Legacy URLs (no stats_char_id): only trust on initial HUD open when active_char matches.
+        return activeChar === characterId;
+    },
+
+    urlHasAuthoritativeStats(characterId) {
+        try {
+            const charId = characterId || this.state.character?.id || '';
             const csv = new URLSearchParams(window.location.search).get('stats_csv') || '';
             if (!this.statsObjectFromCsv(csv)) {
                 return false;
             }
-            return !this.csvIsStarterDefault(csv);
+            if (this.csvIsStarterDefault(csv)) {
+                return false;
+            }
+            if (charId && !this.urlStatsBelongToCharacter(charId)) {
+                return false;
+            }
+            return true;
         } catch (e) {
             return false;
         }
+    },
+
+    /**
+     * Strip HUD stats/econ URL params from the previous roster slot before loading another.
+     */
+    clearStaleHudUrlParamsForCharacterSwitch(targetCharacterId) {
+        try {
+            const url = new URL(window.location.href);
+            const hadStats = url.searchParams.has('stats_csv');
+            url.searchParams.delete('stats_csv');
+            url.searchParams.delete('stats_csv_ts');
+            url.searchParams.delete('stats_char_id');
+            url.searchParams.delete('econ_sync');
+            url.searchParams.delete('econ_ts');
+            url.searchParams.delete('xp_spent');
+            url.searchParams.delete('ap_balance');
+            url.searchParams.delete('xp_lifetime');
+            url.searchParams.delete('xp_total');
+            this.safeHistoryReplaceState(url.toString());
+            if (hadStats) {
+                console.log('[Character] Cleared stale HUD URL stats/econ for switch to', targetCharacterId);
+            }
+        } catch (e) { /* ignore */ }
+        this._lastStatsCsvSynced = null;
+        this.state.statsPending = false;
+        this.state.pendingChanges = {};
     },
 
     /**
@@ -3627,7 +3708,10 @@ try {
      */
     mergeStatsFromUrlIntoCharacter() {
         const char = this.state.character;
-        if (!char) {
+        if (!char || !char.id) {
+            return false;
+        }
+        if (!this.urlStatsBelongToCharacter(char.id)) {
             return false;
         }
         let csv = '';
@@ -3669,7 +3753,7 @@ try {
         try {
             urlCsv = new URLSearchParams(window.location.search).get('stats_csv') || '';
         } catch (e) { /* ignore */ }
-        if (this.urlHasAuthoritativeStats()) {
+        if (this.urlHasAuthoritativeStats(char.id)) {
             this._lastStatsCsvSynced = urlCsv;
             return;
         }
@@ -3708,6 +3792,9 @@ try {
             const currentUrl = new URL(window.location.href);
             currentUrl.searchParams.set('stats_csv', csv);
             currentUrl.searchParams.set('stats_csv_ts', Date.now().toString());
+            if (char.id) {
+                currentUrl.searchParams.set('stats_char_id', char.id);
+            }
             this._lastStatsCsvSynced = csv;
             if (typeof App !== 'undefined' && App.persistMoapSessionDraft) {
                 App.persistMoapSessionDraft(true);
