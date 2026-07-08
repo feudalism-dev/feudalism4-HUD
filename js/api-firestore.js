@@ -2094,7 +2094,20 @@ const API = {
                     return value;
                 }, 2));
                 
-                await ref.update(finalData);
+                const existing = await ref.get();
+                if (!existing.exists) {
+                    const createData = { ...finalData };
+                    if (type === 'classes') {
+                        if (createData.enabled === undefined) {
+                            createData.enabled = true;
+                        }
+                        createData.prerequisite = firebase.firestore.FieldValue.delete();
+                    }
+                    createData.created_at = firebase.firestore.FieldValue.serverTimestamp();
+                    await ref.set(createData);
+                } else {
+                    await ref.update(finalData);
+                }
             }
             
             return { success: true, data: { id } };
