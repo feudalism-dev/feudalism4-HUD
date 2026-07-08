@@ -1280,6 +1280,13 @@ const API = {
             }
             
             const character = charResult.data.character;
+            this.discardFirestoreGameplayFields(character);
+            if (!econOverride || !econOverride.stats) {
+                return {
+                    success: false,
+                    error: 'Gameplay stats must come from your HUD. Save Stats, then try again.'
+                };
+            }
             if (econOverride) {
                 if (econOverride.xp_lifetime != null) {
                     character.xp_lifetime = econOverride.xp_lifetime;
@@ -1290,7 +1297,9 @@ const API = {
                 if (econOverride.ap_balance != null) {
                     character.ap_balance = econOverride.ap_balance;
                 }
+                character.stats = { ...econOverride.stats };
             }
+            const gameplayStats = character.stats;
             const universeId = character.universe_id || 'default';
             const classConfigResult = await this.getUniverseClassConfiguration(universeId);
             const universe = classConfigResult.success
@@ -1308,7 +1317,8 @@ const API = {
 
             const canChange = this.canChangeToClass(character, effectiveClassData, allClasses, {
                 universe,
-                enforceStatMinimums: this.enforceClassStatMinimums(universe)
+                enforceStatMinimums: this.enforceClassStatMinimums(universe),
+                gameplayStats: gameplayStats
             });
             if (!canChange.canChange) {
                 return { success: false, error: canChange.reason || 'Cannot change to this class' };
@@ -1320,7 +1330,7 @@ const API = {
             
             // Calculate if we gained any points in current class
             const startStats = character.stats_at_class_start || {};
-            const currentStats = character.stats || {};
+            const currentStats = gameplayStats;
             let totalGained = 0;
             let isMaxed = true;
             
@@ -1362,8 +1372,8 @@ const API = {
                 // If abandoned (0 points gained), don't add to career history
             }
             
-            // Prepare update — class_id / snapshot / history only.
-            // Do NOT write stats or apply class.stat_minimums (no free bumps).
+            // Prepare update — class_id / career snapshot / history only.
+            // Live stats stay in Experience KVP (f4stats); never write stats to Firestore.
             const updateData = {
                 class_id: newClassId,
                 class_started_at: new Date().toISOString(),
@@ -1471,11 +1481,11 @@ const API = {
 
         // Check minimum stat requirements
         if (enforceStatMinimums && classData.stat_minimums) {
-            const stats = character.stats || {};
+            const stats = this.getGameplayStatsForClassCheck(character, options);
             const missingStats = [];
             
             for (const [stat, minValue] of Object.entries(classData.stat_minimums)) {
-                const currentValue = stats[stat] || 2; // Default stat value
+                const currentValue = stats[stat] != null ? stats[stat] : 2;
                 if (currentValue < minValue) {
                     // Format stat name (simple version - just capitalize and replace underscores)
                     const statName = stat.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -1494,7 +1504,7 @@ const API = {
             const currentClass = allClasses.find(c => c.id === character.class_id);
             if (currentClass && (currentClass.free_advances || []).includes(classData.id)) {
                 // Check if maxed current class
-                const isMaxed = this.isClassMaxed(character, currentClass);
+                const isMaxed = this.isClassMaxed(character, currentClass, options);
                 if (isMaxed) {
                     result.isFreeAdvance = true;
                     result.xpCost = 0;
@@ -1518,14 +1528,37 @@ const API = {
     /**
      * Check if character has maxed their current class
      */
-    isClassMaxed(character, classData) {
+    /**
+     * Drop Firestore stats on read — live stat line is Experience f4stats / HUD LSD only.
+     */
+    discardFirestoreGameplayFields(character) {
+        if (!character) {
+            return;
+        }
+        character.stats = this.getNewCharacterStats();
+    },
+
+    /**
+     * Gameplay stat line for class gates — MOAP session / HUD URL only (never Firestore).
+     */
+    getGameplayStatsForClassCheck(character, options) {
+        if (options && options.gameplayStats) {
+            return options.gameplayStats;
+        }
+        if (typeof window !== 'undefined' && typeof window.getMergedCharacterStatsForPoints === 'function') {
+            return window.getMergedCharacterStatsForPoints(character).stats;
+        }
+        return {};
+    },
+
+    isClassMaxed(character, classData, options) {
         if (!classData || !classData.stat_maximums) return false;
         
-        const stats = character.stats || {};
+        const stats = this.getGameplayStatsForClassCheck(character, options);
         const caps = classData.stat_maximums;
         
         for (const stat in caps) {
-            if ((stats[stat] || 2) < caps[stat]) {
+            if ((stats[stat] != null ? stats[stat] : 2) < caps[stat]) {
                 return false;
             }
         }

@@ -503,7 +503,30 @@ try {
         if (savedCharacter) {
             this.upsertCharacterInRosterCache(savedCharacter);
         }
+        const hudStats = this.state.character?.stats
+            ? Object.assign({}, this.state.character.stats)
+            : null;
+        const hudAp = this.state.character ? window.getApBalance(this.state.character) : null;
+        const hudSpent = this.state.character ? window.getEconSpent(this.state.character) : null;
+        const hudLife = this.state.character ? window.getEconLifetime(this.state.character) : null;
         this.state.character = savedCharacter;
+        if (typeof API !== 'undefined' && API.discardFirestoreGameplayFields) {
+            API.discardFirestoreGameplayFields(this.state.character);
+        }
+        if (hudStats) {
+            this.state.character.stats = hudStats;
+        }
+        if (hudLife != null) {
+            this.state.character.xp_lifetime = hudLife;
+        }
+        if (hudSpent != null) {
+            this.state.character.xp_spent = hudSpent;
+        }
+        if (hudAp != null) {
+            this.state.character.ap_balance = hudAp;
+        }
+        this.mergeStatsFromUrlIntoCharacter();
+        this.normalizeCharacterStats(this.state.character);
         this.state.selectedCharacterId = savedCharacter.id;
         if (savedCharacter.class_id) {
             this.state.currentClass = this.state.classes.find(function (c) {
@@ -692,6 +715,9 @@ try {
                             this.state.isNewCharacter = true;
                         } else {
                             this.state.character = character;
+                            if (typeof API !== 'undefined' && API.discardFirestoreGameplayFields) {
+                                API.discardFirestoreGameplayFields(this.state.character);
+                            }
                             if (!this.state.creationInProgress) {
                                 this.state.isNewCharacter = false;
                             }
@@ -754,6 +780,7 @@ try {
                             if (!characterSwitch) {
                                 this.mergeUrlEconIntoCharacter();
                                 this.mergeStatsFromUrlIntoCharacter();
+                                this.normalizeCharacterStats(this.state.character);
                             }
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
@@ -2628,6 +2655,7 @@ try {
         this.mergeUrlEconIntoCharacter();
         if (this.mergeStatsFromUrlIntoCharacter()) {
             this.captureAbandonBaseline(char);
+            this.normalizeCharacterStats(char);
         }
         this.clearStatsPendingAfterHudSave();
         this.updateStatusIndicator();
@@ -3846,6 +3874,19 @@ try {
         return stats;
     },
 
+    /**
+     * Ensure character.stats uses named keys from HUD/KVP session (stats_csv / MOAP draft).
+     */
+    normalizeCharacterStats(char) {
+        if (!char || typeof window.getMergedCharacterStatsForPoints !== 'function') {
+            return;
+        }
+        const merged = window.getMergedCharacterStatsForPoints(char);
+        if (merged && merged.stats) {
+            char.stats = Object.assign({}, merged.stats);
+        }
+    },
+
     csvIsStarterDefault(csv) {
         if (!csv || typeof csv !== 'string') {
             return true;
@@ -4547,7 +4588,6 @@ try {
                     title: char.title,
                     gender: char.gender,
                     species_id: char.species_id,
-                    stats: char.stats,
                     has_mana: char.has_mana,
                     mana: char.mana,
                     health: char.health,
@@ -9619,12 +9659,22 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         return;
     }
 
+    if (App.state.statsPending) {
+        UI.showToast('Save Stats to your HUD before changing class.', 'warning', 3500);
+        return;
+    }
+    if (typeof App.normalizeCharacterStats === 'function') {
+        App.normalizeCharacterStats(App.state.character);
+    }
+    const gameplayStats = window.getMergedCharacterStatsForPoints(App.state.character).stats;
+
     const allClasses = (App.state.filteredClasses && App.state.filteredClasses.length > 0)
         ? App.state.filteredClasses
         : (App.state.classes || []);
     const classOptions = {
         enforceStatMinimums: App.state.enforceClassStatMinimums !== false,
-        universe: App.state.currentUniverse
+        universe: App.state.currentUniverse,
+        gameplayStats: gameplayStats
     };
     const canChange = API.canChangeToClass(App.state.character, classTemplate, allClasses, classOptions);
     if (!canChange.canChange) {
@@ -9697,7 +9747,8 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         const result = await API.changeClass(classId, classTemplate, canChange.isFreeAdvance, characterId, {
             xp_lifetime: App.state.character.xp_lifetime,
             xp_spent: App.state.character.xp_spent,
-            ap_balance: App.state.character.ap_balance
+            ap_balance: App.state.character.ap_balance,
+            stats: gameplayStats
         });
         
         if (result.success) {
@@ -9712,9 +9763,14 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
             const savedSpent = App.state.character.xp_spent;
             const savedLife = App.state.character.xp_lifetime;
             const savedAp = App.state.character.ap_balance;
+            const savedStats = Object.assign({}, gameplayStats);
             const charResult = await API.getCharacterById(characterId);
             if (charResult.success) {
                 App.state.character = charResult.data.character;
+                if (typeof API.discardFirestoreGameplayFields === 'function') {
+                    API.discardFirestoreGameplayFields(App.state.character);
+                }
+                App.state.character.stats = savedStats;
                 App.state.character.xp_lifetime = savedLife;
                 App.state.character.xp_spent = savedSpent;
                 App.state.character.ap_balance = savedAp;

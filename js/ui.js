@@ -708,9 +708,13 @@ const UI = {
         const allClasses = (typeof App !== 'undefined' && App.state?.filteredClasses?.length)
             ? App.state.filteredClasses
             : ((typeof App !== 'undefined' && App.state?.classes) || classes);
+        const gameplayStats = (character && typeof window.getMergedCharacterStatsForPoints === 'function')
+            ? window.getMergedCharacterStatsForPoints(character).stats
+            : null;
         const classChangeOptions = {
             enforceStatMinimums: enforceStatMins,
-            universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null
+            universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null,
+            gameplayStats: gameplayStats
         };
         
         return classes.map(cls => {
@@ -811,9 +815,13 @@ const UI = {
         const enforceStatMins = typeof App !== 'undefined' && App.state
             ? App.state.enforceClassStatMinimums !== false
             : true;
+        const gameplayStats = (character && typeof window.getMergedCharacterStatsForPoints === 'function')
+            ? window.getMergedCharacterStatsForPoints(character).stats
+            : null;
         const classChangeOptions = {
             enforceStatMinimums: enforceStatMins,
-            universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null
+            universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null,
+            gameplayStats: gameplayStats
         };
         const canChangeInfo = character && typeof API !== 'undefined' && API.canChangeToClass 
             ? API.canChangeToClass(character, cls, allClasses, classChangeOptions)
