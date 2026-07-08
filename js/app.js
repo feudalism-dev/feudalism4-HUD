@@ -6905,6 +6905,7 @@ try {
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
                     <strong>📝 CSV Format Note:</strong> When editing prerequisites or free_advances, use <strong>semicolons (;)</strong> to separate multiple values, not commas. 
                     Example: <code>courtier;scholar;monk</code> (not <code>courtier,scholar,monk</code>)
+                    <br><strong>☁️ After Import:</strong> CSV updates <em>Firestore</em> only. The Setup HUD reads prerequisites from the <em>CDN bundle</em> until you click <strong>Publish to CDN</strong>, copy files into <code>MOAP Interface/data/</code>, and deploy Pages.
                 </div>
                 ` : ''}
                 ${type === 'species' && canManageGlobal ? `
@@ -7968,9 +7969,9 @@ try {
                 vocations: 'data/vocations.v' + slug + '.json'
             };
             const classes = (this.state.classes || []).map(function (cls) {
-                return Object.assign({}, cls, {
+                return API.normalizeClassTemplate(Object.assign({}, cls, {
                     image: API.normalizeClassImagePath(cls.id, cls.image)
-                });
+                }));
             });
             this._downloadJsonFile('manifest.json', manifest);
             this._downloadJsonFile('classes.v' + slug + '.json', classes);
@@ -8388,26 +8389,49 @@ try {
                 }
             }
             
-            let message = `Import complete! ${imported} classes imported`;
+            let message = `Import complete! ${imported} classes saved to Firestore`;
             if (errors > 0) {
                 message += `, ${errors} errors`;
                 if (errorDetails.length > 0 && errorDetails.length <= 5) {
                     message += `:\n${errorDetails.join('\n')}`;
                 }
             }
-            UI.showToast(message, errors > 0 ? 'warning' : 'success');
+            UI.showToast(message, errors > 0 ? 'warning' : 'success', errors > 0 ? 6000 : 8000);
             
             if (errors > 0 && errorDetails.length > 0) {
                 console.error('Import errors:', errorDetails);
             }
+
+            if (imported > 0) {
+                API.markTemplatesImportedFromFirestore();
+                UI.showToast(
+                    'This browser will use Firestore class data for 24h. All players still need Publish to CDN + Pages deploy.',
+                    'info',
+                    10000
+                );
+            }
             
-            // Refresh the template list
-            this.showTemplateManager('classes');
+            // Refresh admin list from Firestore (not stale CDN)
+            await this.showTemplateManager('classes');
             
-            // Reload app state
-            const result = await API.getClasses();
-            this.state.classes = result.data?.classes || [];
+            // Reload character UI from Firestore for this session
+            await this.ensureTemplatesLoaded(true);
             await this.renderAll();
+
+            if (imported > 0 && errors === 0) {
+                const publish = await UI.showConfirmDialog({
+                    title: 'Publish prerequisites to CDN?',
+                    message:
+                        'Firestore is updated with your CSV prerequisites.\n\n' +
+                        'The in-world Setup HUD loads classes from GitHub Pages CDN until you publish a new bundle and deploy.\n\n' +
+                        'Download the CDN JSON bundle now?',
+                    confirmLabel: 'Download CDN bundle',
+                    cancelLabel: 'Later'
+                });
+                if (publish) {
+                    await this.downloadTemplateCdnBundle();
+                }
+            }
             
         } catch (error) {
             console.error('Import error:', error);

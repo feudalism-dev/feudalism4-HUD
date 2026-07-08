@@ -275,6 +275,60 @@ const API = {
         this._clearCdnRawCache();
     },
 
+    /** After admin CSV import — prefer Firestore over stale CDN for this browser session. */
+    markTemplatesImportedFromFirestore() {
+        try {
+            sessionStorage.setItem('f4_force_firestore_templates', String(Date.now()));
+        } catch (e) { /* ignore */ }
+        this.invalidateTemplateCache();
+    },
+
+    _shouldForceFirestoreTemplates(options) {
+        if (options && options.forceFirestore) {
+            return true;
+        }
+        try {
+            var ts = sessionStorage.getItem('f4_force_firestore_templates');
+            if (!ts) {
+                return false;
+            }
+            var age = Date.now() - parseInt(ts, 10);
+            return !isNaN(age) && age >= 0 && age < (24 * 60 * 60 * 1000);
+        } catch (e) {
+            return false;
+        }
+    },
+
+    /**
+     * Canonical prerequisites array for a class template (CSV/Firestore/CDN/legacy).
+     */
+    normalizeClassTemplate(classData) {
+        if (!classData || typeof classData !== 'object') {
+            return classData;
+        }
+        var out = Object.assign({}, classData);
+        var prereqs = [];
+        if (Array.isArray(out.prerequisites)) {
+            prereqs = out.prerequisites
+                .map(function (p) { return String(p).trim(); })
+                .filter(function (p) { return !!p; });
+        } else if (out.prerequisites != null && String(out.prerequisites).trim()) {
+            var raw = String(out.prerequisites).trim();
+            var sep = raw.indexOf(';') >= 0 ? ';' : ',';
+            prereqs = raw.split(sep)
+                .map(function (p) { return p.trim(); })
+                .filter(function (p) { return !!p; });
+        } else if (out.prerequisite != null && String(out.prerequisite).trim()) {
+            prereqs = [String(out.prerequisite).trim()];
+        }
+        out.prerequisites = prereqs;
+        delete out.prerequisite;
+        if (out.id) {
+            out.image = this.normalizeClassImagePath(out.id, out.image);
+        }
+        return out;
+    },
+
     _cdnManifestCache: null,
     _cdnManifestFetchPromise: null,
 
@@ -527,7 +581,7 @@ const API = {
     /** CDN → seed baseline; Firestore overlay only when options.forceFirestore (admin). */
     async _loadTemplateCollection(collectionName, seedFn, mapDoc, options) {
         options = options || {};
-        var forceFirestore = !!options.forceFirestore;
+        var forceFirestore = this._shouldForceFirestoreTemplates(options);
 
         if (!forceFirestore) {
             await this._fetchCdnManifest();
@@ -637,13 +691,14 @@ const API = {
         try {
             const self = this;
             const loaded = await this._loadTemplateCollection('classes', this.seedDefaultClasses, function (doc, data) {
-                return {
+                return self.normalizeClassTemplate({
                     id: doc.id,
-                    ...data,
-                    image: self.normalizeClassImagePath(doc.id, data.image)
-                };
+                    ...data
+                });
             }, options);
-            const classes = loaded.data || [];
+            const classes = (loaded.data || []).map(function (cls) {
+                return self.normalizeClassTemplate(cls);
+            });
             return { success: true, data: { classes: classes } };
         } catch (error) {
             console.error('getClasses error:', error);
@@ -1959,6 +2014,7 @@ const API = {
                 }
                 await ref.set({
                     ...sanitizedData,
+                    prerequisite: firebase.firestore.FieldValue.delete(),
                     created_at: firebase.firestore.FieldValue.serverTimestamp(),
                     updated_at: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -2012,6 +2068,8 @@ const API = {
                     if (finalData.enabled === undefined && sanitizedData.enabled !== undefined) {
                         finalData.enabled = !!sanitizedData.enabled;
                     }
+                    // Drop legacy singular field so HUD does not merge stale CDN/seed prereqs.
+                    finalData.prerequisite = firebase.firestore.FieldValue.delete();
                 }
 
                 // Add timestamp
