@@ -1288,7 +1288,8 @@ const API = {
                 // If abandoned (0 points gained), don't add to career history
             }
             
-            // Prepare update
+            // Prepare update — class_id / snapshot / history only.
+            // Do NOT write stats or apply class.stat_minimums (no free bumps).
             const updateData = {
                 class_id: newClassId,
                 class_started_at: new Date().toISOString(),

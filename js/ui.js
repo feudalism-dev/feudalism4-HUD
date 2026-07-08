@@ -446,11 +446,11 @@ const UI = {
         
         const isSelected = App.state.character?.species_id === species.id;
         
-        // Build stat bonuses HTML
+        // Build reference base_stats HTML (NOT applied at creation — economy is all 1s + XP).
         const baseStats = species.base_stats || {};
         const statBonuses = Object.entries(baseStats)
             .filter(([stat, val]) => val > 2)
-            .map(([stat, val]) => `<span class="stat-bonus">+${val - 2} ${this.formatStatName(stat)}</span>`)
+            .map(([stat, val]) => `<span class="stat-bonus">${this.formatStatName(stat)} ref: ${val}</span>`)
             .join('');
         
         // Build stat limits HTML (minimums and maximums)
@@ -521,7 +521,8 @@ const UI = {
                     
                     ${statBonuses ? `
                         <div class="species-stat-bonuses">
-                            <h4>Starting Stat Bonuses</h4>
+                            <h4>Reference Profile (not auto-applied)</h4>
+                            <p style="font-size: 0.85em; opacity: 0.85; margin: 0 0 var(--space-sm) 0;">New characters start at all 1s. Raise stats with AP bought from XP.</p>
                             <div class="stat-bonuses-grid">${statBonuses}</div>
                         </div>
                     ` : ''}
@@ -899,7 +900,7 @@ const UI = {
                     
                     ${statMinHtml ? `
                         <div class="class-detail-stats">
-                            <h4>📊 Minimum Stat Requirements</h4>
+                            <h4>📊 Minimum Stat Requirements (must already meet — not free raises)</h4>
                             <div class="stat-caps-grid" style="margin-bottom: var(--space-md);">${statMinHtml}</div>
                         </div>
                     ` : ''}

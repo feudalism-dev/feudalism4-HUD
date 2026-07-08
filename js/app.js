@@ -9029,12 +9029,12 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
                 
-                // Reset stats to this species' default line (all 1s + base_stats overlays)
+                // Species change resets to all 1s only — never apply base_stats as free bumps.
                 if (speciesId !== previousSpeciesId) {
                     const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
-                    UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+                    UI.showToast(`Stats reset to all 1s (${species.name})`, 'info', 2000);
                     if (App.state.character.id) {
                         App.grantStartingXpToHud(App.state.character);
                     }
@@ -9096,12 +9096,12 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}`, 'success', 3000);
                 
-                // Reset stats to this species' default line (all 1s + base_stats overlays)
+                // Species change resets to all 1s only — never apply base_stats as free bumps.
                 if (speciesId !== previousSpeciesId) {
                     const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
-                    UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+                    UI.showToast(`Stats reset to all 1s (${species.name})`, 'info', 2000);
                     if (App.state.character.id) {
                         App.grantStartingXpToHud(App.state.character);
                     }
@@ -9173,7 +9173,9 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         return;
     }
 
-    // Creation wizard: pick class locally, save via Save Progress / Finish (not changeClass)
+    // Creation wizard: pick class locally, save via Save Progress / Finish (not changeClass).
+    // CRITICAL: class selection must NEVER raise stats (no free bumps from class mins/base).
+    // Only class_id, caps (via render), and the stats_at_class_start snapshot change.
     if (App.isInCreationFlow()) {
         App.state.character.class_id = classId;
         App.state.character.stats_at_class_start = { ...App.state.character.stats };
@@ -9182,6 +9184,8 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         App.state.pendingChanges.class_id = classId;
         App.state.pendingChanges.stats_at_class_start = { ...App.state.character.stats };
         App.state.pendingChanges.class_started_at = App.state.character.class_started_at;
+        // Do not write pendingChanges.stats — preserve the player's current paid/seeded line.
+        delete App.state.pendingChanges.stats;
         if (canChange.xpCost > 0) {
             App.state.pendingClassXpCost = canChange.xpCost;
         } else {
@@ -9194,7 +9198,7 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         const costHint = canChange.isFreeAdvance
             ? ' (free advance)'
             : (canChange.xpCost > 0 ? ` — ${canChange.xpCost} XP on save` : '');
-        UI.showToast(`Class selected: ${classTemplate.name}${costHint} — save your progress`, 'success', 2500);
+        UI.showToast(`Class selected: ${classTemplate.name}${costHint} — stats unchanged`, 'success', 2500);
         return;
     }
     
@@ -9204,10 +9208,11 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         App.state.character.class_id = classId;
         App.state.currentClass = classTemplate;
         App.state.pendingChanges.class_id = classId;
+        delete App.state.pendingChanges.stats;
         App.state.dirty = true;
         App.updateStatusIndicator();
         await App.renderAll();
-        UI.showToast(`Class selected: ${classTemplate.name}`, 'success');
+        UI.showToast(`Class selected: ${classTemplate.name} — stats unchanged`, 'success');
         return;
     }
 
@@ -9312,21 +9317,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Get the minimum allowed value for a stat based on species bonuses
- * Formula: 1 + species bonus for that stat
- * Example: Elf with +2 Agility can lower Agility to 3 (1 base + 2 bonus)
+ * Absolute floor for a stat value during creation/editing.
+ * Never use species.base_stats here — that would gift free raised floors.
+ * Session undo floors use statsFloor / getStatSavedFloor instead.
  */
 window.getStatMinimum = function(character, statName) {
-    if (!character) return 1;
-    
-    const speciesId = character.species_id;
-    const species = App.state.species?.find(s => s.id === speciesId);
-    const speciesBaseStats = species?.base_stats || {};
-    const speciesBase = speciesBaseStats[statName] || 2; // Default is 2
-    
-    // Minimum is: 1 + (species_base - 2)
-    // Example: species_base=4 means bonus of +2, so minimum is 1+2=3
-    return Math.max(1, 1 + (speciesBase - 2));
+    return 1;
 };
 
 /**
@@ -9364,7 +9360,7 @@ window.getSpeciesDefaultStats = function(speciesId) {
 };
 
 /**
- * Point budget for a species' default stat line (all 1s + species overlays).
+ * Point budget for a species' default stat line (all 1s).
  * Matches XP economy v2 starter pool when defaults are applied.
  */
 window.getSpeciesStatBudget = function(speciesId) {
@@ -9832,7 +9828,7 @@ window.onStatChange = async function(stat, action) {
         UI.showToast(`−1 ${stat} (refund: ${refund} AP)`, 'info', 1500);
     } else if (action === 'increase') {
         if (!App.state.character.class_id && currentValue >= 2) {
-            UI.showToast('Select a class to raise stats above 2', 'warning');
+            UI.showToast('Pick a class first (class does not change your stats)', 'warning');
             return;
         }
         if (currentValue >= max) {
