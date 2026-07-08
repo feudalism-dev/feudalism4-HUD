@@ -788,7 +788,12 @@ try {
                             const hadMoapDraft = this.restoreMoapSessionDraft();
                             this.mergeUrlEconIntoCharacter();
                             this.mergeStatsFromUrlIntoCharacter();
-                            this.normalizeCharacterStats(this.state.character);
+                            const awaitingHudKvp = this.isAwaitingHudKvpUrl(this.state.character.id);
+                            if (!awaitingHudKvp) {
+                                this.normalizeCharacterStats(this.state.character);
+                            } else if (typeof UI !== 'undefined' && UI.showToast) {
+                                UI.showToast('Waiting for HUD KVP data...', 'info', 5000);
+                            }
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -820,11 +825,11 @@ try {
                                     return false;
                                 }
                             })();
-                            if (!skipHudStatsPush && !this.state.statsPending) {
+                            if (!skipHudStatsPush && !this.state.statsPending && !awaitingHudKvp) {
                                 await this.cacheHudStatsForPlayers(this.state.character, {
                                     syncStats: !characterSwitch
                                 });
-                            } else if (this.state.character && !this.state.statsPending) {
+                            } else if (this.state.character && !this.state.statsPending && !awaitingHudKvp) {
                                 // Local-first skips stats push when URL has stats_csv, but has_mana
                                 // still must sync from Firestore or MOAP state into Players HUD LSD.
                                 await this.pushCharacterToPlayersHUD(this.state.character.id);
@@ -3872,6 +3877,9 @@ try {
         if (!char || typeof window.getMergedCharacterStatsForPoints !== 'function') {
             return;
         }
+        if (!this.urlHasAuthoritativeStats(char.id)) {
+            return;
+        }
         const merged = window.getMergedCharacterStatsForPoints(char);
         if (merged && merged.stats) {
             char.stats = Object.assign({}, merged.stats);
@@ -4007,7 +4015,37 @@ try {
     },
 
     /**
-     * Roster switch in Setup: push LOAD_CHARACTER, then reload so HUD KVP refreshes the URL.
+     * True while MOAP loaded before HUD pushed KVP gameplay into the URL (character switch / LOAD_CHARACTER).
+     */
+    isAwaitingHudKvpUrl(characterId) {
+        const charId = characterId || this.state.character?.id || '';
+        if (!charId) {
+            return false;
+        }
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const activeChar = params.get('active_char') || '';
+            if (activeChar && activeChar !== charId) {
+                return false;
+            }
+            const hasStats = this.urlHasAuthoritativeStats(charId);
+            const hasEcon = typeof window.hasHudEconInUrl === 'function' && window.hasHudEconInUrl();
+            if (hasStats && hasEcon) {
+                return false;
+            }
+            if (params.get('moap_char_switch') === '1') {
+                return true;
+            }
+            const lslCmd = decodeURIComponent(params.get('lsl_cmd') || '');
+            if (lslCmd.indexOf('LOAD_CHARACTER') === 0) {
+                return !hasStats || !hasEcon;
+            }
+        } catch (e) { /* ignore */ }
+        return false;
+    },
+
+    /**
+     * Roster switch in Setup: push LOAD_CHARACTER and let HUD setMOAPUrl reload with KVP data.
      */
     async reloadSetupHudForCharacterSwitch(characterId) {
         if (!characterId) {
@@ -4017,21 +4055,16 @@ try {
         await this.rememberSelectedCharacter(characterId);
         this.state.dirty = false;
         this.state.statsPending = false;
-        await this.pushCharacterToPlayersHUD(characterId);
         try {
             const url = new URL(window.location.href);
             url.searchParams.set('active_char', characterId);
-            url.searchParams.set('request_data', '1');
-            url.searchParams.set('moap_char_switch', '1');
-            url.searchParams.set('t', Date.now().toString());
-            if (typeof UI !== 'undefined' && UI.showToast) {
-                UI.showToast('Loading character from HUD...', 'info', 2000);
-            }
-            window.location.assign(url.toString());
-        } catch (e) {
-            console.error('[Character] switch reload failed:', e);
-            await this.loadData({ forceRefresh: true });
+            url.searchParams.delete('moap_char_switch');
+            this.safeHistoryReplaceState(url.toString());
+        } catch (e) { /* ignore */ }
+        if (typeof UI !== 'undefined' && UI.showToast) {
+            UI.showToast('Loading character from HUD...', 'info', 6000);
         }
+        await this.pushCharacterToPlayersHUD(characterId);
     },
 
     /**
