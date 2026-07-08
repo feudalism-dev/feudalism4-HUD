@@ -2026,7 +2026,6 @@ const API = {
                 }
                 await ref.set({
                     ...sanitizedData,
-                    prerequisite: firebase.firestore.FieldValue.delete(),
                     created_at: firebase.firestore.FieldValue.serverTimestamp(),
                     updated_at: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -2080,8 +2079,6 @@ const API = {
                     if (finalData.enabled === undefined && sanitizedData.enabled !== undefined) {
                         finalData.enabled = !!sanitizedData.enabled;
                     }
-                    // Drop legacy singular field so HUD does not merge stale CDN/seed prereqs.
-                    finalData.prerequisite = firebase.firestore.FieldValue.delete();
                 }
 
                 // Add timestamp
@@ -2097,15 +2094,16 @@ const API = {
                 const existing = await ref.get();
                 if (!existing.exists) {
                     const createData = { ...finalData };
-                    if (type === 'classes') {
-                        if (createData.enabled === undefined) {
-                            createData.enabled = true;
-                        }
-                        createData.prerequisite = firebase.firestore.FieldValue.delete();
+                    delete createData.prerequisite;
+                    if (type === 'classes' && createData.enabled === undefined) {
+                        createData.enabled = true;
                     }
                     createData.created_at = firebase.firestore.FieldValue.serverTimestamp();
                     await ref.set(createData);
                 } else {
+                    if (type === 'classes') {
+                        finalData.prerequisite = firebase.firestore.FieldValue.delete();
+                    }
                     await ref.update(finalData);
                 }
             }

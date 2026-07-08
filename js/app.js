@@ -8538,8 +8538,12 @@ try {
             let message = `Import complete! ${imported} classes saved to Firestore`;
             if (errors > 0) {
                 message += `, ${errors} errors`;
-                if (errorDetails.length > 0 && errorDetails.length <= 5) {
-                    message += `:\n${errorDetails.join('\n')}`;
+                if (errorDetails.length > 0) {
+                    const preview = errorDetails.slice(0, 3).join('\n');
+                    message += ':\n' + preview;
+                    if (errorDetails.length > 3) {
+                        message += `\n...and ${errorDetails.length - 3} more (see browser console)`;
+                    }
                 }
             }
             UI.showToast(message, errors > 0 ? 'warning' : 'success', errors > 0 ? 6000 : 8000);
