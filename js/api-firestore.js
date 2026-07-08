@@ -578,10 +578,11 @@ const API = {
         return { success: true, data: items };
     },
 
-    /** CDN → seed baseline; Firestore overlay only when options.forceFirestore (admin). */
+    /** CDN/seed baseline + Firestore overlay (admin edits and new templates). */
     async _loadTemplateCollection(collectionName, seedFn, mapDoc, options) {
         options = options || {};
         var forceFirestore = this._shouldForceFirestoreTemplates(options);
+        var self = this;
 
         if (!forceFirestore) {
             await this._fetchCdnManifest();
@@ -593,26 +594,22 @@ const API = {
             return cached;
         }
 
+        var baselineItems = [];
+
         if (!forceFirestore) {
             var cdnLoaded = await this._loadTemplatesFromCdn(collectionName, mapDoc);
             if (cdnLoaded && cdnLoaded.data && cdnLoaded.data.length > 0) {
-                this._setCachedTemplate(collectionName, cdnLoaded);
-                console.log('[API] ' + collectionName + ': ' + cdnLoaded.data.length + ' from CDN (0 Firestore reads)');
-                return cdnLoaded;
+                baselineItems = cdnLoaded.data;
+                console.log('[API] ' + collectionName + ': CDN baseline ' + baselineItems.length);
             }
         }
 
-        var baselineItems = [];
-        var seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
-        if (seeded && seeded.data) {
-            baselineItems = seeded.data;
-        }
-
-        if (this._USE_STATIC_TEMPLATES && !forceFirestore && baselineItems.length > 0) {
-            var staticResult = { success: true, data: baselineItems };
-            this._setCachedTemplate(collectionName, staticResult);
-            console.log('[API] ' + collectionName + ': ' + baselineItems.length + ' from seed fallback (0 Firestore reads)');
-            return staticResult;
+        if (baselineItems.length === 0) {
+            var seeded = this._loadTemplatesFromSeed(collectionName, mapDoc);
+            if (seeded && seeded.data) {
+                baselineItems = seeded.data;
+                console.log('[API] ' + collectionName + ': seed baseline ' + baselineItems.length);
+            }
         }
 
         var snapshot = await db.collection(collectionName).get();
@@ -644,7 +641,7 @@ const API = {
 
         var result = { success: true, data: items };
         this._setCachedTemplate(collectionName, result);
-        console.log('[API] ' + collectionName + ': ' + items.length + ' templates (seed '
+        console.log('[API] ' + collectionName + ': ' + items.length + ' merged (baseline '
             + baselineItems.length + ', firestore ' + snapshot.size + ' reads)');
         return result;
     },
@@ -704,6 +701,21 @@ const API = {
             console.error('getClasses error:', error);
             return { success: false, error: error.message };
         }
+    },
+
+    /**
+     * Universe allowlist: empty array = allow all catalog entries.
+     */
+    normalizeUniverseAllowlist(checkedIds, allItems) {
+        const checked = (checkedIds || []).filter(Boolean);
+        const total = (allItems || []).length;
+        if (total === 0 || checked.length === 0) {
+            return [];
+        }
+        if (checked.length >= total) {
+            return [];
+        }
+        return checked;
     },
 
     normalizeUniverseClassOverrides(classOverrides) {

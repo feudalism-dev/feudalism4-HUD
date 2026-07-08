@@ -6203,12 +6203,13 @@ try {
         const universesResult = await API.listUniversesForAdmin();
         const userUniverses = universesResult.success ? universesResult.data.universes : [];
         
-        // Get all species
-        const speciesResult = await API.getSpecies();
+        // Get all species (Firestore overlay — includes admin-added species)
+        const speciesResult = await API.getSpecies({ forceFirestore: true });
         const allSpecies = speciesResult.success ? speciesResult.data.species : [];
         
         // Get allowed species for this universe
         const allowedSpecies = universe?.allowedSpecies || [];
+        const speciesRestricted = allowedSpecies.length > 0;
         
         let html = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
@@ -6224,8 +6225,14 @@ try {
             </div>
             
             <div id="universe-species-panels"></div>
+            ${speciesRestricted ? `
+            <p style="color: var(--gold-light); font-size: 0.9rem; margin-top: var(--space-sm);">
+                This universe restricts species to ${allowedSpecies.length} ID(s). New species are hidden until you add them here or click <strong>Allow all species</strong>.
+            </p>
+            ` : ''}
             
-            <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end;">
+            <div style="margin-top: var(--space-md); display: flex; justify-content: flex-end; gap: var(--space-sm); flex-wrap: wrap;">
+                <button class="btn btn-secondary" type="button" id="btn-allow-all-species">Allow all species</button>
                 <button class="btn btn-primary" id="btn-save-species">Save Changes</button>
             </div>
         `;
@@ -6250,14 +6257,37 @@ try {
         // Bind save button
         document.getElementById('btn-save-species')?.addEventListener('click', async () => {
             const checked = this.getCheckedItems('universe-allowed-species');
-            const result = await API.updateUniverse(this.currentUniverseId, { allowedSpecies: checked });
+            const allowedToSave = API.normalizeUniverseAllowlist(checked, allSpecies);
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedSpecies: allowedToSave });
             if (result.success) {
-                UI.showToast('Species updated!', 'success');
+                UI.showToast(allowedToSave.length === 0 ? 'All species allowed!' : 'Species allowlist updated!', 'success');
                 // Reload universe data
                 const reloadResult = await API.getUniverse(this.currentUniverseId);
                 if (reloadResult.success) {
                     this.currentUniverseData = reloadResult.data.universe;
                     this.renderUniverseIdentityPanels('species', allSpecies, this.currentUniverseData.allowedSpecies || [], 'universe-species-panels');
+                }
+            } else {
+                UI.showToast('Failed to update species: ' + result.error, 'error');
+            }
+        });
+
+        document.getElementById('btn-allow-all-species')?.addEventListener('click', async () => {
+            const confirmed = await UI.showConfirmDialog({
+                title: 'Allow all species?',
+                message: 'Clear the species allowlist so every species in the catalog is available in this universe.',
+                confirmLabel: 'Allow all'
+            });
+            if (!confirmed) {
+                return;
+            }
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedSpecies: [] });
+            if (result.success) {
+                UI.showToast('All species are now allowed in this universe.', 'success');
+                const reloadResult = await API.getUniverse(this.currentUniverseId);
+                if (reloadResult.success) {
+                    this.currentUniverseData = reloadResult.data.universe;
+                    this.renderUniverseIdentityPanels('species', allSpecies, [], 'universe-species-panels');
                 }
             } else {
                 UI.showToast('Failed to update species: ' + result.error, 'error');
@@ -6330,7 +6360,8 @@ try {
         // Bind save button
         document.getElementById('btn-save-genders')?.addEventListener('click', async () => {
             const checked = this.getCheckedItems('universe-allowed-genders');
-            const result = await API.updateUniverse(this.currentUniverseId, { allowedGenders: checked });
+            const allowedToSave = API.normalizeUniverseAllowlist(checked, allGenders);
+            const result = await API.updateUniverse(this.currentUniverseId, { allowedGenders: allowedToSave });
             if (result.success) {
                 UI.showToast('Genders updated!', 'success');
                 // Reload universe data
@@ -6572,7 +6603,15 @@ try {
             };
 
             const allowedGenders = collectAllowedList('universe-allowed-genders', u.allowedGenders);
-            const allowedSpecies = collectAllowedList('universe-allowed-species', u.allowedSpecies);
+            const genderBoxes = document.querySelectorAll('.universe-allowed-genders');
+            const allowedSpeciesRaw = collectAllowedList('universe-allowed-species', u.allowedSpecies);
+            const speciesBoxes = document.querySelectorAll('.universe-allowed-species');
+            const allowedSpecies = speciesBoxes.length > 0
+                ? API.normalizeUniverseAllowlist(allowedSpeciesRaw, this.state.species)
+                : (u.allowedSpecies || []);
+            const allowedGendersNormalized = genderBoxes.length > 0
+                ? API.normalizeUniverseAllowlist(allowedGenders, this.state.genders)
+                : (u.allowedGenders || []);
             let allowedClasses = collectAllowedList('universe-allowed-classes', u.allowedClasses);
             let classOverrides = u.classOverrides || {};
             const classBuilderRows = document.querySelectorAll('#universe-classes-builder tr[data-class-id]');
@@ -6600,7 +6639,7 @@ try {
                     return parseInt(el.value, 10) || 0;
                 })(),
                 manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false),
-                allowedGenders: allowedGenders,
+                allowedGenders: allowedGendersNormalized,
                 allowedSpecies: allowedSpecies,
                 allowedClasses: allowedClasses,
                 classOverrides: classOverrides,
@@ -6911,6 +6950,7 @@ try {
                 ${type === 'species' && canManageGlobal ? `
                 <div style="background: var(--bg-dark); padding: var(--space-sm); border-radius: 4px; margin-bottom: var(--space-md); font-size: 0.9em; color: var(--text-secondary);">
                     <strong>📝 CSV:</strong> <code>base_stats</code>, <code>stat_minimums</code>, and <code>stat_maximums</code> are JSON objects. Portrait files still go under <code>images/species/&lt;id&gt;.png</code> on GitHub Pages (full MOAP deploy).
+                    <br><strong>☁️ After Import:</strong> New species appear from Firestore immediately. Publish CDN + deploy for portraits and faster loads for everyone.
                 </div>
                 ` : ''}
                 ${type === 'genders' && canManageGlobal ? `
@@ -8581,8 +8621,9 @@ try {
             if (!confirmed) {
                 return;
             }
+            API.markTemplatesImportedFromFirestore();
             API.invalidateTemplateCache('species');
-            const existingResult = await API.getSpecies();
+            const existingResult = await API.getSpecies({ forceFirestore: true });
             const existingIds = new Set((existingResult.data?.species || []).map((s) => s.id));
             let imported = 0;
             let errors = 0;
@@ -8602,8 +8643,36 @@ try {
                     console.error('importSpeciesFromCSV', sp.id, err);
                 }
             }
-            UI.showToast(`Species import: ${imported} saved${errors ? `, ${errors} failed` : ''}`, imported ? 'success' : 'warning');
-            this.showTemplateManager('species');
+            UI.showToast(
+                `Species import: ${imported} saved to Firestore${errors ? `, ${errors} failed` : ''}`,
+                imported ? 'success' : 'warning',
+                8000
+            );
+            if (imported > 0) {
+                UI.showToast(
+                    'New species should appear on your next character draft. Publish CDN for portraits + faster loads.',
+                    'info',
+                    10000
+                );
+            }
+            await this.showTemplateManager('species');
+            await this.ensureTemplatesLoaded(true);
+            await this.renderAll();
+
+            if (imported > 0 && errors === 0) {
+                const publish = await UI.showConfirmDialog({
+                    title: 'Publish species to CDN?',
+                    message:
+                        'Firestore is updated with your species.\n\n' +
+                        'Download the CDN bundle for portraits and faster template loads?\n' +
+                        '(Add images under images/species/ before deploy.)',
+                    confirmLabel: 'Download CDN bundle',
+                    cancelLabel: 'Later'
+                });
+                if (publish) {
+                    await this.downloadTemplateCdnBundle();
+                }
+            }
         } catch (error) {
             console.error('importSpeciesFromCSV', error);
             UI.showToast('Failed to import: ' + error.message, 'error');
