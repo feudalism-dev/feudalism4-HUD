@@ -8379,9 +8379,15 @@ try {
                                 classData[header] = {};
                             }
                             break;
-                        case 'enabled':
-                            classData[header] = value.toLowerCase() === 'true' || value === '1';
+                        case 'enabled': {
+                            const ev = String(value || '').trim().toLowerCase();
+                            // Blank enabled = active (export often omits this column).
+                            classData[header] = ev === '' || ev === 'true' || ev === '1';
+                            if (ev === 'false' || ev === '0') {
+                                classData[header] = false;
+                            }
                             break;
+                        }
                     }
                 });
                 
@@ -8500,6 +8506,11 @@ try {
                         }
                     }
                     
+                    // Ensure enabled defaults to true unless explicitly disabled in CSV
+                    if (cls.enabled !== false) {
+                        cls.enabled = true;
+                    }
+
                     // Debug: Log what we're about to save
                     console.log(`[IMPORT] Saving ${cls.id}:`, {
                         prerequisites: cls.prerequisites,
