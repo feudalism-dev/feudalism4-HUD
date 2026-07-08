@@ -182,7 +182,7 @@ try {
         econSessionActive: false,  // AP/XP edits this session override stale URL params
         creationStepHints: {
             identity: 'Enter <strong>name</strong>, optional <strong>title</strong>, then pick <strong>gender</strong> and <strong>species</strong> on this page. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.',
-            stats: 'Buy XP, spend AP, and set stats — click <strong>Save Stats</strong> to apply to your HUD. Spend all Available Points, then <strong>Next »</strong> for Class.',
+            stats: 'Buy XP and spend AP when you choose — click <strong>Save Stats</strong> to keep XP/AP and stat changes on your HUD. Unused AP is saved for later. Then <strong>Next »</strong> for Class.',
             class: 'Click a <strong>class card</strong> to view details and select your starting class, then click <strong>Finish</strong>.'
         }
     },
@@ -1124,13 +1124,13 @@ try {
 
     getCreationSteps() {
         const char = this.state.character;
-        const availablePoints = char ? window.getApBalance(char) : 0;
         const statsIndex = 1;
         const statsStepReached = !this.isInCreationFlow() || (this.state.creationMaxStepIndex || 0) >= statsIndex;
         const identityComplete = !!(char && char.name && char.name.trim() && char.gender && char.species_id);
+        const statsSavedForStep = !this.state.statsPending;
         return [
             { id: 'identity', name: 'Character', complete: identityComplete },
-            { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0 && statsStepReached) },
+            { id: 'stats', name: 'Stats', complete: !!(char && statsStepReached && statsSavedForStep) },
             { id: 'class', name: 'Class', complete: !!(char && char.class_id) }
         ];
     },
@@ -1230,9 +1230,8 @@ try {
             case 'species':
                 return this.validateCreationStep('identity');
             case 'stats': {
-                const pts = window.getApBalance(char);
-                if (pts !== 0) {
-                    return { ok: false, message: `You have ${pts} Available Point(s) left to spend (or buy more with XP).` };
+                if (this.state.statsPending) {
+                    return { ok: false, message: 'Save your stat and AP changes with Save Stats before continuing (or abandon them).' };
                 }
                 return { ok: true };
             }
