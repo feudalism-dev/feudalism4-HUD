@@ -786,11 +786,9 @@ try {
                             this.initEconFromUrl();
                             this.mergePoolsFromUrl();
                             const hadMoapDraft = this.restoreMoapSessionDraft();
-                            if (!characterSwitch) {
-                                this.mergeUrlEconIntoCharacter();
-                                this.mergeStatsFromUrlIntoCharacter();
-                                this.normalizeCharacterStats(this.state.character);
-                            }
+                            this.mergeUrlEconIntoCharacter();
+                            this.mergeStatsFromUrlIntoCharacter();
+                            this.normalizeCharacterStats(this.state.character);
                             if (!hadMoapDraft) {
                                 this.migrateLegacyEconIfNeeded();
                             }
@@ -822,10 +820,10 @@ try {
                                     return false;
                                 }
                             })();
-                            if (characterSwitch && !econSyncOnly && !this.state.statsPending) {
-                                await this.cacheHudStatsForPlayers(this.state.character, { syncStats: true });
-                            } else if (!skipHudStatsPush && !this.state.statsPending) {
-                                await this.cacheHudStatsForPlayers(this.state.character);
+                            if (!skipHudStatsPush && !this.state.statsPending) {
+                                await this.cacheHudStatsForPlayers(this.state.character, {
+                                    syncStats: !characterSwitch
+                                });
                             } else if (this.state.character && !this.state.statsPending) {
                                 // Local-first skips stats push when URL has stats_csv, but has_mana
                                 // still must sync from Firestore or MOAP state into Players HUD LSD.
@@ -3298,11 +3296,12 @@ try {
                 const switchingFrom = this.state.selectedCharacterId || this.state.character?.id;
                 const isCharacterSwitch = !!(switchingFrom && switchingFrom !== value);
                 if (isCharacterSwitch) {
-                    this.clearStaleHudUrlParamsForCharacterSwitch(value);
+                    await this.reloadSetupHudForCharacterSwitch(value);
+                    return;
                 }
                 await this.rememberSelectedCharacter(value);
                 this.state.dirty = false;
-                await this.loadData({ characterSwitch: isCharacterSwitch });
+                await this.loadData({ characterSwitch: false });
                 if (this.state.character && this.state.character.id === value) {
                     await this.pushCharacterToPlayersHUD(value);
                 }
@@ -3684,19 +3683,6 @@ try {
                 ap = urlAp;
             }
         } catch (e) { /* ignore */ }
-        const allowFirestoreEcon = !window.hasHudEconInUrl();
-        if (lifetime === 0 && allowFirestoreEcon) {
-            const docLife = parseInt(char.xp_total, 10);
-            if (!isNaN(docLife) && docLife > 0) {
-                lifetime = docLife;
-            }
-        }
-        if (spent === 0 && lifetime > 0 && allowFirestoreEcon) {
-            const docAvail = parseInt(char.xp_available, 10);
-            if (!isNaN(docAvail) && docAvail >= 0 && docAvail <= lifetime) {
-                spent = lifetime - docAvail;
-            }
-        }
         char.xp_lifetime = lifetime;
         char.xp_spent = spent;
         char.ap_balance = ap;
@@ -4018,6 +4004,34 @@ try {
         this._lastStatsCsvSynced = null;
         this.state.statsPending = false;
         this.state.pendingChanges = {};
+    },
+
+    /**
+     * Roster switch in Setup: push LOAD_CHARACTER, then reload so HUD KVP refreshes the URL.
+     */
+    async reloadSetupHudForCharacterSwitch(characterId) {
+        if (!characterId) {
+            return;
+        }
+        this.clearStaleHudUrlParamsForCharacterSwitch(characterId);
+        await this.rememberSelectedCharacter(characterId);
+        this.state.dirty = false;
+        this.state.statsPending = false;
+        await this.pushCharacterToPlayersHUD(characterId);
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('active_char', characterId);
+            url.searchParams.set('request_data', '1');
+            url.searchParams.set('moap_char_switch', '1');
+            url.searchParams.set('t', Date.now().toString());
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Loading character from HUD...', 'info', 2000);
+            }
+            window.location.assign(url.toString());
+        } catch (e) {
+            console.error('[Character] switch reload failed:', e);
+            await this.loadData({ forceRefresh: true });
+        }
     },
 
     /**

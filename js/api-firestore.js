@@ -1536,6 +1536,11 @@ const API = {
             return;
         }
         character.stats = this.getNewCharacterStats();
+        character.xp_total = 0;
+        character.xp_available = 0;
+        character.xp_lifetime = 0;
+        character.xp_spent = 0;
+        character.ap_balance = 0;
     },
 
     /**
