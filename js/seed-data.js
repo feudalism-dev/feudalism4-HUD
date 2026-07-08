@@ -41,6 +41,7 @@ const F4_SEED_DATA = {
             stat_minimums: {}, // No minimums - humans are versatile
             stat_maximums: {}, // No caps beyond default 9
             base_stats: {},    // All at default 2
+            starting_xp: 0,
             health: 100, stamina: 100, mana: 50
         },
         { 
@@ -50,6 +51,7 @@ const F4_SEED_DATA = {
             stat_minimums: { agility: 3, awareness: 3 },
             stat_maximums: { endurance: 7, athletics: 7 },
             base_stats: { agility: 3, awareness: 3, marksmanship: 3 },
+            starting_xp: 0,
             health: 80, stamina: 90, mana: 120
         },
         { 
@@ -59,6 +61,7 @@ const F4_SEED_DATA = {
             stat_minimums: { endurance: 3, crafting: 3 },
             stat_maximums: { agility: 6, stealth: 6 },
             base_stats: { endurance: 4, crafting: 3, athletics: 3 },
+            starting_xp: 0,
             health: 130, stamina: 120, mana: 30
         },
         { 
@@ -68,6 +71,7 @@ const F4_SEED_DATA = {
             stat_minimums: { stealth: 3, thievery: 2 },
             stat_maximums: { fighting: 6, athletics: 6 },
             base_stats: { stealth: 3, thievery: 3, persuasion: 3 },
+            starting_xp: 0,
             health: 70, stamina: 110, mana: 60
         },
         { 
@@ -77,6 +81,7 @@ const F4_SEED_DATA = {
             stat_minimums: { intelligence: 3, crafting: 2 },
             stat_maximums: { fighting: 5, endurance: 6 },
             base_stats: { intelligence: 4, crafting: 3, deception: 3 },
+            starting_xp: 0,
             health: 60, stamina: 80, mana: 100
         },
         { 
@@ -86,6 +91,7 @@ const F4_SEED_DATA = {
             stat_minimums: { endurance: 3, will: 3 },
             stat_maximums: { stealth: 5, thievery: 5 },
             base_stats: { endurance: 3, will: 3, fighting: 3 },
+            starting_xp: 0,
             health: 120, stamina: 100, mana: 80
         },
         { 
@@ -95,6 +101,7 @@ const F4_SEED_DATA = {
             stat_minimums: { awareness: 2 },
             stat_maximums: {},
             base_stats: { awareness: 3, persuasion: 3 },
+            starting_xp: 0,
             health: 90, stamina: 95, mana: 80
         },
         { 
@@ -104,6 +111,7 @@ const F4_SEED_DATA = {
             stat_minimums: { athletics: 3, endurance: 3 },
             stat_maximums: { intelligence: 6, persuasion: 5 },
             base_stats: { athletics: 4, endurance: 3, fighting: 3 },
+            starting_xp: 0,
             health: 140, stamina: 130, mana: 20
         },
         { 
@@ -113,6 +121,7 @@ const F4_SEED_DATA = {
             stat_minimums: { will: 3 },
             stat_maximums: { healing: 6 },
             base_stats: { will: 3, deception: 3, intelligence: 3 },
+            starting_xp: 0,
             health: 90, stamina: 90, mana: 110
         },
         { 
@@ -122,6 +131,7 @@ const F4_SEED_DATA = {
             stat_minimums: { stealth: 3, awareness: 3 },
             stat_maximums: { healing: 5 },
             base_stats: { stealth: 4, awareness: 3, deception: 3 },
+            starting_xp: 0,
             health: 75, stamina: 85, mana: 100
         },
         { 
@@ -131,6 +141,7 @@ const F4_SEED_DATA = {
             stat_minimums: { will: 4, endurance: 3 },
             stat_maximums: { healing: 4, wisdom: 5 },
             base_stats: { will: 4, endurance: 3, fighting: 4 },
+            starting_xp: 0,
             health: 150, stamina: 120, mana: 100
         },
         { 
@@ -140,6 +151,7 @@ const F4_SEED_DATA = {
             stat_minimums: { agility: 3, deception: 3 },
             stat_maximums: { athletics: 5, fighting: 5 },
             base_stats: { agility: 4, deception: 4, thievery: 3 },
+            starting_xp: 0,
             health: 50, stamina: 100, mana: 90
         },
         { 
@@ -149,6 +161,7 @@ const F4_SEED_DATA = {
             stat_minimums: { endurance: 3, survival: 3 },
             stat_maximums: { intelligence: 6, crafting: 5 },
             base_stats: { endurance: 3, survival: 4, awareness: 3 },
+            starting_xp: 0,
             health: 130, stamina: 140, mana: 30
         },
         { 
@@ -158,6 +171,7 @@ const F4_SEED_DATA = {
             stat_minimums: { influence: 3, will: 3 },
             stat_maximums: { healing: 3 },
             base_stats: { influence: 4, will: 3, deception: 3 },
+            starting_xp: 0,
             health: 100, stamina: 80, mana: 120
         },
         { 
@@ -167,6 +181,7 @@ const F4_SEED_DATA = {
             stat_minimums: { athletics: 3 },
             stat_maximums: { crafting: 5 },
             base_stats: { athletics: 4, survival: 3, awareness: 3 },
+            starting_xp: 0,
             health: 90, stamina: 120, mana: 80
         },
         { 
@@ -176,6 +191,7 @@ const F4_SEED_DATA = {
             stat_minimums: { agility: 4 },
             stat_maximums: { athletics: 4, fighting: 4, endurance: 4 },
             base_stats: { agility: 4, entertaining: 3, will: 3 },
+            starting_xp: 0,
             health: 40, stamina: 70, mana: 150
         },
         { 
@@ -185,6 +201,7 @@ const F4_SEED_DATA = {
             stat_minimums: { entertaining: 3, agility: 2 },
             stat_maximums: {},
             base_stats: { entertaining: 4, agility: 3, persuasion: 3 },
+            starting_xp: 0,
             health: 95, stamina: 110, mana: 70
         },
         { 
@@ -194,6 +211,7 @@ const F4_SEED_DATA = {
             stat_minimums: { athletics: 4, endurance: 3 },
             stat_maximums: { intelligence: 5, stealth: 4, thievery: 4 },
             base_stats: { athletics: 5, endurance: 4, fighting: 3 },
+            starting_xp: 0,
             health: 160, stamina: 140, mana: 20
         },
         { 
@@ -203,6 +221,7 @@ const F4_SEED_DATA = {
             stat_minimums: { endurance: 3, awareness: 2 },
             stat_maximums: { influence: 5, persuasion: 5 },
             base_stats: { endurance: 3, awareness: 3, survival: 3 },
+            starting_xp: 0,
             health: 110, stamina: 100, mana: 60
         },
         { 
@@ -212,6 +231,7 @@ const F4_SEED_DATA = {
             stat_minimums: { stealth: 2, thievery: 2 },
             stat_maximums: { influence: 5, persuasion: 4 },
             base_stats: { stealth: 3, thievery: 3, survival: 3 },
+            starting_xp: 0,
             health: 65, stamina: 95, mana: 50
         }
     ],

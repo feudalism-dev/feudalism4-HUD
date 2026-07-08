@@ -2002,6 +2002,8 @@ try {
             this.state.isNewCharacter = false;
             this.state.creationInProgress = false;
             this.state.currentUniverse = universe;
+            const starterGrant = this.getStartingXpGrant('human');
+            character.xp_lifetime = Math.max(parseInt(character.xp_lifetime, 10) || 0, starterGrant);
             this.recalculateResourcePools();
 
             if (API.setActiveCharacter) {
@@ -2011,6 +2013,7 @@ try {
             this._pendingAutoHideSetup = true;
             await this.pushCharacterToPlayersHUD(character.id);
             this.scheduleBroadcastToPlayersHUD(character);
+            this.grantStartingXpToHud(character, { forceNavigate: true });
 
             if (typeof UI !== 'undefined' && UI.showToast) {
                 UI.showToast(
@@ -3460,6 +3463,61 @@ try {
         return Math.max(0, parseInt(species && species.starting_xp, 10) || 0);
     },
 
+    /** Base lifetime XP for every new character, plus species.starting_xp bonus. */
+    getStartingXpGrant(speciesId) {
+        const BASE_STARTING_XP = 20000;
+        return BASE_STARTING_XP + this.getSpeciesStartingXp(speciesId || 'human');
+    },
+
+    /**
+     * Push pending_starting_xp into HUD LSD and refresh KVP so f4state_* gets the grant.
+     * Never reduces existing lifetime XP (Character State applyPendingStartingXp enforces that).
+     * @param {object} character
+     * @param {{ forceNavigate?: boolean }} options — forceNavigate for starter provision
+     */
+    grantStartingXpToHud(character, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!character || !character.id) {
+            return;
+        }
+        const grant = this.getStartingXpGrant(character.species_id || 'human');
+        if (grant <= 0) {
+            return;
+        }
+        const current = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
+        if (current >= grant) {
+            return;
+        }
+        character.xp_lifetime = grant;
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = grant;
+        App.state.econSessionActive = true;
+        if (options.forceNavigate) {
+            try {
+                const currentUrl = new URL(window.location.href);
+                const message = 'SET_PENDING_STARTING_XP|amount:' + encodeURIComponent(String(grant))
+                    + '|characterId:' + encodeURIComponent(String(character.id));
+                currentUrl.searchParams.set('lsl_cmd', message);
+                currentUrl.searchParams.set('lsl_cmd_ts', Date.now().toString());
+                currentUrl.searchParams.set('xp_lifetime', String(grant));
+                window.location.assign(currentUrl.toString());
+                console.log('[XP] Seeded pending_starting_xp=' + grant + ' (navigate) for', character.id);
+                return;
+            } catch (e) {
+                console.warn('[XP] location.assign failed for starting XP, falling back to sendToLSL', e);
+            }
+        }
+        this.sendToLSL('SET_PENDING_STARTING_XP', {
+            amount: String(grant),
+            characterId: character.id
+        });
+        console.log('[XP] Seeded pending_starting_xp=' + grant + ' for', character.id);
+    },
+
     /**
      * 20-stat CSV for Players HUD LSD (same order as LSL stat indices).
      */
@@ -3516,13 +3574,21 @@ try {
             return false;
         }
         let idx;
+        let allOnes = true;
+        let allTwos = true;
         for (idx = 0; idx < parts.length; idx++) {
             const val = parseInt(parts[idx], 10);
-            if (isNaN(val) || val !== 2) {
+            if (isNaN(val)) {
                 return false;
             }
+            if (val !== 1) {
+                allOnes = false;
+            }
+            if (val !== 2) {
+                allTwos = false;
+            }
         }
-        return true;
+        return allOnes || allTwos;
     },
 
     urlHasAuthoritativeStats() {
@@ -3595,7 +3661,7 @@ try {
             return;
         }
         if (this.csvIsStarterDefault(csv)) {
-            console.warn('[Players HUD Sync] refusing to push factory all-2s stats from Firestore');
+            console.warn('[Players HUD Sync] refusing to push factory all-1s/all-2s stats from Firestore');
             return;
         }
         const parts = csv.split(',');
@@ -4158,8 +4224,14 @@ try {
                 }
                 window.updateEconUrlParams(finalSpent, savedAp);
                 this.clearMoapSessionDraft(characterId);
-                // Identity save: push LOAD_CHARACTER only — no pushEconToHud (that reloads MOAP and breaks galleries).
-                await this.cacheHudStatsForPlayers(this.state.character, { syncStats: false });
+                // Push LOAD_CHARACTER; sync stats when non-factory so LSD/EXP keep edited line.
+                const statsCsvNow = this.statsCsvFromChar(this.state.character);
+                const shouldSyncStats = !this.csvIsStarterDefault(statsCsvNow)
+                    || !!(this.state.pendingChanges && this.state.pendingChanges.stats);
+                await this.cacheHudStatsForPlayers(this.state.character, {
+                    syncStats: shouldSyncStats
+                });
+                this.grantStartingXpToHud(this.state.character);
                 // Defer lsl_cmd cleanup — immediate cleanMoapUrlParams erased LOAD_CHARACTER before LSL poll.
                 setTimeout(function () {
                     if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
@@ -8939,12 +9011,15 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
                 
-                // Reset stats to this species' default line (F3 zero-sum budget)
+                // Reset stats to this species' default line (all 1s + base_stats overlays)
                 if (speciesId !== previousSpeciesId) {
                     const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+                    if (App.state.character.id) {
+                        App.grantStartingXpToHud(App.state.character);
+                    }
                 }
                 
                 // Re-render to update UI
@@ -9003,12 +9078,15 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}`, 'success', 3000);
                 
-                // Reset stats to this species' default line (F3 zero-sum budget)
+                // Reset stats to this species' default line (all 1s + base_stats overlays)
                 if (speciesId !== previousSpeciesId) {
                     const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats set to ${species.name} base values`, 'info', 2000);
+                    if (App.state.character.id) {
+                        App.grantStartingXpToHud(App.state.character);
+                    }
                 }
                 
                 // Re-render to update UI
@@ -9256,25 +9334,35 @@ window.getStatTotalCost = function(level) {
 };
 
 /**
- * Default stat line for a species (all 2s, merged with species base_stats).
+ * Default stat line for a species (all 1s, merged with species base_stats / mins).
+ * XP economy v2: new characters start at 1, not 2.
  */
 window.getSpeciesDefaultStats = function(speciesId) {
-    const defaultStats = App.getDefaultStats();
-    if (!speciesId || speciesId === 'human') {
-        return defaultStats;
-    }
+    const defaultStats = (typeof App.getNewCharacterStats === 'function')
+        ? App.getNewCharacterStats()
+        : App.getDefaultStats();
     const species = App.state.species?.find(s => s.id === speciesId);
-    const speciesStats = species?.base_stats || {};
-    const merged = { ...defaultStats };
-    Object.keys(speciesStats).forEach(stat => {
+    const merged = Object.assign({}, defaultStats);
+    if (!species) {
+        return merged;
+    }
+    const speciesStats = species.base_stats || {};
+    Object.keys(speciesStats).forEach(function (stat) {
         merged[stat] = speciesStats[stat];
+    });
+    const mins = species.stat_minimums || {};
+    Object.keys(mins).forEach(function (stat) {
+        const minVal = parseInt(mins[stat], 10) || 0;
+        if ((merged[stat] || 1) < minVal) {
+            merged[stat] = minVal;
+        }
     });
     return merged;
 };
 
 /**
- * Point budget for a species' default stat line (20 for human = all 2s).
- * Matches F3's 20000 XP starter pool when defaults are applied.
+ * Point budget for a species' default stat line (all 1s + species overlays).
+ * Matches XP economy v2 starter pool when defaults are applied.
  */
 window.getSpeciesStatBudget = function(speciesId) {
     const defaults = window.getSpeciesDefaultStats(speciesId || 'human');
