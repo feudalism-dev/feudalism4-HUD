@@ -461,6 +461,38 @@ try {
         return { success: true, cached: false };
     },
 
+    upsertCharacterInRosterCache(character) {
+        if (!character || !character.id) {
+            return;
+        }
+        if (!API._listCharactersCache) {
+            API._listCharactersCache = [];
+        }
+        let found = false;
+        API._listCharactersCache = API._listCharactersCache.map(function (c) {
+            if (c.id === character.id) {
+                found = true;
+                return Object.assign({}, character);
+            }
+            return c;
+        });
+        if (!found) {
+            API._listCharactersCache.unshift(character);
+        }
+        if (API._dedupeCharactersById) {
+            API._listCharactersCache = API._dedupeCharactersById(API._listCharactersCache);
+        }
+        API._listCharactersCacheTs = Date.now();
+        if (API.uuid) {
+            try {
+                sessionStorage.setItem(
+                    'f4_roster_' + API.uuid,
+                    JSON.stringify({ characters: API._listCharactersCache })
+                );
+            } catch (e) { /* ignore */ }
+        }
+    },
+
     /**
      * Refresh UI after save without re-fetching templates or full loadData().
      */
@@ -468,28 +500,8 @@ try {
         if (options === undefined) {
             options = {};
         }
-        if (savedCharacter && API._listCharactersCache) {
-            let found = false;
-            API._listCharactersCache = API._listCharactersCache.map(function (c) {
-                if (c.id === savedCharacter.id) {
-                    found = true;
-                    return Object.assign({}, savedCharacter);
-                }
-                return c;
-            });
-            if (!found) {
-                API._listCharactersCache.unshift(savedCharacter);
-            }
-            API._listCharactersCache = API._dedupeCharactersById(API._listCharactersCache);
-            API._listCharactersCacheTs = Date.now();
-            if (API.uuid) {
-                try {
-                    sessionStorage.setItem(
-                        'f4_roster_' + API.uuid,
-                        JSON.stringify({ characters: API._listCharactersCache })
-                    );
-                } catch (e) { /* ignore */ }
-            }
+        if (savedCharacter) {
+            this.upsertCharacterInRosterCache(savedCharacter);
         }
         this.state.character = savedCharacter;
         this.state.selectedCharacterId = savedCharacter.id;
@@ -597,13 +609,29 @@ try {
                     }
                 })();
                 const rosterCacheKey = 'f4_roster_' + API.uuid;
+                let preferredCharId = null;
+                try {
+                    preferredCharId = this.state.selectedCharacterId
+                        || API.activeCharacterId
+                        || new URLSearchParams(window.location.search).get('active_char')
+                        || sessionStorage.getItem(this.getActiveCharacterStorageKey());
+                } catch (e) { /* ignore */ }
                 if (econSyncOnly && !forceRefresh) {
                     try {
                         const cached = sessionStorage.getItem(rosterCacheKey);
                         if (cached) {
-                            charsResult = { success: true, data: JSON.parse(cached) };
-                            usedRosterCache = true;
-                            console.log('[loadData] Using session roster cache (econ sync reload)');
+                            const parsed = JSON.parse(cached);
+                            const roster = parsed && parsed.characters ? parsed.characters : [];
+                            const rosterHasPreferred = !preferredCharId || roster.some(function (c) {
+                                return c.id === preferredCharId;
+                            });
+                            if (rosterHasPreferred) {
+                                charsResult = { success: true, data: parsed };
+                                usedRosterCache = true;
+                                console.log('[loadData] Using session roster cache (econ sync reload)');
+                            } else {
+                                console.log('[loadData] Roster cache missing active character — refreshing from Firestore');
+                            }
                         }
                     } catch (e) { /* ignore */ }
                 }
@@ -639,6 +667,9 @@ try {
                         const charResult = await API.getCharacterById(characterId);
                         if (charResult.success) {
                             character = charResult.data.character;
+                            this.upsertCharacterInRosterCache(character);
+                            characters = API._listCharactersCache || characters.concat([character]);
+                            await this.loadCharacterSelector(characters);
                         } else if (characters.length > 0) {
                             console.warn('[loadData] Could not load', characterId, '- using first roster entry');
                             character = characters[0];
@@ -1604,6 +1635,9 @@ try {
         if (typeof this.persistMoapSessionDraft === 'function') {
             this.persistMoapSessionDraft(true);
         }
+        if (this.isInCreationFlow() && char.id && this.state.dirty) {
+            await this.saveCharacter({ draft: true, silent: true });
+        }
         UI.showToast('Saving stats...', 'info', 2000);
         const savedAp = window.getApBalance(char);
         const savedSpent = window.getEconSpent(char);
@@ -1972,6 +2006,19 @@ try {
         }
         
         selector.style.display = 'block'; // Always show in new design
+
+        if (this.state.selectedCharacterId && !addedIds[this.state.selectedCharacterId]) {
+            const activeChar = (this.state.character && this.state.character.id === this.state.selectedCharacterId)
+                ? this.state.character
+                : this.characterFromList(characters, this.state.selectedCharacterId);
+            if (activeChar && activeChar.id) {
+                const option = document.createElement('option');
+                option.value = activeChar.id;
+                option.textContent = activeChar.name || 'Unnamed';
+                option.selected = true;
+                selector.appendChild(option);
+            }
+        }
         
         // Show/hide delete button based on selection
         this.updateDeleteButtonVisibility();
@@ -2946,8 +2993,11 @@ try {
         if (this.state.creationInProgress) {
             if (!char.id) {
                 this.resetDraftEconOnCharacter(char);
+                return;
             }
-            return;
+            if (!this.urlHudEconBelongsToCharacter(char.id)) {
+                return;
+            }
         }
         const url = window.getEconFromUrl();
         let changed = false;
@@ -3562,8 +3612,11 @@ try {
         if (this.state.creationInProgress) {
             if (!char.id) {
                 this.resetDraftEconOnCharacter(char);
+                return;
             }
-            return;
+            if (!this.urlHudEconBelongsToCharacter(char.id)) {
+                return;
+            }
         }
         let lifetime = 0;
         let spent = 0;
@@ -3857,6 +3910,26 @@ try {
         return activeChar === characterId;
     },
 
+    urlHudEconBelongsToCharacter(characterId) {
+        if (!characterId) {
+            return false;
+        }
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const statsChar = params.get('stats_char_id') || '';
+            const activeChar = params.get('active_char') || '';
+            if (statsChar) {
+                return statsChar === characterId;
+            }
+            if (activeChar) {
+                return activeChar === characterId;
+            }
+        } catch (e) {
+            return false;
+        }
+        return false;
+    },
+
     urlHasAuthoritativeStats(characterId) {
         try {
             const charId = characterId || this.state.character?.id || '';
@@ -3909,9 +3982,6 @@ try {
     mergeStatsFromUrlIntoCharacter() {
         const char = this.state.character;
         if (!char || !char.id) {
-            return false;
-        }
-        if (this.state.creationInProgress) {
             return false;
         }
         if (!this.urlStatsBelongToCharacter(char.id)) {
@@ -9804,6 +9874,12 @@ window.isCreationEconIsolated = function () {
     const char = App.state.character;
     if (!char || !char.id) {
         return true;
+    }
+    if (typeof App.urlHudEconBelongsToCharacter === 'function' && App.urlHudEconBelongsToCharacter(char.id)) {
+        return false;
+    }
+    if (typeof App.urlStatsBelongToCharacter === 'function' && App.urlStatsBelongToCharacter(char.id)) {
+        return false;
     }
     try {
         const params = new URLSearchParams(window.location.search);
