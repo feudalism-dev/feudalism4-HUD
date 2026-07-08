@@ -1086,7 +1086,6 @@ const API = {
                 title: charData.title || '',
                 gender: charData.gender || 'other',
                 species_id: charData.species_id || 'human',
-                class_id: charData.class_id || null,
                 
                 // Resource pools (object structure: {current, base, max})
                 health: charData.health || { current: 100, base: 100, max: 100 },
@@ -1115,10 +1114,12 @@ const API = {
                 // Auto-provisioned starter — player can customize in Setup HUD
                 provisional: charData.provisional === true,
                 
-                // Timestamps
                 created_at: firebase.firestore.FieldValue.serverTimestamp(),
                 updated_at: firebase.firestore.FieldValue.serverTimestamp()
             };
+            if (charData.class_id) {
+                character.class_id = charData.class_id;
+            }
             
             const docRef = await db.collection('characters').add(character);
             this._listCharactersCache = null;
@@ -1230,6 +1231,11 @@ const API = {
 
             delete updateData.owner_uuid;
             delete updateData.id;
+            Object.keys(updateData).forEach(function (key) {
+                if (updateData[key] === null || updateData[key] === undefined) {
+                    delete updateData[key];
+                }
+            });
 
             await docRef.update(updateData);
 
@@ -2972,17 +2978,19 @@ const API = {
                 }
             }
             
-            // Check class
-            if (universe.allowedClasses && universe.allowedClasses.length > 0) {
-                if (!universe.allowedClasses.includes(classId)) {
-                    errors.push(`Class "${classId}" is not allowed in this universe`);
+            // Check class (only when a class is already chosen)
+            if (classId) {
+                if (universe.allowedClasses && universe.allowedClasses.length > 0) {
+                    if (!universe.allowedClasses.includes(classId)) {
+                        errors.push(`Class "${classId}" is not allowed in this universe`);
+                    }
                 }
-            }
-            const classConfigResult = await this.getUniverseClassConfiguration(universeId);
-            if (classConfigResult.success) {
-                const effectiveClass = (classConfigResult.data.classes || []).find(c => c.id === classId);
-                if (!effectiveClass || effectiveClass.enabled === false) {
-                    errors.push(`Class "${classId}" is disabled in this universe`);
+                const classConfigResult = await this.getUniverseClassConfiguration(universeId);
+                if (classConfigResult.success) {
+                    const effectiveClass = (classConfigResult.data.classes || []).find(c => c.id === classId);
+                    if (!effectiveClass || effectiveClass.enabled === false) {
+                        errors.push(`Class "${classId}" is disabled in this universe`);
+                    }
                 }
             }
             

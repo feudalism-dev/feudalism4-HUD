@@ -174,6 +174,8 @@ try {
         statsAbandonBaseline: null,
         isNewCharacter: false,
         creationInProgress: false,
+        creationStepId: null,
+        creationMaxStepIndex: 0,
         lastAutoSaveMessage: '',
         dirty: false,  // UX 2: Track unsaved changes
         statsPending: false,  // AP / stat grid edits not yet pushed to HUD LSD/KVP
@@ -938,11 +940,16 @@ try {
                 
                 // Close modal and start character creation
                 UI.closeModal();
+                this.state.selectedCharacterId = null;
                 this.state.selectedUniverseId = universeId;
                 this.state.isNewCharacter = true;
                 this.state.creationInProgress = true;
+                this.state.creationStepId = 'name';
+                this.state.creationMaxStepIndex = 0;
+                this.resetHudUrlForNewCharacterDraft();
                 this.state.character = this.createDefaultCharacter();
                 this.state.character.universe_id = universeId;
+                this.resetDraftEconOnCharacter(this.state.character);
                 this.captureStatsFloor(this.state.character);
                 
                 // Load universe data for mana checks
@@ -984,11 +991,13 @@ try {
     getCreationSteps() {
         const char = this.state.character;
         const availablePoints = char ? window.getApBalance(char) : 0;
+        const statsIndex = 3;
+        const statsStepReached = !this.isInCreationFlow() || (this.state.creationMaxStepIndex || 0) >= statsIndex;
         return [
             { id: 'name', name: 'Name/Title', complete: !!(char && char.name && char.name.trim()) },
             { id: 'gender', name: 'Gender', complete: !!(char && char.gender) },
             { id: 'species', name: 'Species', complete: !!(char && char.species_id) },
-            { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0) },
+            { id: 'stats', name: 'Stats', complete: !!(char && availablePoints === 0 && statsStepReached) },
             { id: 'career', name: 'Classes', complete: !!(char && char.class_id) }
         ];
     },
@@ -998,8 +1007,67 @@ try {
         return !!(char && (this.state.creationInProgress || !char.id || this.state.isNewCharacter));
     },
 
+    isNewCharacterDraft() {
+        const char = this.state.character;
+        return !!(char && (this.state.creationInProgress || (this.state.isNewCharacter && !char.id)));
+    },
+
+    resetHudUrlForNewCharacterDraft() {
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('stats_csv');
+            url.searchParams.delete('stats_csv_ts');
+            url.searchParams.delete('stats_char_id');
+            url.searchParams.delete('econ_sync');
+            url.searchParams.delete('econ_ts');
+            url.searchParams.delete('xp_spent');
+            url.searchParams.delete('ap_balance');
+            url.searchParams.delete('xp_lifetime');
+            url.searchParams.delete('xp_total');
+            url.searchParams.delete('char_name');
+            url.searchParams.delete('char_title');
+            url.searchParams.delete('health_pipe');
+            url.searchParams.delete('stamina_pipe');
+            url.searchParams.delete('mana_pipe');
+            this.safeHistoryReplaceState(url.toString());
+        } catch (e) { /* ignore */ }
+        this._lastStatsCsvSynced = null;
+        this.state.statsPending = false;
+        this.state.pendingChanges = {};
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = 0;
+        App.state.econ.xp_spent = 0;
+        App.state.econ.ap_balance = 0;
+        App.state.econSessionActive = false;
+    },
+
+    resetDraftEconOnCharacter(char) {
+        if (!char) {
+            return;
+        }
+        char.xp_lifetime = 0;
+        char.xp_spent = 0;
+        char.ap_balance = 0;
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = 0;
+        App.state.econ.xp_spent = 0;
+        App.state.econ.ap_balance = 0;
+        App.state.econSessionActive = false;
+        window.updateEconUrlParams(0, 0);
+    },
+
     getCurrentCreationStepId(steps) {
         const list = steps || this.getCreationSteps();
+        if (this.isInCreationFlow() && this.state.creationStepId) {
+            const known = list.find(function (s) { return s.id === this.state.creationStepId; }.bind(this));
+            if (known) {
+                return this.state.creationStepId;
+            }
+        }
         const firstOpen = list.findIndex(s => !s.complete);
         if (firstOpen === -1) {
             return list[list.length - 1].id;
@@ -1139,10 +1207,14 @@ try {
                 }
             }
             await this.saveCharacter({ draft: false });
+            this.state.creationStepId = null;
             return;
         }
 
         const nextStep = steps[currentIndex + 1];
+        if (nextStep) {
+            this.state.creationStepId = nextStep.id;
+        }
         this.navigateToStep(nextStep.id);
         this.updateStepGuide();
         UI.showToast('Now: ' + nextStep.name, 'info', 2000);
@@ -1156,6 +1228,7 @@ try {
             return;
         }
         const prevStep = steps[currentIndex - 1];
+        this.state.creationStepId = prevStep.id;
         this.navigateToStep(prevStep.id);
         this.updateStepGuide();
     },
@@ -1168,8 +1241,8 @@ try {
             if (stepItem) {
                 const marker = stepItem.querySelector('.step-marker');
                 if (marker) {
-                    const currentIndex = steps.findIndex(s => !s.complete);
-                    const isCurrent = (currentIndex === -1 && index === steps.length - 1) || currentIndex === index;
+                    const currentIndex = steps.findIndex(s => s.id === this.getCurrentCreationStepId(steps));
+                    const isCurrent = currentIndex === index;
                     
                     if (step.complete) {
                         marker.textContent = '✓';
@@ -1244,6 +1317,14 @@ try {
             case 'career':
                 UI.switchTab('career');
                 break;
+        }
+        if (this.isInCreationFlow()) {
+            this.state.creationStepId = stepId;
+            const idx = steps.findIndex(function (s) { return s.id === stepId; });
+            if (idx >= 0) {
+                this.state.creationMaxStepIndex = Math.max(this.state.creationMaxStepIndex || 0, idx);
+            }
+            this.updateCreationNavigation();
         }
     },
     
@@ -2755,6 +2836,10 @@ try {
         if (!char) {
             return;
         }
+        if (this.state.creationInProgress) {
+            this.resetDraftEconOnCharacter(char);
+            return;
+        }
         const url = window.getEconFromUrl();
         let changed = false;
         let params;
@@ -3365,6 +3450,10 @@ try {
         if (!char) {
             return;
         }
+        if (this.state.creationInProgress) {
+            this.resetDraftEconOnCharacter(char);
+            return;
+        }
         let lifetime = 0;
         let spent = 0;
         let ap = 0;
@@ -3709,6 +3798,9 @@ try {
     mergeStatsFromUrlIntoCharacter() {
         const char = this.state.character;
         if (!char || !char.id) {
+            return false;
+        }
+        if (this.state.creationInProgress) {
             return false;
         }
         if (!this.urlStatsBelongToCharacter(char.id)) {
@@ -4093,10 +4185,9 @@ try {
             }
             
             // Determine if this is a new character or an update
-            // Check if character has an ID - if it does, it's an existing character
-            const isNewCharacter = this.state.isNewCharacter && !char.id;
+            const useCreatePath = !char.id && (this.state.isNewCharacter || this.state.creationInProgress);
             
-            if (isNewCharacter) {
+            if (useCreatePath) {
                 if (!this.state.selectedUniverseId) {
                     if (!silent) UI.showToast('Please select a universe', 'warning');
                     return false;
@@ -4134,11 +4225,12 @@ try {
                 const saveSpeciesId = char.species_id || 'human';
 
                 if (char.gender && char.species_id) {
+                    const identityClassId = char.class_id || undefined;
                     const identityCheck = await API.validateIdentityOptions(
                         this.state.selectedUniverseId,
                         saveGender,
                         saveSpeciesId,
-                        char.class_id || null
+                        identityClassId
                     );
                     if (!identityCheck.success || !identityCheck.data.valid) {
                         if (!silent) {
@@ -4178,17 +4270,21 @@ try {
                     mana: manaPool
                 });
                 
-                const result = await API.createCharacter({
+                const createPayload = {
                     name: char.name,
                     title: char.title || '',
                     gender: saveGender,
                     species_id: saveSpeciesId,
-                    class_id: char.class_id || null,
                     universe_id: this.state.selectedUniverseId,
                     has_mana: hasMana,
                     mana: manaPool,
                     stats: char.stats
-                });
+                };
+                if (char.class_id) {
+                    createPayload.class_id = char.class_id;
+                }
+
+                const result = await API.createCharacter(createPayload);
                 
                 console.log('[saveCharacter] createCharacter result:', result);
                 
@@ -4208,10 +4304,13 @@ try {
                 }
                 
                 this.state.character = result.data.character;
+                this.resetDraftEconOnCharacter(this.state.character);
                 this.state.selectedCharacterId = result.data.character.id;
                 this.state.dirty = false;
                 this.applyPendingClassXpChargeAfterSave();
-                await this.rememberSelectedCharacter(result.data.character.id);
+                if (draft) {
+                    await this.rememberSelectedCharacter(result.data.character.id);
+                }
                 if (draft) {
                     this.state.isNewCharacter = true;
                     this.state.creationInProgress = true;
@@ -4219,6 +4318,8 @@ try {
                 } else {
                     this.state.isNewCharacter = false;
                     this.state.creationInProgress = false;
+                    this.state.creationStepId = null;
+                    await this.rememberSelectedCharacter(result.data.character.id);
                     if (!silent) UI.showToast('Character created!', 'success');
                 }
                 this.updateStatusIndicator();
@@ -4227,7 +4328,7 @@ try {
                 return true;
             } else {
                 // Update existing character (must target the selected doc, not "first" character)
-                const characterId = char.id || this.state.selectedCharacterId;
+                const characterId = char.id;
                 if (!characterId) {
                     if (!silent) UI.showToast('Cannot save: character has no ID. Use Create New Character for a new slot.', 'warning');
                     return false;
@@ -4307,6 +4408,7 @@ try {
                 } else {
                     this.state.isNewCharacter = false;
                     this.state.creationInProgress = false;
+                    this.state.creationStepId = null;
                 }
                 if (this.state.character.class_id) {
                     this.state.currentClass = this.state.classes.find(c => c.id === this.state.character.class_id);
@@ -9573,8 +9675,15 @@ window.getMergedCharacterStatsForPoints = function(character) {
  */
 window.XP_PER_AP = 1000;
 
+window.isCreationEconIsolated = function () {
+    return typeof App !== 'undefined' && App.state && App.state.creationInProgress;
+};
+
 /** True when Setup URL carries authoritative HUD lifetime XP (KVP), not just spent/AP params. */
 window.hasHudEconInUrl = function () {
+    if (window.isCreationEconIsolated()) {
+        return false;
+    }
     try {
         const p = new URLSearchParams(window.location.search);
         const life = parseInt(p.get('xp_lifetime') || p.get('xp_total') || '', 10);
@@ -9636,6 +9745,9 @@ window.syncEconToCharacter = function (character) {
 
 window.getEconLifetime = function (character) {
     window.syncEconToCharacter(character);
+    if (window.isCreationEconIsolated()) {
+        return Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
+    }
     let lifetime = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
     const url = window.getEconFromUrl();
     if (url.xp_lifetime > lifetime) {
@@ -9654,6 +9766,9 @@ window.getEconLifetime = function (character) {
 
 window.getEconSpent = function (character) {
     window.syncEconToCharacter(character);
+    if (window.isCreationEconIsolated()) {
+        return Math.max(0, parseInt(character.xp_spent, 10) || 0);
+    }
     let spent = Math.max(0, parseInt(character.xp_spent, 10) || 0);
     if (typeof App !== 'undefined' && App.state.econSessionActive && App.state.econ
         && App.state.econ.xp_spent != null && !isNaN(parseInt(App.state.econ.xp_spent, 10))) {
@@ -9682,6 +9797,9 @@ window.getApBalance = function (character) {
         return 0;
     }
     window.syncEconToCharacter(character);
+    if (window.isCreationEconIsolated()) {
+        return Math.max(0, parseInt(character.ap_balance, 10) || 0);
+    }
     let ap = Math.max(0, parseInt(character.ap_balance, 10) || 0);
     if (typeof App !== 'undefined' && App.state.econSessionActive && App.state.econ
         && App.state.econ.ap_balance != null && !isNaN(parseInt(App.state.econ.ap_balance, 10))) {
