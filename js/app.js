@@ -330,6 +330,9 @@ try {
         }
         
         UI.init();
+        if (typeof UI.clearNativeTooltips === 'function') {
+            UI.clearNativeTooltips(document);
+        }
         
         // Remove EXIT button if it exists (safety check for deployed versions)
         const exitBtn = document.getElementById('btn-exit-setup');
@@ -722,6 +725,12 @@ try {
                                 this.state.isNewCharacter = false;
                             }
                             this.state.selectedCharacterId = character.id; // Ensure selected ID is set
+
+                            if (character.id && typeof this.urlHudEconBelongsToCharacter === 'function'
+                                && !this.urlHudEconBelongsToCharacter(character.id)) {
+                                this.clearStaleHudUrlParamsForCharacterSwitch(character.id);
+                                this.syncActiveCharToUrl(character.id);
+                            }
 
                             if (this.isCharacterSetupIncomplete(character)) {
                                 this.state.creationInProgress = true;
@@ -1687,7 +1696,11 @@ try {
                 currentUrl.searchParams.set('active_char', char.id);
                 currentUrl.searchParams.set('stats_char_id', char.id);
             }
-            currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
+            const syncPayload = this.buildCharacterSyncPayload(char.id, char);
+            const loadParts = Object.keys(syncPayload).map(function (key) {
+                return key + ':' + encodeURIComponent(String(syncPayload[key]));
+            });
+            currentUrl.searchParams.set('lsl_cmd', 'LOAD_CHARACTER|' + loadParts.join('|'));
             currentUrl.searchParams.set('lsl_cmd_ts', ts);
             currentUrl.searchParams.set('econ_sync', '1');
             this._lastStatsCsvSynced = csv;
@@ -2652,6 +2665,9 @@ try {
         if (!char) {
             return;
         }
+        if (typeof UI !== 'undefined' && typeof UI.clearNativeTooltips === 'function') {
+            UI.clearNativeTooltips(document);
+        }
         this.mergeUrlEconIntoCharacter();
         if (this.mergeStatsFromUrlIntoCharacter()) {
             this.captureAbandonBaseline(char);
@@ -3017,12 +3033,13 @@ try {
         if (!char) {
             return;
         }
+        if (char.id && typeof this.urlHudEconBelongsToCharacter === 'function'
+            && !this.urlHudEconBelongsToCharacter(char.id)) {
+            return;
+        }
         if (this.state.creationInProgress) {
             if (!char.id) {
                 this.resetDraftEconOnCharacter(char);
-                return;
-            }
-            if (!this.urlHudEconBelongsToCharacter(char.id)) {
                 return;
             }
         }
@@ -3636,12 +3653,13 @@ try {
         if (!char) {
             return;
         }
+        if (char.id && typeof this.urlHudEconBelongsToCharacter === 'function'
+            && !this.urlHudEconBelongsToCharacter(char.id)) {
+            return;
+        }
         if (this.state.creationInProgress) {
             if (!char.id) {
                 this.resetDraftEconOnCharacter(char);
-                return;
-            }
-            if (!this.urlHudEconBelongsToCharacter(char.id)) {
                 return;
             }
         }
@@ -3738,20 +3756,7 @@ try {
         if (!char || char._econMigrated) {
             return;
         }
-        const ap = char.ap_balance || 0;
-        const lifetime = char.xp_lifetime || 0;
-        if (ap === 0 && lifetime > 0 && typeof window.calculateLegacyAvailablePoints === 'function') {
-            const legacyAp = window.calculateLegacyAvailablePoints(char);
-            if (legacyAp > 0) {
-                char.ap_balance = legacyAp;
-                if (!App.state.econ) {
-                    App.state.econ = {};
-                }
-                App.state.econ.ap_balance = legacyAp;
-                App.state.econSessionActive = true;
-                console.log('[XP] Migrated legacy AP balance (MOAP session):', legacyAp);
-            }
-        }
+        // v2 economy: AP is bought with XP — never derive AP from lifetime XP.
         char._econMigrated = true;
     },
 

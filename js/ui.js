@@ -1059,6 +1059,7 @@ const UI = {
      */
     renderStatsGrid(stats, caps = {}, availablePoints = 0, statsFloor = {}) {
         if (!this.elements.statsGrid) return;
+        this.clearNativeTooltips(this.elements.statsGrid);
         
         // F3 stat names in order
         const statNames = (typeof F4_SEED_DATA !== 'undefined') ? F4_SEED_DATA.statNames : [
@@ -1080,10 +1081,10 @@ const UI = {
                 <div class="stat-row" data-stat="${stat}">
                     <span class="stat-name">${this.formatStatName(stat)}</span>
                     <div class="stat-controls">
-                        <button class="stat-btn" data-action="decrease" ${!canDecrease ? 'disabled' : ''} title="Undo raise (refund AP)">−</button>
+                        <button type="button" class="stat-btn" data-action="decrease" ${!canDecrease ? 'disabled' : ''} aria-label="Undo raise, refund AP">−</button>
                         <span class="stat-value">${value}</span>
                         <span class="stat-max">/${max}</span>
-                        <button class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''} title="Cost: ${costToIncrease} AP">+</button>
+                        <button type="button" class="stat-btn" data-action="increase" ${!canIncrease ? 'disabled' : ''} aria-label="Raise stat, cost ${costToIncrease} AP">+</button>
                     </div>
                 </div>
             `;
@@ -1606,6 +1607,22 @@ const UI = {
     
     // =========================== TOAST NOTIFICATIONS ====================
     
+    /**
+     * CEF/MOAP leaves native title tooltips on screen after DOM swaps or navigation.
+     * Call before re-rendering regions that use title= hints.
+     */
+    clearNativeTooltips(root) {
+        const scope = root || document;
+        try {
+            if (document.activeElement && typeof document.activeElement.blur === 'function') {
+                document.activeElement.blur();
+            }
+            scope.querySelectorAll('[title]').forEach(function (el) {
+                el.removeAttribute('title');
+            });
+        } catch (e) { /* ignore */ }
+    },
+
     /**
      * Show a toast notification
      * @param {string} message - Message to display
