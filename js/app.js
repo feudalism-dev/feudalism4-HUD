@@ -797,11 +797,15 @@ try {
                             });
                             let hadMoapDraft = false;
                             if (!bridgeHydrated) {
-                                this.initEconFromUrl();
-                                this.mergePoolsFromUrl();
-                                hadMoapDraft = this.restoreMoapSessionDraft();
-                                this.mergeUrlEconIntoCharacter();
-                                this.mergeStatsFromUrlIntoCharacter();
+                                if (!this.isBridgeHudMode()) {
+                                    this.initEconFromUrl();
+                                    this.mergePoolsFromUrl();
+                                    hadMoapDraft = this.restoreMoapSessionDraft();
+                                    this.mergeUrlEconIntoCharacter();
+                                    this.mergeStatsFromUrlIntoCharacter();
+                                } else {
+                                    hadMoapDraft = this.restoreMoapSessionDraft();
+                                }
                             } else {
                                 hadMoapDraft = this.restoreMoapSessionDraft();
                                 this.shadowLogBridgeVsUrl();
@@ -3248,9 +3252,18 @@ try {
                 if (tabId === 'stats' && typeof App.ensureBridgeGameplayLoaded === 'function'
                     && App.isBridgeHudMode && App.isBridgeHudMode()) {
                     const cid = App.state.character && App.state.character.id;
+                    let statsLoaded = false;
                     if (cid) {
-                        await App.ensureBridgeGameplayLoaded(cid, { showModal: true, afterSlotSwitch: false });
+                        statsLoaded = await App.ensureBridgeGameplayLoaded(cid, { showModal: true, afterSlotSwitch: false });
                     }
+                    origSwitchTab(tabId);
+                    if (statsLoaded || (typeof App.bridgeHasAuthoritativeHudData === 'function'
+                        && App.bridgeHasAuthoritativeHudData(cid))) {
+                        if (typeof App.refreshStatsTabFromCharacter === 'function') {
+                            App.refreshStatsTabFromCharacter();
+                        }
+                    }
+                    return;
                 }
                 origSwitchTab(tabId);
                 if (tabId === 'stats' && typeof App.refreshStatsTabFromCharacter === 'function') {
@@ -3971,8 +3984,29 @@ try {
         if (sid && cid && sid !== cid) {
             return false;
         }
+        if (this._lastBridgeSession.gameplay_ready === true || this._lastBridgeSession.gameplay_ready === 1) {
+            return true;
+        }
         const csv = this._lastBridgeSession.stats && this._lastBridgeSession.stats.csv;
         return !!(csv && !this.csvIsStarterDefault(csv));
+    },
+
+    bridgeSessionGameplayReady(session) {
+        if (!session || !session.ok) {
+            return false;
+        }
+        if (session.gameplay_ready === true || session.gameplay_ready === 1) {
+            return true;
+        }
+        const csv = session.stats && session.stats.csv;
+        if (csv && !this.csvIsStarterDefault(csv)) {
+            return true;
+        }
+        const econ = session.econ || {};
+        const life = parseInt(econ.xp_lifetime, 10) || 0;
+        const spent = parseInt(econ.xp_spent, 10) || 0;
+        const ap = parseInt(econ.ap_balance, 10) || 0;
+        return life > 0 || spent > 0 || ap > 0;
     },
 
     applyBridgeSessionToCharacter(char, session) {
@@ -4005,30 +4039,41 @@ try {
             char.has_mana = id.has_mana === '1' || id.has_mana === 1 || id.has_mana === true;
         }
         if (session.stats && session.stats.csv) {
-            const stats = this.statsObjectFromCsv(session.stats.csv);
-            if (stats) {
-                char.stats = stats;
-                if (this.state.pendingChanges) {
-                    this.state.pendingChanges.stats = Object.assign({}, stats);
+            const csv = session.stats.csv;
+            if (!this.csvIsStarterDefault(csv)) {
+                const stats = this.statsObjectFromCsv(csv);
+                if (stats) {
+                    char.stats = stats;
+                    if (this.state.pendingChanges) {
+                        this.state.pendingChanges.stats = Object.assign({}, stats);
+                    }
                 }
             }
         }
         const econ = session.econ || {};
-        if (econ.xp_lifetime != null) {
-            char.xp_lifetime = parseInt(econ.xp_lifetime, 10) || 0;
+        const life = parseInt(econ.xp_lifetime, 10) || 0;
+        const spent = parseInt(econ.xp_spent, 10) || 0;
+        const ap = parseInt(econ.ap_balance, 10) || 0;
+        const curLife = typeof window.getEconLifetime === 'function' ? window.getEconLifetime(char) : (parseInt(char.xp_lifetime, 10) || 0);
+        const curSpent = typeof window.getEconSpent === 'function' ? window.getEconSpent(char) : (parseInt(char.xp_spent, 10) || 0);
+        const curAp = typeof window.getApBalance === 'function' ? window.getApBalance(char) : (parseInt(char.ap_balance, 10) || 0);
+        if (life > 0 || curLife === 0) {
+            char.xp_lifetime = life > 0 ? life : curLife;
         }
-        if (econ.xp_spent != null) {
-            char.xp_spent = parseInt(econ.xp_spent, 10) || 0;
+        if (spent > 0 || curSpent === 0) {
+            char.xp_spent = spent > 0 ? spent : curSpent;
         }
-        if (econ.ap_balance != null) {
-            char.ap_balance = parseInt(econ.ap_balance, 10) || 0;
+        if (ap > 0 || curAp === 0) {
+            char.ap_balance = ap > 0 ? ap : curAp;
         }
-        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
-            App.state.econ = {};
+        if (life > 0 || spent > 0 || ap > 0) {
+            if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                App.state.econ = {};
+            }
+            App.state.econ.xp_lifetime = char.xp_lifetime || 0;
+            App.state.econ.xp_spent = char.xp_spent || 0;
+            App.state.econ.ap_balance = char.ap_balance || 0;
         }
-        App.state.econ.xp_lifetime = char.xp_lifetime || 0;
-        App.state.econ.xp_spent = char.xp_spent || 0;
-        App.state.econ.ap_balance = char.ap_balance || 0;
         const pools = session.pools || {};
         const pipe = (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.poolFromPipe)
             ? F4BridgeHud.poolFromPipe
@@ -4069,7 +4114,7 @@ try {
         }
         const showModal = options.showModal === true;
         const afterSlotSwitch = options.afterSlotSwitch === true;
-        const maxAttempts = afterSlotSwitch ? 25 : 12;
+        const maxAttempts = afterSlotSwitch ? 30 : 25;
         let hideLoading = null;
         if (showModal && typeof MoapDialogs !== 'undefined' && MoapDialogs.showLoading) {
             hideLoading = MoapDialogs.showLoading('Loading stats from HUD...');
@@ -4077,8 +4122,17 @@ try {
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
             let attempt = 0;
+            let refreshSent = false;
             while (attempt < maxAttempts) {
                 attempt += 1;
+                if (!refreshSent && attempt <= 2) {
+                    refreshSent = true;
+                    try {
+                        await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                    } catch (refreshErr) {
+                        console.warn('[F4 Bridge] REFRESH_GAMEPLAY nudge failed:', refreshErr);
+                    }
+                }
                 try {
                     const session = await F4BridgeHud.fetchSession();
                     const char = this.state.character;
@@ -4095,8 +4149,8 @@ try {
                     const csv = session.stats && session.stats.csv;
                     const csvPresent = !!(csv && String(csv).trim() !== '');
                     const csvAuthoritative = csvPresent && !this.csvIsStarterDefault(csv);
-                    const lastAttempt = attempt >= maxAttempts;
-                    if (csvPresent && (csvAuthoritative || !afterSlotSwitch || lastAttempt)) {
+                    const gameplayReady = this.bridgeSessionGameplayReady(session);
+                    if (gameplayReady && csvAuthoritative) {
                         this.applyBridgeSessionToCharacter(char, session);
                         this._bridgeSessionApplied = true;
                         this._lastBridgeSession = session;
@@ -4110,6 +4164,9 @@ try {
                 await new Promise(function (resolve) { setTimeout(resolve, 400); });
             }
             console.warn('[F4 Bridge] gameplay load timed out for', characterId);
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('HUD stats not ready yet — try again in a moment.', 'warning', 5000);
+            }
             return false;
         } finally {
             if (hideLoading) {
@@ -4428,14 +4485,17 @@ try {
         }
         await this.pushCharacterToPlayersHUD(characterId);
         await this.loadData({ characterSwitch: true });
+        let switchLoaded = false;
         if (this.isBridgeHudMode()) {
-            await this.ensureBridgeGameplayLoaded(characterId, {
+            switchLoaded = await this.ensureBridgeGameplayLoaded(characterId, {
                 showModal: true,
                 afterSlotSwitch: true
             });
         }
         this.captureAbandonBaseline(this.state.character);
-        this.refreshStatsTabFromCharacter();
+        if (switchLoaded || this.bridgeHasAuthoritativeHudData(characterId)) {
+            this.refreshStatsTabFromCharacter();
+        }
         await this.renderAll();
     },
 
