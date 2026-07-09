@@ -464,6 +464,34 @@ try {
         return { success: true, cached: false };
     },
 
+    /**
+     * Read name/title from DOM into state before save (MOAP can drop input events).
+     */
+    flushIdentityFromForm() {
+        const char = this.state.character;
+        if (!char) {
+            return;
+        }
+        const nameEl = UI.elements.charName || document.getElementById('char-name');
+        const titleEl = UI.elements.charTitle || document.getElementById('char-title');
+        if (nameEl && typeof nameEl.value === 'string') {
+            const nameVal = nameEl.value;
+            char.name = nameVal;
+            if (!this.state.pendingChanges) {
+                this.state.pendingChanges = {};
+            }
+            this.state.pendingChanges.name = nameVal;
+        }
+        if (titleEl && typeof titleEl.value === 'string') {
+            const titleVal = titleEl.value;
+            char.title = titleVal;
+            if (!this.state.pendingChanges) {
+                this.state.pendingChanges = {};
+            }
+            this.state.pendingChanges.title = titleVal;
+        }
+    },
+
     upsertCharacterInRosterCache(character) {
         if (!character || !character.id) {
             return;
@@ -503,19 +531,49 @@ try {
         if (options === undefined) {
             options = {};
         }
+        const inCreation = this.isInCreationFlow();
+        this.flushIdentityFromForm();
+        const identityPreserve = {
+            name: (this.state.pendingChanges && this.state.pendingChanges.name != null)
+                ? this.state.pendingChanges.name
+                : (this.state.character && this.state.character.name != null)
+                    ? this.state.character.name
+                    : (savedCharacter && savedCharacter.name != null) ? savedCharacter.name : '',
+            title: (this.state.pendingChanges && this.state.pendingChanges.title != null)
+                ? this.state.pendingChanges.title
+                : (this.state.character && this.state.character.title != null)
+                    ? this.state.character.title
+                    : (savedCharacter && savedCharacter.title != null) ? savedCharacter.title : '',
+            gender: (this.state.character && this.state.character.gender)
+                || (savedCharacter && savedCharacter.gender),
+            species_id: (this.state.character && this.state.character.species_id)
+                || (savedCharacter && savedCharacter.species_id)
+        };
         if (savedCharacter) {
             this.upsertCharacterInRosterCache(savedCharacter);
         }
         const hudStats = this.state.character?.stats
             ? Object.assign({}, this.state.character.stats)
             : null;
-        const hudAp = this.state.character ? window.getApBalance(this.state.character) : null;
-        const hudSpent = this.state.character ? window.getEconSpent(this.state.character) : null;
-        const hudLife = this.state.character ? window.getEconLifetime(this.state.character) : null;
+        const hudAp = inCreation ? null : (this.state.character ? window.getApBalance(this.state.character) : null);
+        const hudSpent = inCreation ? null : (this.state.character ? window.getEconSpent(this.state.character) : null);
+        const hudLife = inCreation ? null : (this.state.character ? window.getEconLifetime(this.state.character) : null);
         const hudStatsCsv = this._lastStatsCsvSynced || '';
         this.state.character = savedCharacter;
         if (typeof API !== 'undefined' && API.discardFirestoreGameplayFields) {
             API.discardFirestoreGameplayFields(this.state.character);
+        }
+        if (identityPreserve.name != null && identityPreserve.name !== '') {
+            this.state.character.name = identityPreserve.name;
+        }
+        if (identityPreserve.title != null) {
+            this.state.character.title = identityPreserve.title;
+        }
+        if (identityPreserve.gender) {
+            this.state.character.gender = identityPreserve.gender;
+        }
+        if (identityPreserve.species_id) {
+            this.state.character.species_id = identityPreserve.species_id;
         }
         let statsToRestore = hudStats;
         if (hudStatsCsv && this.statsObjectFromCsv(hudStatsCsv)) {
@@ -527,19 +585,39 @@ try {
         }
         if (statsToRestore) {
             this.state.character.stats = Object.assign({}, statsToRestore);
+        } else if (inCreation && !this.state.character.stats) {
+            this.state.character.stats = Object.assign({}, this.getNewCharacterStats());
         }
-        if (hudLife != null) {
-            this.state.character.xp_lifetime = hudLife;
+        if (inCreation) {
+            const grant = this.getStartingXpGrant(this.state.character.species_id || 'human');
+            if (grant > 0) {
+                this.state.character.xp_lifetime = grant;
+            }
+            this.state.character.xp_spent = 0;
+            this.state.character.ap_balance = 0;
+            if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                App.state.econ = {};
+            }
+            App.state.econ.xp_lifetime = this.state.character.xp_lifetime || 0;
+            App.state.econ.xp_spent = 0;
+            App.state.econ.ap_balance = 0;
+        } else {
+            if (hudLife != null) {
+                this.state.character.xp_lifetime = hudLife;
+            }
+            if (hudSpent != null) {
+                this.state.character.xp_spent = hudSpent;
+            }
+            if (hudAp != null) {
+                this.state.character.ap_balance = hudAp;
+            }
         }
-        if (hudSpent != null) {
-            this.state.character.xp_spent = hudSpent;
+        if (!inCreation) {
+            this.mergeStatsFromUrlIntoCharacter();
         }
-        if (hudAp != null) {
-            this.state.character.ap_balance = hudAp;
-        }
-        this.mergeStatsFromUrlIntoCharacter();
         this.normalizeCharacterStats(this.state.character);
         this.state.selectedCharacterId = savedCharacter.id;
+        this.syncActiveCharToUrl(savedCharacter.id);
         if (savedCharacter.class_id) {
             this.state.currentClass = this.state.classes.find(function (c) {
                 return c.id === savedCharacter.class_id;
@@ -557,6 +635,9 @@ try {
         this.updateStepGuide();
         if (options.render !== false) {
             await this.renderAll();
+        }
+        if (UI.populateIdentityForm) {
+            UI.populateIdentityForm(this.state.character, this.state.pendingRegistrationCode);
         }
         if (this.isInCreationFlow()) {
             this.updateCreationNavigation();
@@ -698,7 +779,19 @@ try {
                 
                 if (charsResult.data && charsResult.data.characters && charsResult.data.characters.length > 0) {
                     console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
-                    const characters = charsResult.data.characters;
+                    let characters = charsResult.data.characters;
+                    if (preferredCharId && !characters.some(function (c) { return c.id === preferredCharId; })) {
+                        try {
+                            const orphanResult = await API.getCharacterById(preferredCharId);
+                            if (orphanResult.success && orphanResult.data && orphanResult.data.character) {
+                                this.upsertCharacterInRosterCache(orphanResult.data.character);
+                                characters = API._listCharactersCache || characters.concat([orphanResult.data.character]);
+                                console.log('[loadData] Merged missing roster entry for', preferredCharId);
+                            }
+                        } catch (orphanErr) {
+                            console.warn('[loadData] Could not merge roster entry:', orphanErr);
+                        }
+                    }
                     
                     // UX 2: Always load character selector (shows even with 1 character)
                     await this.loadCharacterSelector(characters);
@@ -1304,6 +1397,9 @@ try {
             case 'species':
                 return this.validateCreationStep('identity');
             case 'stats': {
+                if (!char.id) {
+                    return { ok: false, message: 'Click Save Progress on the Character tab first — your character needs an ID before Stats.' };
+                }
                 if (this.state.statsPending) {
                     return { ok: false, message: 'Save your stat and AP changes with Save Stats before continuing (or abandon them).' };
                 }
@@ -1397,6 +1493,7 @@ try {
             return;
         }
 
+        this.flushIdentityFromForm();
         const saved = await this.saveCharacter({ draft: true, silent: true });
         if (saved === false) {
             return;
@@ -3263,16 +3360,28 @@ try {
                 if (tabId === 'stats' && typeof App.refreshHudGameplayFromMoap === 'function'
                     && App.isBridgeHudMode && App.isBridgeHudMode()) {
                     const cid = App.state.character && App.state.character.id;
+                    const inCreation = typeof App.isInCreationFlow === 'function' && App.isInCreationFlow();
                     let statsLoaded = false;
                     if (cid) {
-                        statsLoaded = await App.refreshHudGameplayFromMoap({ showModal: true });
+                        if (inCreation && typeof App.ensureHudCharacterSlotSynced === 'function') {
+                            await App.ensureHudCharacterSlotSynced(cid);
+                        }
+                        statsLoaded = await App.refreshHudGameplayFromMoap({
+                            showModal: true,
+                            forceRefresh: true
+                        });
                     }
                     origSwitchTab(tabId);
                     if (!cid && typeof App.refreshStatsTabFromCharacter === 'function') {
                         App.refreshStatsTabFromCharacter();
                     }
-                    if (!statsLoaded && cid && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                    if (!statsLoaded && cid && !inCreation
+                        && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
                         UI.setStatsHudBanner('Could not refresh from HUD — try again or reattach the HUD.', 'warning');
+                    }
+                    if (!statsLoaded && cid && inCreation
+                        && typeof App.refreshStatsTabFromCharacter === 'function') {
+                        App.refreshStatsTabFromCharacter();
                     }
                     return;
                 }
@@ -4090,9 +4199,12 @@ try {
         if (!csv || csv.split(',').length !== 20 || !this.statsObjectFromCsv(csv)) {
             return false;
         }
-        const life = parseInt(session.xp_lifetime, 10) || 0;
         const spent = parseInt(session.xp_spent, 10) || 0;
-        if ((life > 0 || spent > 0) && this.csvIsFactoryOnes(csv)) {
+        // Starter factory all-1s are valid once starter XP is granted (life > 0).
+        if (this.csvIsStarterDefault(csv)) {
+            return true;
+        }
+        if (spent > 0 && this.csvIsFactoryOnes(csv)) {
             return false;
         }
         return true;
@@ -4123,23 +4235,24 @@ try {
                 '≠ Firestore character', char.id);
             return false;
         }
-        if (session.name) {
+        const inCreation = this.isInCreationFlow();
+        if (session.name && (!inCreation || !char.name || !String(char.name).trim())) {
             char.name = session.name;
         }
-        if (session.title != null && session.title !== '') {
+        if (session.title != null && session.title !== ''
+            && (!inCreation || char.title == null || char.title === '')) {
             char.title = session.title;
         }
-        if (session.gender) {
+        if (session.gender && (!inCreation || !char.gender)) {
             char.gender = session.gender;
         }
-        if (session.species_id) {
+        if (session.species_id && (!inCreation || !char.species_id)) {
             char.species_id = session.species_id;
         }
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
-        const life = parseInt(session.xp_lifetime, 10) || 0;
         const spent = parseInt(session.xp_spent, 10) || 0;
         if (csv && this.statsObjectFromCsv(csv)) {
-            const staleFactory = (life > 0 || spent > 0) && this.csvIsFactoryOnes(csv);
+            const staleFactory = spent > 0 && this.csvIsFactoryOnes(csv);
             if (!staleFactory) {
                 const stats = this.statsObjectFromCsv(csv);
                 char.stats = stats;
@@ -4148,17 +4261,29 @@ try {
                 }
             }
         }
+        const life = parseInt(session.xp_lifetime, 10) || 0;
         const ap = parseInt(session.ap_balance, 10) || 0;
-        char.xp_lifetime = life;
-        char.xp_spent = spent;
-        char.ap_balance = ap;
-        char.xp_available = Math.max(0, life - spent);
         if (typeof App.state.econ === 'undefined' || !App.state.econ) {
             App.state.econ = {};
         }
-        App.state.econ.xp_lifetime = life;
-        App.state.econ.xp_spent = spent;
-        App.state.econ.ap_balance = ap;
+        if (this.isInCreationFlow()) {
+            const grant = this.getStartingXpGrant(char.species_id || 'human');
+            char.xp_lifetime = grant > 0 ? grant : 0;
+            char.xp_spent = 0;
+            char.ap_balance = 0;
+            char.xp_available = char.xp_lifetime;
+            App.state.econ.xp_lifetime = char.xp_lifetime;
+            App.state.econ.xp_spent = 0;
+            App.state.econ.ap_balance = 0;
+        } else {
+            char.xp_lifetime = life;
+            char.xp_spent = spent;
+            char.ap_balance = ap;
+            char.xp_available = Math.max(0, life - spent);
+            App.state.econ.xp_lifetime = life;
+            App.state.econ.xp_spent = spent;
+            App.state.econ.ap_balance = ap;
+        }
         return true;
     },
 
@@ -4191,10 +4316,12 @@ try {
         if (options === undefined) {
             options = {};
         }
+        const inCreation = this.isInCreationFlow();
         const loaded = await this.ensureBridgeGameplayLoaded(cid, {
             showModal: options.showModal !== false,
-            forceRefresh: true,
-            maxAttempts: 18
+            forceRefresh: options.forceRefresh !== false,
+            maxAttempts: options.maxAttempts || (inCreation ? 20 : 18),
+            allowLocalFallback: inCreation
         });
         this.refreshStatsTabFromCharacter();
         if (loaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
@@ -4228,6 +4355,13 @@ try {
         }
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
+            if (this.isInCreationFlow() || forceRefresh) {
+                try {
+                    await this.ensureHudCharacterSlotSynced(characterId);
+                } catch (slotErr) {
+                    console.warn('[F4 Bridge] proactive slot sync failed:', slotErr);
+                }
+            }
             if (forceRefresh) {
                 try {
                     await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
@@ -4327,25 +4461,43 @@ try {
                             console.warn('[F4 Bridge] REFRESH_GAMEPLAY after KVP repair failed:', repairRefreshErr);
                         }
                         await new Promise(function (resolve) { setTimeout(resolve, 1800); });
-                        try {
-                            const repairedSession = await F4BridgeHud.fetchSession();
-                            if (repairedSession && repairedSession.ok
-                                && this.bridgeSessionStatsReady(repairedSession)) {
-                                this.applyBridgeSessionToCharacter(repairChar, repairedSession);
-                                this._bridgeSessionApplied = true;
-                                this._lastBridgeSession = repairedSession;
-                                const repairCsv = repairedSession.stats_csv || '';
-                                if (repairCsv) {
-                                    this._lastStatsCsvSynced = repairCsv;
+                        let repairAttempt = 0;
+                        while (repairAttempt < 8) {
+                            repairAttempt += 1;
+                            try {
+                                const repairedSession = await F4BridgeHud.fetchSession();
+                                if (repairedSession && repairedSession.ok
+                                    && this.bridgeSessionStatsReady(repairedSession)) {
+                                    this.applyBridgeSessionToCharacter(repairChar, repairedSession);
+                                    this._bridgeSessionApplied = true;
+                                    this._lastBridgeSession = repairedSession;
+                                    const repairCsv = repairedSession.stats_csv || '';
+                                    if (repairCsv) {
+                                        this._lastStatsCsvSynced = repairCsv;
+                                    }
+                                    console.log('[F4 Bridge] KVP repair succeeded for', characterId);
+                                    return true;
                                 }
-                                console.log('[F4 Bridge] KVP repair succeeded for', characterId);
-                                return true;
+                            } catch (repairFetchErr) {
+                                console.warn('[F4 Bridge] session fetch after KVP repair failed:', repairFetchErr);
                             }
-                        } catch (repairFetchErr) {
-                            console.warn('[F4 Bridge] session fetch after KVP repair failed:', repairFetchErr);
+                            if (repairAttempt < 8) {
+                                await new Promise(function (resolve) { setTimeout(resolve, 500); });
+                            }
                         }
                     }
                 }
+            }
+            const fallbackChar = this.state.character;
+            if (options.allowLocalFallback && fallbackChar && fallbackChar.id === characterId) {
+                if (!fallbackChar.stats) {
+                    fallbackChar.stats = Object.assign({}, this.getNewCharacterStats());
+                }
+                this.refreshStatsTabFromCharacter();
+                if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                    UI.setStatsHudBanner('Using local starter stats — HUD sync still in progress.', 'info');
+                }
+                return true;
             }
             return false;
         } finally {
@@ -5237,6 +5389,7 @@ try {
         const silent = !!options.silent;
 
         try {
+            this.flushIdentityFromForm();
             const char = this.state.character;
             if (!char) {
                 if (!silent) UI.showToast('No character to save', 'warning');
@@ -5412,10 +5565,17 @@ try {
                         allowStarterSeed: true,
                         showSuccess: !draft && !silent
                     });
+                    this.grantStartingXpToHud(createdChar, { forceStarter: true });
+                    try {
+                        await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                    } catch (refreshErr) {
+                        console.warn('[F4 Bridge] REFRESH_GAMEPLAY after create failed:', refreshErr);
+                    }
+                    await new Promise(function (resolve) { setTimeout(resolve, 1500); });
                 } else {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
+                    this.grantStartingXpToHud(createdChar, { forceStarter: true });
                 }
-                this.grantStartingXpToHud(createdChar, { forceStarter: true });
                 await this.refreshAfterCharacterSave(result.data.character);
                 return true;
             } else {
@@ -10808,31 +10968,8 @@ window.isCreationEconIsolated = function () {
     if (typeof App === 'undefined' || !App.state || !App.state.creationInProgress) {
         return false;
     }
-    const char = App.state.character;
-    if (!char || !char.id) {
-        return true;
-    }
-    if (typeof App.urlHudEconBelongsToCharacter === 'function' && App.urlHudEconBelongsToCharacter(char.id)) {
-        return false;
-    }
-    if (typeof App.urlStatsBelongToCharacter === 'function' && App.urlStatsBelongToCharacter(char.id)) {
-        return false;
-    }
-    try {
-        const params = new URLSearchParams(window.location.search);
-        const statsChar = params.get('stats_char_id') || '';
-        const activeChar = params.get('active_char') || '';
-        if (statsChar && statsChar !== char.id) {
-            return true;
-        }
-        if (activeChar && activeChar !== char.id) {
-            const life = parseInt(params.get('xp_lifetime') || params.get('xp_total') || '', 10);
-            if (!isNaN(life) && life > 0) {
-                return true;
-            }
-        }
-    } catch (e) { /* ignore */ }
-    return false;
+    // During setup wizard, never merge stale HUD/URL econ from a prior worn character.
+    return true;
 };
 
 /** True when Setup URL carries authoritative HUD lifetime XP (KVP), not just spent/AP params. */

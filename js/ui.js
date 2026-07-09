@@ -115,10 +115,10 @@ const UI = {
     populateIdentityForm(character, registrationCode) {
         if (!character) return;
         if (this.elements.charName) {
-            this.elements.charName.value = character.name || '';
+            this.syncFormField(this.elements.charName, character.name || '');
         }
         if (this.elements.charTitle) {
-            this.elements.charTitle.value = character.title || '';
+            this.syncFormField(this.elements.charTitle, character.title || '');
         }
         var regInput = document.getElementById('universe-registration-code');
         if (regInput && registrationCode !== undefined) {

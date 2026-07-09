@@ -1119,10 +1119,22 @@ const API = {
             }
             
             const docRef = await db.collection('characters').add(character);
-            this._listCharactersCache = null;
-            this._listCharactersCacheTs = 0;
 
             const createdCharacter = this.sanitizeRosterCharacter({ id: docRef.id, ...character });
+            if (!this._listCharactersCache) {
+                this._listCharactersCache = [];
+            }
+            this._listCharactersCache.unshift(createdCharacter);
+            this._listCharactersCache = this._dedupeCharactersById(this._listCharactersCache);
+            this._listCharactersCacheTs = Date.now();
+            if (this.uuid) {
+                try {
+                    sessionStorage.setItem(
+                        'f4_roster_' + this.uuid,
+                        JSON.stringify({ characters: this._listCharactersCache })
+                    );
+                } catch (e) { /* quota */ }
+            }
 
             return {
                 success: true,
