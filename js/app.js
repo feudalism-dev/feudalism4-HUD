@@ -1720,11 +1720,6 @@ try {
         if (this.isBridgeHudMode()) {
             try {
                 await this.saveStatsToHudViaBridge(char, savedSpent, savedAp, csv);
-                const syncPayload = this.buildCharacterSyncPayload(char.id, char);
-                const loadParts = Object.keys(syncPayload).map(function (key) {
-                    return key + ':' + encodeURIComponent(String(syncPayload[key]));
-                });
-                await this.sendToLSLViaBridge('LOAD_CHARACTER|' + loadParts.join('|'));
                 if (typeof UI !== 'undefined' && UI.renderStatsTab) {
                     UI.renderStatsTab(char);
                 }
@@ -3908,17 +3903,24 @@ try {
      * 20-stat CSV for Players HUD LSD (same order as LSL stat indices).
      */
     statsCsvFromChar(char) {
-        if (!char || !char.stats) {
+        if (!char) {
+            return '';
+        }
+        let stats = char.stats;
+        if (this.state.pendingChanges && this.state.pendingChanges.stats) {
+            stats = Object.assign({}, stats || {}, this.state.pendingChanges.stats);
+        }
+        if (!stats) {
             return '';
         }
         const statNames = this.getStatNamesOrdered();
         return statNames.map(function (s, idx) {
-            if (char.stats[s] != null) {
-                return char.stats[s];
+            if (stats[s] != null) {
+                return stats[s];
             }
             const numKey = String(idx);
-            if (char.stats[numKey] != null) {
-                return char.stats[numKey];
+            if (stats[numKey] != null) {
+                return stats[numKey];
             }
             return 1;
         }).join(',');
@@ -4357,13 +4359,14 @@ try {
         if (!econRes || !econRes.ok) {
             throw new Error((econRes && econRes.error) || 'save_econ_failed');
         }
-        const statsRes = await F4Bridge.saveStats(csv);
+        const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
         if (!statsRes || !statsRes.ok) {
             throw new Error((statsRes && statsRes.error) || 'save_stats_failed');
         }
         if (this._lastBridgeSession) {
             this._lastBridgeSession.xp_spent = String(savedSpent);
             this._lastBridgeSession.ap_balance = String(savedAp);
+            this._lastBridgeSession.stats_csv = csv;
             if (char && char.xp_lifetime != null) {
                 this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
             }
@@ -4752,7 +4755,7 @@ try {
                 return;
             }
             const self = this;
-            F4Bridge.saveStats(csvBridge).then(function (res) {
+            F4Bridge.saveStats(csvBridge, char.id).then(function (res) {
                 if (res && res.ok) {
                     self._lastStatsCsvSynced = csvBridge;
                     console.log('[Players HUD Sync] stats saved via bridge');
@@ -5371,7 +5374,7 @@ try {
                     || !!(gameplaySnapshot.pendingStats);
                 if (this.isBridgeHudMode() && statsCsvNow && !this.csvIsStarterDefault(statsCsvNow)) {
                     try {
-                        await F4Bridge.saveStats(statsCsvNow);
+                        await F4Bridge.saveStats(statsCsvNow, characterId);
                         await F4Bridge.saveEcon(savedSpent, savedAp);
                         this._lastStatsCsvSynced = statsCsvNow;
                     } catch (bridgeErr) {

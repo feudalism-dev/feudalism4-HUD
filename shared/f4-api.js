@@ -7,7 +7,7 @@
 (function (global) {
     "use strict";
 
-    var BRIDGE_BUILD = "f4-bridge-v5";
+    var BRIDGE_BUILD = "f4-bridge-v6.5";
 
     var session = {
         token: "",
@@ -183,11 +183,15 @@
         return jsonp(apiBase, apiParams({ action: "end" }), 10000);
     }
 
-    function saveStats(statsCsv) {
+    function saveStats(statsCsv, characterId) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
         }
-        return jsonp(apiBase, apiParams({ action: "save_stats", stats: statsCsv }), 15000);
+        var extra = { action: "save_stats", stats: statsCsv };
+        if (characterId !== undefined && characterId !== null && characterId !== "") {
+            extra.character_id = characterId;
+        }
+        return jsonp(apiBase, apiParams(extra), 15000);
     }
 
     function saveEcon(xpSpent, apBalance) {
