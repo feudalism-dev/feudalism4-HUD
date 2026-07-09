@@ -4353,13 +4353,20 @@ try {
     },
 
     async saveStatsToHudViaBridge(char, savedSpent, savedAp, csv) {
+        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp);
+        if (!econRes || !econRes.ok) {
+            throw new Error((econRes && econRes.error) || 'save_econ_failed');
+        }
         const statsRes = await F4Bridge.saveStats(csv);
         if (!statsRes || !statsRes.ok) {
             throw new Error((statsRes && statsRes.error) || 'save_stats_failed');
         }
-        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp);
-        if (!econRes || !econRes.ok) {
-            throw new Error((econRes && econRes.error) || 'save_econ_failed');
+        if (this._lastBridgeSession) {
+            this._lastBridgeSession.xp_spent = String(savedSpent);
+            this._lastBridgeSession.ap_balance = String(savedAp);
+            if (char && char.xp_lifetime != null) {
+                this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
+            }
         }
         this._lastStatsCsvSynced = csv;
         this.clearStatsPendingAfterHudSave();
@@ -11006,7 +11013,7 @@ window.buyPointsWithXp = function (pointCount) {
         App.persistMoapSessionDraft(true);
     }
     if (typeof UI !== 'undefined' && UI.showToast) {
-        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — saving to HUD...', 'info', 2500);
+        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — click Save Stats when ready', 'info', 2500);
     }
     if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
         UI.renderEconDisplay(char);
@@ -11015,15 +11022,6 @@ window.buyPointsWithXp = function (pointCount) {
         if (typeof UI.renderStatsGrid === 'function') {
             UI.renderStatsGrid(stats, caps, newAp, App.state.statsFloor || {});
         }
-    }
-    if (typeof App.isBridgeHudMode === 'function' && App.isBridgeHudMode()
-        && typeof App.saveStatsToHud === 'function') {
-        App.saveStatsToHud().catch(function (err) {
-            console.error('[Buy AP] bridge save failed:', err);
-            if (typeof UI !== 'undefined' && UI.showToast) {
-                UI.showToast('Bought AP locally — click Save Stats to write to HUD', 'warning', 3000);
-            }
-        });
     }
     return true;
 };
