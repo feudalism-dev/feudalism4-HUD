@@ -1105,6 +1105,30 @@ const UI = {
         });
     },
 
+    /**
+     * Stats tab placeholder while HUD KVP/LSD gameplay is not loaded (bridge mode).
+     * Avoids showing Firestore factory all-1s as if they were real HUD data.
+     */
+    renderStatsAwaitingHud(message) {
+        if (!this.elements.statsGrid) {
+            return;
+        }
+        const text = message || 'Loading stats from HUD…';
+        this.elements.statsGrid.innerHTML = '<div class="stats-awaiting-hud" style="padding:1.5rem;text-align:center;opacity:0.9;">'
+            + '<p style="margin:0 0 0.75rem 0;">' + text + '</p>'
+            + '<p style="margin:0;font-size:0.85em;opacity:0.75;">Gameplay stats come from the HUD Experience KVP, not Firestore.</p>'
+            + '</div>';
+        if (this.elements.xpLifetime) {
+            this.elements.xpLifetime.textContent = '—';
+        }
+        if (this.elements.xpUnused) {
+            this.elements.xpUnused.textContent = '—';
+        }
+        if (this.elements.xpAvailable) {
+            this.elements.xpAvailable.textContent = '—';
+        }
+    },
+
     renderEconDisplay(character) {
         if (!character) {
             return;

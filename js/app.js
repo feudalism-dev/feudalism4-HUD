@@ -2898,19 +2898,20 @@ try {
         UI.renderCurrentCareer(this.state.currentClass, this.state.currentVocation, char);
         
         // Get current stats (don't override on every render - that was wiping manual changes)
-        let stats = char?.stats || this.getDefaultStats();
-        
-        // Get stat caps (minimum of species and class caps)
         const caps = this.calculateStatCaps();
-        
-        // Calculate available points using the F3-style exponential system
         const availablePoints = char ? window.getApBalance(char) : 0;
-        
-        // Render stats grid with points
-        UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
+        if (char && this.shouldDeferStatsDisplay(char.id)) {
+            if (typeof UI.renderStatsAwaitingHud === 'function') {
+                UI.renderStatsAwaitingHud('Loading stats from HUD…');
+            }
+        } else {
+            const stats = char?.stats || this.getDefaultStats();
+            UI.renderStatsGrid(stats, caps, availablePoints, this.state.statsFloor || {});
+        }
         
         // Render vocation
-        UI.renderVocation(this.state.currentVocation, stats);
+        const statsForVocation = char?.stats || this.getDefaultStats();
+        UI.renderVocation(this.state.currentVocation, statsForVocation);
         
         // Recalculate pools, then overlay HUD KVP gameplay values before summary/bars
         if (char) {
@@ -3262,6 +3263,8 @@ try {
                         if (typeof App.refreshStatsTabFromCharacter === 'function') {
                             App.refreshStatsTabFromCharacter();
                         }
+                    } else if (typeof UI !== 'undefined' && UI.renderStatsAwaitingHud) {
+                        UI.renderStatsAwaitingHud('Could not load stats from HUD. Reopen Setup or Save Stats after editing.');
                     }
                     return;
                 }
@@ -3975,6 +3978,37 @@ try {
         }
     },
 
+    characterHasAuthoritativeGameplay(char) {
+        if (!char) {
+            return false;
+        }
+        const csv = this.statsCsvFromChar(char);
+        if (csv && !this.csvIsStarterDefault(csv)) {
+            return true;
+        }
+        const life = typeof window.getEconLifetime === 'function' ? window.getEconLifetime(char) : 0;
+        const spent = typeof window.getEconSpent === 'function' ? window.getEconSpent(char) : 0;
+        const ap = typeof window.getApBalance === 'function' ? window.getApBalance(char) : 0;
+        return life > 0 || spent > 0 || ap > 0;
+    },
+
+    shouldDeferStatsDisplay(characterId) {
+        if (!this.isBridgeHudMode()) {
+            return false;
+        }
+        const cid = characterId || this.state.character?.id;
+        if (!cid) {
+            return false;
+        }
+        if (this.bridgeHasAuthoritativeHudData(cid)) {
+            return false;
+        }
+        if (this.characterHasAuthoritativeGameplay(this.state.character)) {
+            return false;
+        }
+        return this.isAwaitingHudKvpUrl(cid);
+    },
+
     bridgeHasAuthoritativeHudData(characterId) {
         if (!this._bridgeSessionApplied || !this._lastBridgeSession) {
             return false;
@@ -4114,8 +4148,9 @@ try {
         }
         const showModal = options.showModal === true;
         const afterSlotSwitch = options.afterSlotSwitch === true;
-        const maxAttempts = afterSlotSwitch ? 30 : 25;
+        const maxAttempts = afterSlotSwitch ? 40 : 35;
         let hideLoading = null;
+        let lastSession = null;
         if (showModal && typeof MoapDialogs !== 'undefined' && MoapDialogs.showLoading) {
             hideLoading = MoapDialogs.showLoading('Loading stats from HUD...');
         }
@@ -4135,6 +4170,7 @@ try {
                 }
                 try {
                     const session = await F4BridgeHud.fetchSession();
+                    lastSession = session;
                     const char = this.state.character;
                     if (!session || !session.ok || !char) {
                         await new Promise(function (resolve) { setTimeout(resolve, 400); });
@@ -4163,9 +4199,12 @@ try {
                 }
                 await new Promise(function (resolve) { setTimeout(resolve, 400); });
             }
-            console.warn('[F4 Bridge] gameplay load timed out for', characterId);
+            console.warn('[F4 Bridge] gameplay load timed out for', characterId, lastSession);
             if (typeof UI !== 'undefined' && UI.showToast) {
-                UI.showToast('HUD stats not ready yet — try again in a moment.', 'warning', 5000);
+                UI.showToast('HUD stats not loaded — Experience KVP may be empty or need Save Stats.', 'warning', 6000);
+            }
+            if (typeof UI !== 'undefined' && UI.renderStatsAwaitingHud) {
+                UI.renderStatsAwaitingHud('Could not load stats from HUD. Reopen Setup or use Save Stats to write your line to Experience KVP.');
             }
             return false;
         } finally {
@@ -4178,6 +4217,12 @@ try {
     refreshStatsTabFromCharacter() {
         const char = this.state.character;
         if (!char) {
+            return;
+        }
+        if (this.shouldDeferStatsDisplay(char.id)) {
+            if (typeof UI !== 'undefined' && UI.renderStatsAwaitingHud) {
+                UI.renderStatsAwaitingHud('Loading stats from HUD…');
+            }
             return;
         }
         this.normalizeCharacterStats(char);
