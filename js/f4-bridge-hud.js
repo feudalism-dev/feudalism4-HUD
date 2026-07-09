@@ -83,6 +83,9 @@
         if (parts[0] === "ERR") {
             return { ok: false, error: parts[1] || "error", line: line };
         }
+        if (parts[0] === "PENDING") {
+            return { ok: false, pending: true, error: parts[1] || "pending", line: line };
+        }
         if (parts[0] !== "OK") {
             return { ok: false, error: "bad_prefix", line: line };
         }

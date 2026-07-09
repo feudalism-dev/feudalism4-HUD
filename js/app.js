@@ -849,16 +849,8 @@ try {
                                     syncStats: !characterSwitch
                                 });
                             } else if (this.state.character && !this.state.statsPending && !awaitingHudKvp) {
-                                // Local-first skips stats push when URL/bridge has stats; has_mana
-                                // still must sync from Firestore or MOAP state into Players HUD LSD.
-                                const bridgeSkipPush = bridgeHydrated
-                                    && this._lastBridgeSession
-                                    && (!this._lastBridgeSession.characterId
-                                        || this._lastBridgeSession.characterId === this.state.character.id);
-                                if (!bridgeSkipPush) {
+                                if (characterSwitch || !bridgeHydrated) {
                                     await this.pushCharacterToPlayersHUD(this.state.character.id);
-                                } else {
-                                    console.log('[F4 Bridge] skipping init LOAD_CHARACTER — LSD already authoritative');
                                 }
                             }
                             
@@ -4002,8 +3994,14 @@ try {
     },
 
     bridgeSessionDebugSummary(session) {
-        if (!session || !session.ok) {
-            return session && session.error ? String(session.error) : 'session missing';
+        if (!session) {
+            return 'session missing';
+        }
+        if (session.pending) {
+            return 'PENDING|' + (session.error || 'stats');
+        }
+        if (!session.ok) {
+            return session.error ? String(session.error) : 'session missing';
         }
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
         const firstStat = csv ? csv.split(',')[0] : '';
