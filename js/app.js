@@ -798,15 +798,11 @@ try {
                             });
                             let hadMoapDraft = false;
                             if (!bridgeHydrated) {
-                                if (!this.isBridgeHudMode()) {
-                                    this.initEconFromUrl();
-                                    this.mergePoolsFromUrl();
-                                    hadMoapDraft = this.restoreMoapSessionDraft();
-                                    this.mergeUrlEconIntoCharacter();
-                                    this.mergeStatsFromUrlIntoCharacter();
-                                } else {
-                                    hadMoapDraft = this.restoreMoapSessionDraft();
-                                }
+                                this.initEconFromUrl();
+                                this.mergePoolsFromUrl();
+                                hadMoapDraft = this.restoreMoapSessionDraft();
+                                this.mergeUrlEconIntoCharacter();
+                                this.mergeStatsFromUrlIntoCharacter();
                             } else {
                                 hadMoapDraft = this.restoreMoapSessionDraft();
                                 this.shadowLogBridgeVsUrl();

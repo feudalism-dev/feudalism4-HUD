@@ -1276,14 +1276,25 @@ const API = {
             }
             
             const character = charResult.data.character;
-            this.discardFirestoreGameplayFields(character);
-            if (!econOverride || !econOverride.stats) {
-                return {
-                    success: false,
-                    error: 'Gameplay stats must come from your HUD. Save Stats, then try again.'
-                };
-            }
-            if (econOverride) {
+            if (this.shouldDiscardFirestoreGameplay()) {
+                this.discardFirestoreGameplayFields(character);
+                if (!econOverride || !econOverride.stats) {
+                    return {
+                        success: false,
+                        error: 'Gameplay stats must come from your HUD. Save Stats, then try again.'
+                    };
+                }
+                if (econOverride.xp_lifetime != null) {
+                    character.xp_lifetime = econOverride.xp_lifetime;
+                }
+                if (econOverride.xp_spent != null) {
+                    character.xp_spent = econOverride.xp_spent;
+                }
+                if (econOverride.ap_balance != null) {
+                    character.ap_balance = econOverride.ap_balance;
+                }
+                character.stats = { ...econOverride.stats };
+            } else if (econOverride && econOverride.stats) {
                 if (econOverride.xp_lifetime != null) {
                     character.xp_lifetime = econOverride.xp_lifetime;
                 }
@@ -1526,7 +1537,12 @@ const API = {
      */
     /**
      * Drop Firestore stats on read — live stat line is Experience f4stats / HUD LSD only.
+     * Only when JSONP bridge mode is active (f4_bridge=1 + sl_cap). Legacy URL users keep Firestore gameplay.
      */
+    shouldDiscardFirestoreGameplay() {
+        return typeof F4BridgeHud !== 'undefined' && F4BridgeHud.isEnabled();
+    },
+
     discardFirestoreGameplayFields(character) {
         if (!character) {
             return;
@@ -1544,7 +1560,9 @@ const API = {
             return character;
         }
         const c = Object.assign({}, character);
-        this.discardFirestoreGameplayFields(c);
+        if (this.shouldDiscardFirestoreGameplay()) {
+            this.discardFirestoreGameplayFields(c);
+        }
         return c;
     },
 
