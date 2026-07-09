@@ -4113,6 +4113,11 @@ try {
         if (!char || !session || !session.ok) {
             return false;
         }
+        if (session.characterId && char.id && session.characterId !== char.id) {
+            console.warn('[F4 Bridge] ignoring session — HUD slot', session.characterId,
+                '≠ Firestore character', char.id);
+            return false;
+        }
         if (session.name) {
             char.name = session.name;
         }
@@ -4626,10 +4631,16 @@ try {
         }
         try {
             const params = new URLSearchParams(window.location.search);
-            const statsChar = params.get('stats_char_id') || '';
+            const urlUuid = params.get('uuid') || '';
+            if (typeof API !== 'undefined' && API.uuid && urlUuid && urlUuid !== API.uuid) {
+                return false;
+            }
+            const econChar = params.get('econ_char_id')
+                || params.get('stats_char_id')
+                || '';
             const activeChar = params.get('active_char') || '';
-            if (statsChar) {
-                return statsChar === characterId;
+            if (econChar) {
+                return econChar === characterId;
             }
             if (activeChar) {
                 return activeChar === characterId;
@@ -4678,6 +4689,7 @@ try {
             url.searchParams.delete('ap_balance');
             url.searchParams.delete('xp_lifetime');
             url.searchParams.delete('xp_total');
+            url.searchParams.delete('econ_char_id');
             this.safeHistoryReplaceState(url.toString());
             if (hadStats) {
                 console.log('[Character] Cleared stale HUD URL stats/econ for switch to', targetCharacterId);
@@ -10884,6 +10896,16 @@ window.syncEconToCharacter = function (character) {
     }
 };
 
+window.urlEconTrustedForCharacter = function (characterId) {
+    if (!characterId || typeof App === 'undefined') {
+        return false;
+    }
+    if (typeof App.urlHudEconBelongsToCharacter === 'function') {
+        return App.urlHudEconBelongsToCharacter(characterId);
+    }
+    return false;
+};
+
 window.getEconLifetime = function (character) {
     window.syncEconToCharacter(character);
     if (window.isCreationEconIsolated()) {
@@ -10894,10 +10916,12 @@ window.getEconLifetime = function (character) {
         return Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
     }
     let lifetime = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
-    const url = window.getEconFromUrl();
-    if (url.xp_lifetime > lifetime) {
-        lifetime = url.xp_lifetime;
-        character.xp_lifetime = lifetime;
+    if (character && character.id && window.urlEconTrustedForCharacter(character.id)) {
+        const url = window.getEconFromUrl();
+        if (url.xp_lifetime > lifetime) {
+            lifetime = url.xp_lifetime;
+            character.xp_lifetime = lifetime;
+        }
     }
     if (lifetime === 0 && !window.hasHudEconInUrl()) {
         const legacy = parseInt(character.xp_total, 10);
@@ -10926,7 +10950,8 @@ window.getEconSpent = function (character) {
         return spent;
     }
     const url = window.getEconFromUrl();
-    if (url.xp_spent > spent) {
+    if (character && character.id && window.urlEconTrustedForCharacter(character.id)
+        && url.xp_spent > spent) {
         spent = url.xp_spent;
         character.xp_spent = spent;
     }
@@ -10957,7 +10982,8 @@ window.getApBalance = function (character) {
         return ap;
     }
     const url = window.getEconFromUrl();
-    if (window.hasHudEconInUrl() && !isNaN(url.ap_balance) && url.ap_balance >= 0) {
+    if (character && character.id && window.urlEconTrustedForCharacter(character.id)
+        && window.hasHudEconInUrl() && !isNaN(url.ap_balance) && url.ap_balance >= 0) {
         ap = url.ap_balance;
         character.ap_balance = ap;
     }
