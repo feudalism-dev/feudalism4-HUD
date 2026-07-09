@@ -1106,27 +1106,37 @@ const UI = {
     },
 
     /**
-     * Stats tab placeholder while HUD KVP/LSD gameplay is not loaded (bridge mode).
-     * Avoids showing Firestore factory all-1s as if they were real HUD data.
+     * Non-destructive banner above the stats grid (does not remove stat rows or econ controls).
      */
-    renderStatsAwaitingHud(message) {
-        if (!this.elements.statsGrid) {
+    setStatsHudBanner(message, level) {
+        let el = document.getElementById('stats-hud-banner');
+        const grid = this.elements.statsGrid;
+        if (!grid) {
             return;
         }
-        const text = message || 'Loading stats from HUD…';
-        this.elements.statsGrid.innerHTML = '<div class="stats-awaiting-hud" style="padding:1.5rem;text-align:center;opacity:0.9;">'
-            + '<p style="margin:0 0 0.75rem 0;">' + text + '</p>'
-            + '<p style="margin:0;font-size:0.85em;opacity:0.75;">Gameplay stats come from the HUD Experience KVP, not Firestore.</p>'
-            + '</div>';
-        if (this.elements.xpLifetime) {
-            this.elements.xpLifetime.textContent = '—';
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'stats-hud-banner';
+            el.setAttribute('role', 'status');
+            grid.parentNode.insertBefore(el, grid);
         }
-        if (this.elements.xpUnused) {
-            this.elements.xpUnused.textContent = '—';
+        if (!message) {
+            el.style.display = 'none';
+            el.textContent = '';
+            return;
         }
-        if (this.elements.xpAvailable) {
-            this.elements.xpAvailable.textContent = '—';
-        }
+        const tone = level === 'warning' ? '#fbbf24' : (level === 'error' ? '#f87171' : '#93c5fd');
+        const bg = level === 'warning' ? 'rgba(251, 191, 36, 0.12)' : (level === 'error' ? 'rgba(248, 113, 113, 0.12)' : 'rgba(147, 197, 253, 0.12)');
+        el.style.display = 'block';
+        el.style.margin = '0 0 1rem 0';
+        el.style.padding = '0.75rem 1rem';
+        el.style.borderRadius = '6px';
+        el.style.border = '1px solid ' + tone;
+        el.style.background = bg;
+        el.style.color = '#e2e8f0';
+        el.style.fontSize = '0.9rem';
+        el.style.lineHeight = '1.45';
+        el.textContent = message;
     },
 
     renderEconDisplay(character) {
