@@ -586,7 +586,15 @@ try {
             options = {};
         }
         const forceRefresh = !!options.forceRefresh;
-        const characterSwitch = !!options.characterSwitch;
+        let characterSwitch = !!options.characterSwitch;
+        if (!characterSwitch) {
+            try {
+                const switchParams = new URLSearchParams(window.location.search);
+                if (switchParams.get('moap_char_switch') === '1') {
+                    characterSwitch = true;
+                }
+            } catch (switchErr) { /* ignore */ }
+        }
         try {
             DebugLog.log('loadData() called', 'debug');
             UI.setConnectionStatus(true);
@@ -790,6 +798,10 @@ try {
                             }
                             
                             console.log('Character loaded:', this.state.character);
+
+                            if (this.isBridgeHudMode() && characterSwitch) {
+                                await this.ensureHudCharacterSlotSynced(this.state.character.id);
+                            }
 
                             const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
                                 showModal: false,
@@ -4130,6 +4142,27 @@ try {
         return true;
     },
 
+    async ensureHudCharacterSlotSynced(characterId) {
+        if (!characterId || !this.isBridgeHudMode()) {
+            return false;
+        }
+        const char = this.state.character;
+        const payload = this.buildCharacterSyncPayload(characterId, char);
+        const loadParts = Object.keys(payload).map(function (key) {
+            return key + ':' + encodeURIComponent(String(payload[key]));
+        });
+        const loadCmd = 'LOAD_CHARACTER|' + loadParts.join('|');
+        console.log('[F4 Bridge] syncing HUD LSD slot to', characterId);
+        try {
+            await this.sendToLSLViaBridge(loadCmd);
+        } catch (syncErr) {
+            console.warn('[F4 Bridge] LOAD_CHARACTER slot sync failed:', syncErr);
+            return false;
+        }
+        await new Promise(function (resolve) { setTimeout(resolve, 1800); });
+        return true;
+    },
+
     async refreshHudGameplayFromMoap(options) {
         const cid = this.state.character && this.state.character.id;
         if (!cid || !this.isBridgeHudMode()) {
@@ -4184,6 +4217,7 @@ try {
             await new Promise(function (resolve) { setTimeout(resolve, preDelay); });
             let attempt = 0;
             let lastSession = null;
+            let slotSyncSent = false;
             while (attempt < maxAttempts) {
                 attempt += 1;
                 try {
@@ -4203,6 +4237,22 @@ try {
                     }
                     const sid = session.characterId || '';
                     if (sid && sid !== characterId) {
+                        if (!slotSyncSent) {
+                            slotSyncSent = true;
+                            if (debugLog) {
+                                debugLog('[F4 Bridge] HUD slot is ' + sid + ' wanted ' + characterId + ' — LOAD_CHARACTER', 'warn');
+                            }
+                            console.warn('[F4 Bridge] HUD slot mismatch — syncing', sid, '→', characterId);
+                            await this.ensureHudCharacterSlotSynced(characterId);
+                            try {
+                                await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                            } catch (refreshErr2) {
+                                console.warn('[F4 Bridge] REFRESH_GAMEPLAY after slot sync failed:', refreshErr2);
+                            }
+                            await new Promise(function (resolve) {
+                                setTimeout(resolve, forceRefresh ? 2200 : 1500);
+                            });
+                        }
                         await new Promise(function (resolve) { setTimeout(resolve, 400); });
                         continue;
                     }
