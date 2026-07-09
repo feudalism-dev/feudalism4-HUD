@@ -4355,6 +4355,9 @@ try {
         if (!characterId) {
             return;
         }
+        this._bridgeSessionApplied = false;
+        this._lastBridgeSession = null;
+        this._lastStatsCsvSynced = null;
         this.clearStaleHudUrlParamsForCharacterSwitch(characterId);
         await this.rememberSelectedCharacter(characterId);
         this.state.dirty = false;

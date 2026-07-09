@@ -913,7 +913,7 @@ const API = {
                 // SECURITY: Double-check ownership
                 if (data.owner_uuid === this.uuid && !seenIds[doc.id]) {
                     seenIds[doc.id] = true;
-                    characters.push({ ...data, id: doc.id });
+                    characters.push(this.sanitizeRosterCharacter({ ...data, id: doc.id }));
                 }
             });
             
@@ -979,7 +979,7 @@ const API = {
                 return { success: false, error: 'Character not found' };
             }
             
-            const character = { id: doc.id, ...doc.data() };
+            const character = this.sanitizeRosterCharacter({ id: doc.id, ...doc.data() });
             
             // SECURITY: Verify ownership
             if (character.owner_uuid !== this.uuid) {
@@ -1104,10 +1104,6 @@ const API = {
                 
                 currency: 50,
                 
-                // Stats (new characters start at 1 — MOAP enforces)
-                stats: charData.stats || this.getNewCharacterStats(),
-                stats_at_class_start: charData.stats || this.getNewCharacterStats(),
-                
                 // Career history: array of { class_id, started_at, ended_at, maxed, stats_gained, abandoned }
                 career_history: [],
                 
@@ -1126,7 +1122,7 @@ const API = {
             this._listCharactersCache = null;
             this._listCharactersCacheTs = 0;
 
-            const createdCharacter = { id: docRef.id, ...character };
+            const createdCharacter = this.sanitizeRosterCharacter({ id: docRef.id, ...character });
 
             return {
                 success: true,
@@ -1240,7 +1236,7 @@ const API = {
 
             await docRef.update(updateData);
 
-            const updatedCharacter = { ...existing, ...charData, id: targetId };
+            const updatedCharacter = this.sanitizeRosterCharacter({ ...existing, ...charData, id: targetId });
             if (this._listCharactersCache) {
                 this._listCharactersCache = this._listCharactersCache.map(function (c) {
                     return c.id === targetId ? updatedCharacter : c;
@@ -1541,6 +1537,15 @@ const API = {
         character.xp_lifetime = 0;
         character.xp_spent = 0;
         character.ap_balance = 0;
+    },
+
+    sanitizeRosterCharacter(character) {
+        if (!character) {
+            return character;
+        }
+        const c = Object.assign({}, character);
+        this.discardFirestoreGameplayFields(c);
+        return c;
     },
 
     /**
