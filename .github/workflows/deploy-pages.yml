@@ -29,14 +29,18 @@ jobs:
       - name: Build site artifact
         run: |
           mkdir -p _site
-          for f in hud.html index.html error.html loading.html gameplay-hud.html players-hud-sync.html CEF139_COMPATIBILITY.md pages-rebuild.txt; do
+          for f in hud.html hud-bridge-poc.html index.html error.html loading.html gameplay-hud.html players-hud-sync.html CEF139_COMPATIBILITY.md pages-rebuild.txt; do
             if [ -f "$f" ]; then cp "$f" _site/; fi
           done
           cp -r css js images _site/
+          if [ -d shared ]; then cp -r shared _site/; fi
+          if [ -d dev ]; then cp -r dev _site/; fi
           if [ -d data ]; then cp -r data _site/; fi
           touch _site/.nojekyll
           grep -o "HUD_BUILD_LABEL = '[^']*'" _site/hud.html || (echo "hud.html missing build label" && exit 1)
           test -f _site/data/manifest.json || (echo "data/manifest.json missing — run export-templates-cdn before deploy" && exit 1)
+          test -f _site/hud-bridge-poc.html || (echo "hud-bridge-poc.html missing from artifact" && exit 1)
+          test -f _site/shared/f4-api.js || (echo "shared/f4-api.js missing from artifact" && exit 1)
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
