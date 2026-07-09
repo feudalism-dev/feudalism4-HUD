@@ -819,6 +819,7 @@ try {
                             } else {
                                 hadMoapDraft = this.restoreMoapSessionDraft();
                                 this.shadowLogBridgeVsUrl();
+                                this.refreshStatsTabFromCharacter();
                             }
                             const awaitingHudKvp = this.isAwaitingHudKvpUrl(this.state.character.id);
                             if (!awaitingHudKvp) {
@@ -4133,6 +4134,7 @@ try {
         char.xp_lifetime = life;
         char.xp_spent = spent;
         char.ap_balance = ap;
+        char.xp_available = Math.max(0, life - spent);
         if (typeof App.state.econ === 'undefined' || !App.state.econ) {
             App.state.econ = {};
         }
@@ -10725,6 +10727,10 @@ window.getEconLifetime = function (character) {
     if (window.isCreationEconIsolated()) {
         return Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
     }
+    if (typeof App !== 'undefined' && typeof App.bridgeHasAuthoritativeHudData === 'function'
+        && App.bridgeHasAuthoritativeHudData(character && character.id)) {
+        return Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
+    }
     let lifetime = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
     const url = window.getEconFromUrl();
     if (url.xp_lifetime > lifetime) {
@@ -10744,6 +10750,10 @@ window.getEconLifetime = function (character) {
 window.getEconSpent = function (character) {
     window.syncEconToCharacter(character);
     if (window.isCreationEconIsolated()) {
+        return Math.max(0, parseInt(character.xp_spent, 10) || 0);
+    }
+    if (typeof App !== 'undefined' && typeof App.bridgeHasAuthoritativeHudData === 'function'
+        && App.bridgeHasAuthoritativeHudData(character && character.id)) {
         return Math.max(0, parseInt(character.xp_spent, 10) || 0);
     }
     let spent = Math.max(0, parseInt(character.xp_spent, 10) || 0);
@@ -10820,6 +10830,10 @@ window.calculateApSpentFromBaseline = function (character, baselineLevel) {
  */
 window.reconcileStaleApBalance = function (character) {
     if (!character || !character.stats || !character.species_id) {
+        return false;
+    }
+    if (typeof App !== 'undefined' && typeof App.bridgeHasAuthoritativeHudData === 'function'
+        && App.bridgeHasAuthoritativeHudData(character.id)) {
         return false;
     }
     if (window.hasHudEconInUrl && window.hasHudEconInUrl()) {
