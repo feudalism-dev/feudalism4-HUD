@@ -4379,6 +4379,54 @@ try {
         return true;
     },
 
+    /**
+     * Write f4stats_* (+ optional econ) to Experience KVP via bridge.
+     * New characters need allowStarterSeed so the factory all-1s/2s line is still persisted.
+     */
+    async seedHudKvpGameplay(char, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!char || !char.id || !this.isBridgeHudMode()) {
+            return false;
+        }
+        const csv = options.statsCsv || this.statsCsvFromChar(char);
+        if (!csv || csv.split(',').length !== 20) {
+            return false;
+        }
+        const allowStarter = !!options.allowStarterSeed;
+        const nonFactory = !this.csvIsStarterDefault(csv);
+        if (!nonFactory && !allowStarter) {
+            return false;
+        }
+        try {
+            if (options.syncEcon !== false) {
+                const econRes = await F4Bridge.saveEcon(
+                    window.getEconSpent(char),
+                    window.getApBalance(char)
+                );
+                if (!econRes || !econRes.ok) {
+                    console.warn('[KVP seed] save_econ failed:', econRes);
+                }
+            }
+            const statsRes = await F4Bridge.saveStats(csv, char.id);
+            if (!statsRes || !statsRes.ok) {
+                console.warn('[KVP seed] save_stats failed:', statsRes);
+                return false;
+            }
+            this._lastStatsCsvSynced = csv;
+            if (this._lastBridgeSession) {
+                this._lastBridgeSession.stats_csv = csv;
+            }
+            console.log('[KVP seed] f4stats written for', char.id,
+                nonFactory ? '(edited line)' : '(initial factory line)');
+            return true;
+        } catch (err) {
+            console.error('[KVP seed] bridge write failed:', err);
+            return false;
+        }
+    },
+
     async sendToLSLViaBridge(message) {
         const res = await F4Bridge.sendCommand(message);
         if (!res || !res.ok) {
@@ -4750,7 +4798,11 @@ try {
         }
         if (this.isBridgeHudMode()) {
             const csvBridge = this.statsCsvFromChar(char);
-            if (!csvBridge || this.csvIsStarterDefault(csvBridge)) {
+            if (!csvBridge) {
+                return;
+            }
+            const needsInitialSeed = !this.urlHasAuthoritativeStats(char.id) && !this._lastStatsCsvSynced;
+            if (this.csvIsStarterDefault(csvBridge) && !needsInitialSeed) {
                 return;
             }
             if (this._lastStatsCsvSynced === csvBridge) {
@@ -5254,6 +5306,14 @@ try {
                 }
                 this.updateStatusIndicator();
                 this.updateStepGuide();
+                const createdChar = this.state.character;
+                if (this.isBridgeHudMode() && createdChar) {
+                    await this.seedHudKvpGameplay(createdChar, { allowStarterSeed: true });
+                }
+                if (!draft) {
+                    this.grantStartingXpToHud(createdChar);
+                }
+                await this.pushCharacterToPlayersHUD(result.data.character.id);
                 await this.refreshAfterCharacterSave(result.data.character);
                 return true;
             } else {
@@ -5370,18 +5430,16 @@ try {
                 }
                 window.updateEconUrlParams(finalSpent, savedAp);
                 this.clearMoapSessionDraft(characterId);
-                // Push LOAD_CHARACTER; sync stats when non-factory so LSD/EXP keep edited line.
                 const statsCsvNow = gameplaySnapshot.statsCsv || this.statsCsvFromChar(this.state.character);
                 const shouldSyncStats = !this.csvIsStarterDefault(statsCsvNow)
                     || !!(gameplaySnapshot.pendingStats);
-                if (this.isBridgeHudMode() && statsCsvNow && !this.csvIsStarterDefault(statsCsvNow)) {
-                    try {
-                        await F4Bridge.saveStats(statsCsvNow, characterId);
-                        await F4Bridge.saveEcon(savedSpent, savedAp);
-                        this._lastStatsCsvSynced = statsCsvNow;
-                    } catch (bridgeErr) {
-                        console.warn('[saveCharacter] bridge stats re-sync failed:', bridgeErr);
-                    }
+                const finishingSetup = !draft && updatePayload.setup_complete;
+                if (this.isBridgeHudMode()) {
+                    await this.seedHudKvpGameplay(this.state.character, {
+                        statsCsv: statsCsvNow,
+                        allowStarterSeed: finishingSetup,
+                        syncEcon: true
+                    });
                 }
                 await this.cacheHudStatsForPlayers(this.state.character, {
                     syncStats: shouldSyncStats && !this.isBridgeHudMode()
