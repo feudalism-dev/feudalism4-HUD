@@ -512,12 +512,21 @@ try {
         const hudAp = this.state.character ? window.getApBalance(this.state.character) : null;
         const hudSpent = this.state.character ? window.getEconSpent(this.state.character) : null;
         const hudLife = this.state.character ? window.getEconLifetime(this.state.character) : null;
+        const hudStatsCsv = this._lastStatsCsvSynced || '';
         this.state.character = savedCharacter;
         if (typeof API !== 'undefined' && API.discardFirestoreGameplayFields) {
             API.discardFirestoreGameplayFields(this.state.character);
         }
-        if (hudStats) {
-            this.state.character.stats = hudStats;
+        let statsToRestore = hudStats;
+        if (hudStatsCsv && this.statsObjectFromCsv(hudStatsCsv)) {
+            const csvLooksAuthoritative = !this.csvIsStarterDefault(hudStatsCsv);
+            const hudLooksFactory = !hudStats || this.csvIsStarterDefault(this.statsCsvFromChar({ stats: hudStats }));
+            if (csvLooksAuthoritative || hudLooksFactory) {
+                statsToRestore = this.statsObjectFromCsv(hudStatsCsv);
+            }
+        }
+        if (statsToRestore) {
+            this.state.character.stats = Object.assign({}, statsToRestore);
         }
         if (hudLife != null) {
             this.state.character.xp_lifetime = hudLife;
@@ -3890,6 +3899,54 @@ try {
         return typeof F4BridgeHud !== 'undefined' && F4BridgeHud.isEnabled();
     },
 
+    snapshotGameplayFromCharacter(char) {
+        if (!char) {
+            return null;
+        }
+        const stats = char.stats ? Object.assign({}, char.stats) : null;
+        const pendingStats = this.state.pendingChanges && this.state.pendingChanges.stats
+            ? Object.assign({}, this.state.pendingChanges.stats)
+            : null;
+        return {
+            stats: stats,
+            pendingStats: pendingStats,
+            statsCsv: this.statsCsvFromChar(char) || this._lastStatsCsvSynced || '',
+            ap: window.getApBalance(char),
+            spent: window.getEconSpent(char),
+            life: window.getEconLifetime(char)
+        };
+    },
+
+    restoreGameplayToCharacter(char, snapshot) {
+        if (!char || !snapshot) {
+            return;
+        }
+        let stats = snapshot.stats;
+        if (snapshot.statsCsv && this.statsObjectFromCsv(snapshot.statsCsv)) {
+            stats = this.statsObjectFromCsv(snapshot.statsCsv);
+        } else if (snapshot.pendingStats) {
+            stats = Object.assign({}, snapshot.pendingStats);
+        }
+        if (stats) {
+            char.stats = Object.assign({}, stats);
+            if (this.state.pendingChanges) {
+                this.state.pendingChanges.stats = Object.assign({}, stats);
+            }
+        }
+        if (snapshot.life != null) {
+            char.xp_lifetime = snapshot.life;
+        }
+        if (snapshot.spent != null) {
+            char.xp_spent = snapshot.spent;
+        }
+        if (snapshot.ap != null) {
+            char.ap_balance = snapshot.ap;
+        }
+        if (snapshot.statsCsv) {
+            this._lastStatsCsvSynced = snapshot.statsCsv;
+        }
+    },
+
     bridgeHasAuthoritativeHudData(characterId) {
         if (!this._bridgeSessionApplied || !this._lastBridgeSession) {
             return false;
@@ -3980,31 +4037,52 @@ try {
         if (!this.isBridgeHudMode()) {
             return false;
         }
-        try {
-            const session = await F4BridgeHud.fetchSession();
-            if (!session || !session.ok) {
-                console.warn('[F4 Bridge] session not available:', session && session.error);
+        const self = this;
+        const maxAttempts = 10;
+        let attempt = 0;
+        async function tryHydrate() {
+            attempt += 1;
+            try {
+                const session = await F4BridgeHud.fetchSession();
+                if (!session || !session.ok) {
+                    if (attempt < maxAttempts) {
+                        await F4BridgeHud.waitForBridgeReady(800);
+                        return tryHydrate();
+                    }
+                    console.warn('[F4 Bridge] session not available:', session && session.error);
+                    return false;
+                }
+                const char = self.state.character;
+                if (!char) {
+                    return false;
+                }
+                if (characterId && session.characterId && session.characterId !== characterId) {
+                    console.warn('[F4 Bridge] session characterId mismatch:', session.characterId, characterId);
+                }
+                const csv = session.stats && session.stats.csv;
+                const csvMissing = !csv || String(csv).trim() === '';
+                if (csvMissing && attempt < maxAttempts) {
+                    await new Promise(function (resolve) { setTimeout(resolve, 400); });
+                    return tryHydrate();
+                }
+                self.applyBridgeSessionToCharacter(char, session);
+                self._bridgeSessionApplied = true;
+                self._lastBridgeSession = session;
+                if (csv) {
+                    self._lastStatsCsvSynced = csv;
+                }
+                console.log('[F4 Bridge] HUD session hydrated from LSL (build ' + (session.build || '?') + ')');
+                return true;
+            } catch (err) {
+                if (attempt < maxAttempts) {
+                    await new Promise(function (resolve) { setTimeout(resolve, 400); });
+                    return tryHydrate();
+                }
+                console.warn('[F4 Bridge] hydrate failed:', err);
                 return false;
             }
-            const char = this.state.character;
-            if (!char) {
-                return false;
-            }
-            if (characterId && session.characterId && session.characterId !== characterId) {
-                console.warn('[F4 Bridge] session characterId mismatch:', session.characterId, characterId);
-            }
-            this.applyBridgeSessionToCharacter(char, session);
-            this._bridgeSessionApplied = true;
-            this._lastBridgeSession = session;
-            if (session.stats && session.stats.csv) {
-                this._lastStatsCsvSynced = session.stats.csv;
-            }
-            console.log('[F4 Bridge] HUD session hydrated from LSL (build ' + (session.build || '?') + ')');
-            return true;
-        } catch (err) {
-            console.warn('[F4 Bridge] hydrate failed:', err);
-            return false;
         }
+        return tryHydrate();
     },
 
     shadowLogBridgeVsUrl() {
@@ -4890,6 +4968,7 @@ try {
                 
                 const savedAp = window.getApBalance(char);
                 const savedSpent = window.getEconSpent(char);
+                const gameplaySnapshot = this.snapshotGameplayFromCharacter(char);
                 this.recalculateResourcePools();
 
                 const updatePayload = {
@@ -4927,6 +5006,7 @@ try {
                 }
                 
                 this.state.character = result.data.character;
+                this.restoreGameplayToCharacter(this.state.character, gameplaySnapshot);
                 this.state.character.ap_balance = savedAp;
                 this.state.character.xp_spent = savedSpent;
                 if (typeof App.state.econ === 'undefined' || !App.state.econ) {
@@ -4972,11 +5052,20 @@ try {
                 window.updateEconUrlParams(finalSpent, savedAp);
                 this.clearMoapSessionDraft(characterId);
                 // Push LOAD_CHARACTER; sync stats when non-factory so LSD/EXP keep edited line.
-                const statsCsvNow = this.statsCsvFromChar(this.state.character);
+                const statsCsvNow = gameplaySnapshot.statsCsv || this.statsCsvFromChar(this.state.character);
                 const shouldSyncStats = !this.csvIsStarterDefault(statsCsvNow)
-                    || !!(this.state.pendingChanges && this.state.pendingChanges.stats);
+                    || !!(gameplaySnapshot.pendingStats);
+                if (this.isBridgeHudMode() && statsCsvNow && !this.csvIsStarterDefault(statsCsvNow)) {
+                    try {
+                        await F4Bridge.saveStats(statsCsvNow);
+                        await F4Bridge.saveEcon(savedSpent, savedAp);
+                        this._lastStatsCsvSynced = statsCsvNow;
+                    } catch (bridgeErr) {
+                        console.warn('[saveCharacter] bridge stats re-sync failed:', bridgeErr);
+                    }
+                }
                 await this.cacheHudStatsForPlayers(this.state.character, {
-                    syncStats: shouldSyncStats
+                    syncStats: shouldSyncStats && !this.isBridgeHudMode()
                 });
                 this.grantStartingXpToHud(this.state.character);
                 // Defer lsl_cmd cleanup — immediate cleanMoapUrlParams erased LOAD_CHARACTER before LSL poll.
