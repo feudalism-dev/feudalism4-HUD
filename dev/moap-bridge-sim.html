@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>F4 MOAP bridge simulator</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; color: #ccc; font-family: sans-serif; }
+      #bar { padding: 0.5rem 1rem; background: #222; border-bottom: 1px solid #444; font-size: 0.85rem; }
+      iframe { border: 0; width: 100%; height: calc(100% - 40px); display: block; background: #000; }
+    </style>
+</head>
+<body>
+    <div id="bar">Simulates MOAP load of hud-bridge-poc.html (no sl_cap — offline until you add a cap URL)</div>
+    <iframe id="poc" title="bridge poc"></iframe>
+    <script>
+      (function () {
+        var params = new URLSearchParams({
+          f4_bridge: "1",
+          sl_hud: "1",
+          uuid: "00000000-0000-0000-0000-000000000001",
+          username: "dev.resident",
+          displayname: "Dev Resident",
+          channel: "-81000000",
+          sl_token: "devtoken",
+          t: String(Date.now())
+        });
+        document.getElementById("poc").src = "../hud-bridge-poc.html?" + params.toString();
+      })();
+    </script>
+</body>
+</html>

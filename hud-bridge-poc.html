@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feudalism 4 — MOAP Bridge POC</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #1e293b;
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+            --ok: #4ade80;
+            --err: #f87171;
+            --accent: #38bdf8;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+        .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+        .badge {
+            display: inline-block;
+            background: var(--panel);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--accent);
+            margin-right: 0.5rem;
+        }
+        .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+        button {
+            background: #334155;
+            color: var(--text);
+            border: 1px solid #475569;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        button.primary { background: #0369a1; border-color: #0284c7; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        pre {
+            background: var(--panel);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow: auto;
+            font-size: 0.8rem;
+            max-height: 45vh;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .status { margin: 0.5rem 0; font-size: 0.9rem; }
+        .status.ok { color: var(--ok); }
+        .status.err { color: var(--err); }
+        a { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <h1>Feudalism 4 — MOAP Bridge POC</h1>
+    <p class="sub">
+        <span class="badge" id="build-label">…</span>
+        Staging page — production <a href="hud.html">hud.html</a> unchanged.
+    </p>
+    <div class="row">
+        <button type="button" class="primary" id="btn-run">Run ping + session</button>
+        <button type="button" id="btn-end">End session</button>
+    </div>
+    <p class="status" id="status">Ready.</p>
+    <pre id="log">Waiting…</pre>
+
+    <script src="shared/f4-api.js?v=1"></script>
+    <script>
+    (function () {
+        "use strict";
+
+        var buildEl = document.getElementById("build-label");
+        var statusEl = document.getElementById("status");
+        var logEl = document.getElementById("log");
+        var btnRun = document.getElementById("btn-run");
+        var btnEnd = document.getElementById("btn-end");
+
+        buildEl.textContent = (window.F4Bridge && F4Bridge.BRIDGE_BUILD) || "f4-bridge-poc";
+
+        function setStatus(msg, ok) {
+            statusEl.textContent = msg;
+            statusEl.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+        }
+
+        function appendLog(obj) {
+            var lines = [];
+            lines.push("=== " + new Date().toISOString() + " ===");
+            lines.push("bridgeMode: " + (F4Bridge.isBridgeMode() ? "yes" : "no"));
+            lines.push("apiBase: " + (F4Bridge.getApiBase() || "(none)"));
+            lines.push("token: " + (F4Bridge.getSessionInfo().token || "(none)"));
+            lines.push("");
+            if (typeof obj === "string") {
+                lines.push(obj);
+            } else {
+                lines.push(JSON.stringify(obj, null, 2));
+            }
+            logEl.textContent = lines.join("\n") + "\n\n" + logEl.textContent;
+        }
+
+        function bootstrapInfo() {
+            return {
+                href: location.href,
+                f4_bridge: new URLSearchParams(location.search).get("f4_bridge"),
+                sl_cap: new URLSearchParams(location.search).get("sl_cap") ? "(set)" : "(missing)",
+                sl_token: new URLSearchParams(location.search).get("sl_token") ? "(set)" : "(missing)"
+            };
+        }
+
+        btnRun.addEventListener("click", function () {
+            btnRun.disabled = true;
+            setStatus("Running…", null);
+            appendLog({ bootstrap: bootstrapInfo() });
+
+            if (!F4Bridge.getApiBase()) {
+                setStatus("No sl_cap — open from POC HUD (/f4bridgepoc)", false);
+                appendLog("ERROR: sl_cap missing. Legacy hud.html URL polling is not this page.");
+                btnRun.disabled = false;
+                return;
+            }
+
+            F4Bridge.ping()
+                .then(function (pingRes) {
+                    appendLog({ ping: pingRes });
+                    return F4Bridge.getSession();
+                })
+                .then(function (sessionRes) {
+                    appendLog({ session: sessionRes });
+                    if (sessionRes && sessionRes.ok) {
+                        var len = JSON.stringify(sessionRes).length;
+                        setStatus("Bridge OK — session ~" + len + " chars JSON", true);
+                    } else {
+                        setStatus("Session failed: " + (sessionRes && sessionRes.error || "unknown"), false);
+                    }
+                })
+                .catch(function (err) {
+                    setStatus("JSONP error: " + err.message, false);
+                    appendLog(String(err));
+                })
+                .then(function () {
+                    btnRun.disabled = false;
+                });
+        });
+
+        btnEnd.addEventListener("click", function () {
+            F4Bridge.endSession().then(function (res) {
+                appendLog({ end: res });
+                setStatus("Session ended", true);
+            });
+        });
+
+        appendLog({ bootstrap: bootstrapInfo(), note: "Click Run ping + session after MOAP loads." });
+        if (F4Bridge.getApiBase()) {
+            setStatus("sl_cap present — click Run", true);
+        } else {
+            setStatus("No HTTP-IN cap in URL yet", false);
+        }
+    })();
+    </script>
+</body>
+</html>
