@@ -836,9 +836,17 @@ try {
                                     syncStats: !characterSwitch
                                 });
                             } else if (this.state.character && !this.state.statsPending && !awaitingHudKvp) {
-                                // Local-first skips stats push when URL has stats_csv, but has_mana
+                                // Local-first skips stats push when URL/bridge has stats; has_mana
                                 // still must sync from Firestore or MOAP state into Players HUD LSD.
-                                await this.pushCharacterToPlayersHUD(this.state.character.id);
+                                const bridgeSkipPush = bridgeHydrated
+                                    && this._lastBridgeSession
+                                    && (!this._lastBridgeSession.characterId
+                                        || this._lastBridgeSession.characterId === this.state.character.id);
+                                if (!bridgeSkipPush) {
+                                    await this.pushCharacterToPlayersHUD(this.state.character.id);
+                                } else {
+                                    console.log('[F4 Bridge] skipping init LOAD_CHARACTER — LSD already authoritative');
+                                }
                             }
                             
                             // One-shot buff load (no onSnapshot — saves Firestore reads in Setup HUD)
@@ -4022,10 +4030,15 @@ try {
         pushDiff('xp_spent', params.get('xp_spent') || '', session.econ && session.econ.xp_spent);
         pushDiff('ap_balance', params.get('ap_balance') || '', session.econ && session.econ.ap_balance);
         pushDiff('health_pipe', params.get('health_pipe') || '', session.pools && session.pools.health);
+        const shortUrlMode = params.get('f4_bridge') === '1' && !params.get('stats_csv');
         if (diffs.length) {
-            console.log('[F4 Bridge Shadow] URL vs bridge differences:', diffs);
+            if (shortUrlMode && diffs.every(function (d) { return d.url === '(missing)'; })) {
+                console.log('[F4 Bridge] short URL mode — bridge session authoritative (' + diffs.length + ' fields not duplicated in URL)');
+            } else {
+                console.log('[F4 Bridge Shadow] URL vs bridge differences:', diffs);
+            }
         } else {
-            console.log('[F4 Bridge Shadow] no URL/bridge conflicts (short URL mode or data agrees)');
+            console.log('[F4 Bridge Shadow] URL and bridge agree');
         }
     },
 
