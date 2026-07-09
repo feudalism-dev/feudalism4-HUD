@@ -4506,7 +4506,50 @@ try {
     },
 
     /**
-     * Roster switch in Setup: push LOAD_CHARACTER and let HUD setMOAPUrl reload with KVP data.
+     * Build MOAP URL for roster switch: fresh cache-bust, active_char, optional LOAD_CHARACTER in URL (legacy).
+     */
+    buildCharacterSwitchReloadUrl(characterId, char, loadCmd) {
+        const url = new URL(window.location.href);
+        const stripKeys = [
+            'stats_csv', 'stats_csv_ts', 'stats_char_id', 'econ_sync', 'econ_ts',
+            'xp_spent', 'ap_balance', 'xp_lifetime', 'xp_total', 'lsl_cmd', 'lsl_cmd_ts',
+            'health_pipe', 'stamina_pipe', 'mana_pipe', 'has_mana', 'char_name', 'char_title'
+        ];
+        stripKeys.forEach(function (key) {
+            url.searchParams.delete(key);
+        });
+        url.searchParams.set('active_char', characterId);
+        url.searchParams.set('moap_char_switch', '1');
+        url.searchParams.set('request_data', '1');
+        url.searchParams.set('t', String(Date.now()));
+        if (loadCmd && !this.isBridgeHudMode()) {
+            url.searchParams.set('lsl_cmd', loadCmd);
+            url.searchParams.set('lsl_cmd_ts', String(Date.now()));
+        }
+        if (char && char.name) {
+            url.searchParams.set('char_name', char.name);
+        }
+        if (char && char.title != null && char.title !== '') {
+            url.searchParams.set('char_title', char.title);
+        }
+        const payload = this.buildCharacterSyncPayload(characterId, char);
+        if (payload.has_mana != null) {
+            url.searchParams.set('has_mana', String(payload.has_mana));
+        }
+        if (payload.health) {
+            url.searchParams.set('health_pipe', payload.health);
+        }
+        if (payload.stamina) {
+            url.searchParams.set('stamina_pipe', payload.stamina);
+        }
+        if (payload.mana) {
+            url.searchParams.set('mana_pipe', payload.mana);
+        }
+        return url;
+    },
+
+    /**
+     * Roster switch: push LOAD_CHARACTER to HUD, then full MOAP page reload.
      */
     async reloadSetupHudForCharacterSwitch(characterId) {
         if (!characterId) {
@@ -4515,33 +4558,47 @@ try {
         this._bridgeSessionApplied = false;
         this._lastBridgeSession = null;
         this._lastStatsCsvSynced = null;
-        this.clearStaleHudUrlParamsForCharacterSwitch(characterId);
-        await this.rememberSelectedCharacter(characterId);
         this.state.dirty = false;
         this.state.statsPending = false;
-        try {
-            const url = new URL(window.location.href);
-            url.searchParams.set('active_char', characterId);
-            url.searchParams.delete('moap_char_switch');
-            this.safeHistoryReplaceState(url.toString());
-        } catch (e) { /* ignore */ }
+        this.state.pendingChanges = {};
+        await this.rememberSelectedCharacter(characterId);
+
+        let char = this.characterFromList(API._listCharactersCache || [], characterId);
+        if (!char || !char.name) {
+            const charResult = await API.getCharacterById(characterId);
+            if (charResult.success && charResult.data && charResult.data.character) {
+                char = charResult.data.character;
+                this.upsertCharacterInRosterCache(char);
+            }
+        }
+        if (!char) {
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Could not load character', 'error');
+            }
+            return;
+        }
+
+        const payload = this.buildCharacterSyncPayload(characterId, char);
+        const loadParts = Object.keys(payload).map(function (key) {
+            return key + ':' + encodeURIComponent(String(payload[key]));
+        });
+        const loadCmd = 'LOAD_CHARACTER|' + loadParts.join('|');
+
         if (typeof UI !== 'undefined' && UI.showToast) {
-            UI.showToast('Loading character from HUD...', 'info', 6000);
+            UI.showToast('Switching to ' + (char.name || 'character') + '...', 'info', 4000);
         }
-        await this.pushCharacterToPlayersHUD(characterId);
-        await this.loadData({ characterSwitch: true });
-        let switchLoaded = false;
+
         if (this.isBridgeHudMode()) {
-            switchLoaded = await this.ensureBridgeGameplayLoaded(characterId, {
-                showModal: true,
-                afterSlotSwitch: true
-            });
+            try {
+                await this.sendToLSLViaBridge(loadCmd);
+            } catch (bridgeErr) {
+                console.error('[Character switch] bridge LOAD_CHARACTER failed:', bridgeErr);
+            }
         }
-        this.captureAbandonBaseline(this.state.character);
-        if (switchLoaded || this.bridgeHasAuthoritativeHudData(characterId)) {
-            this.refreshStatsTabFromCharacter();
-        }
-        await this.renderAll();
+
+        const reloadUrl = this.buildCharacterSwitchReloadUrl(characterId, char, loadCmd);
+        console.log('[Character switch] reloading MOAP for', characterId, reloadUrl.toString());
+        window.location.assign(reloadUrl.toString());
     },
 
     /**
