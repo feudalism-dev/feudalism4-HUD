@@ -806,7 +806,7 @@ try {
                             const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
                                 showModal: false,
                                 afterSlotSwitch: !!characterSwitch,
-                                forceRefresh: true,
+                                forceRefresh: !!characterSwitch,
                                 maxAttempts: characterSwitch ? 20 : 15
                             });
                             let hadMoapDraft = false;
@@ -4212,10 +4212,12 @@ try {
         }
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
-            try {
-                await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
-            } catch (refreshErr) {
-                console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
+            if (forceRefresh) {
+                try {
+                    await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                } catch (refreshErr) {
+                    console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
+                }
             }
             const preDelay = forceRefresh ? 2200 : 600;
             await new Promise(function (resolve) { setTimeout(resolve, preDelay); });
