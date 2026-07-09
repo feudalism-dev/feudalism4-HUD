@@ -489,7 +489,7 @@ const API = {
                 continue;
             }
             seen[id] = true;
-            out.push(char);
+            out.push(this.sanitizeRosterCharacter(char));
         }
         return out;
     },
