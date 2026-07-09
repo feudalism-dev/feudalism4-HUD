@@ -794,7 +794,8 @@ try {
                             const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
                                 showModal: false,
                                 afterSlotSwitch: !!characterSwitch,
-                                maxAttempts: 10
+                                forceRefresh: !!characterSwitch,
+                                maxAttempts: characterSwitch ? 18 : 10
                             });
                             let hadMoapDraft = false;
                             if (!bridgeHydrated) {
@@ -3198,6 +3199,15 @@ try {
                 });
             }
         });
+        document.getElementById('btn-refresh-stats-hud')?.addEventListener('click', function () {
+            if (typeof App.refreshHudGameplayFromMoap === 'function') {
+                App.refreshHudGameplayFromMoap({ showModal: true }).then(function (ok) {
+                    if (!ok && typeof UI !== 'undefined' && UI.showToast) {
+                        UI.showToast('HUD refresh failed', 'warning');
+                    }
+                });
+            }
+        });
         document.getElementById('btn-abandon-stats')?.addEventListener('click', function () {
             if (typeof App.abandonStatsChanges === 'function') {
                 App.abandonStatsChanges();
@@ -3236,19 +3246,19 @@ try {
                         return;
                     }
                 }
-                if (tabId === 'stats' && typeof App.ensureBridgeGameplayLoaded === 'function'
+                if (tabId === 'stats' && typeof App.refreshHudGameplayFromMoap === 'function'
                     && App.isBridgeHudMode && App.isBridgeHudMode()) {
                     const cid = App.state.character && App.state.character.id;
                     let statsLoaded = false;
                     if (cid) {
-                        statsLoaded = await App.ensureBridgeGameplayLoaded(cid, { showModal: true, afterSlotSwitch: false });
+                        statsLoaded = await App.refreshHudGameplayFromMoap({ showModal: true });
                     }
                     origSwitchTab(tabId);
-                    if (typeof App.refreshStatsTabFromCharacter === 'function') {
+                    if (!cid && typeof App.refreshStatsTabFromCharacter === 'function') {
                         App.refreshStatsTabFromCharacter();
                     }
-                    if (!statsLoaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
-                        UI.setStatsHudBanner('HUD line not in KVP yet — using saved data. Edit and Save Stats to write to Experience.', 'warning');
+                    if (!statsLoaded && cid && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                        UI.setStatsHudBanner('Could not refresh from HUD — try again or reattach the HUD.', 'warning');
                     }
                     return;
                 }
@@ -4108,34 +4118,36 @@ try {
             }
         }
         const ap = parseInt(session.ap_balance, 10) || 0;
-        const curLife = typeof window.getEconLifetime === 'function' ? window.getEconLifetime(char) : (parseInt(char.xp_lifetime, 10) || 0);
-        const curSpent = typeof window.getEconSpent === 'function' ? window.getEconSpent(char) : (parseInt(char.xp_spent, 10) || 0);
-        const curAp = typeof window.getApBalance === 'function' ? window.getApBalance(char) : (parseInt(char.ap_balance, 10) || 0);
-        if (life > 0 || curLife === 0) {
-            char.xp_lifetime = life > 0 ? life : curLife;
+        char.xp_lifetime = life;
+        char.xp_spent = spent;
+        char.ap_balance = ap;
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
         }
-        if (spent > 0 || curSpent === 0) {
-            char.xp_spent = spent > 0 ? spent : curSpent;
-        }
-        if (ap > 0 || curAp === 0) {
-            char.ap_balance = ap > 0 ? ap : curAp;
-        }
-        if (life > 0 || spent > 0 || ap > 0) {
-            if (typeof App.state.econ === 'undefined' || !App.state.econ) {
-                App.state.econ = {};
-            }
-            App.state.econ.xp_lifetime = char.xp_lifetime || 0;
-            App.state.econ.xp_spent = char.xp_spent || 0;
-            App.state.econ.ap_balance = char.ap_balance || 0;
-        }
+        App.state.econ.xp_lifetime = life;
+        App.state.econ.xp_spent = spent;
+        App.state.econ.ap_balance = ap;
         return true;
     },
 
-    async hydrateCharacterFromBridge(characterId) {
-        return this.ensureBridgeGameplayLoaded(characterId, {
-            showModal: false,
-            afterSlotSwitch: false
+    async refreshHudGameplayFromMoap(options) {
+        const cid = this.state.character && this.state.character.id;
+        if (!cid || !this.isBridgeHudMode()) {
+            return false;
+        }
+        if (options === undefined) {
+            options = {};
+        }
+        const loaded = await this.ensureBridgeGameplayLoaded(cid, {
+            showModal: options.showModal !== false,
+            forceRefresh: true,
+            maxAttempts: 18
         });
+        this.refreshStatsTabFromCharacter();
+        if (loaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+            UI.setStatsHudBanner(null);
+        }
+        return loaded;
     },
 
     /**
@@ -4148,12 +4160,18 @@ try {
         if (options === undefined) {
             options = {};
         }
+        this._bridgeGameplayLoadAttempted = true;
         const showModal = options.showModal === true;
-        const maxAttempts = options.maxAttempts || (showModal ? 12 : 15);
+        const forceRefresh = options.forceRefresh === true;
+        const maxAttempts = options.maxAttempts || (forceRefresh ? 18 : (showModal ? 12 : 15));
         let hideLoading = null;
         const debugLog = (typeof window.simpleDebug === 'function') ? window.simpleDebug : null;
+        if (forceRefresh) {
+            this._bridgeSessionApplied = false;
+            this._lastBridgeSession = null;
+        }
         if (showModal && typeof MoapDialogs !== 'undefined' && MoapDialogs.showLoading) {
-            hideLoading = MoapDialogs.showLoading('Loading stats from HUD...');
+            hideLoading = MoapDialogs.showLoading(forceRefresh ? 'Refreshing from HUD...' : 'Loading stats from HUD...');
         }
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
@@ -4162,12 +4180,17 @@ try {
             } catch (refreshErr) {
                 console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
             }
+            const preDelay = forceRefresh ? 1500 : 600;
+            await new Promise(function (resolve) { setTimeout(resolve, preDelay); });
             let attempt = 0;
             let lastSession = null;
             while (attempt < maxAttempts) {
                 attempt += 1;
                 try {
-                    const session = await F4BridgeHud.fetchSession();
+                    let session = await F4BridgeHud.fetchSession();
+                    if (session && session.ok && !this.bridgeSessionStatsReady(session)) {
+                        session = Object.assign({}, session, { ok: false, pending: true, error: 'stats' });
+                    }
                     lastSession = session;
                     const char = this.state.character;
                     const summary = this.bridgeSessionDebugSummary(session);
