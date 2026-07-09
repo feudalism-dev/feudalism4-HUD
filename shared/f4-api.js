@@ -1,6 +1,7 @@
 /**
  * Feudalism 4 — JSONP client for LSL HTTP-IN (MOAP / CEF 139)
- * POC / staging only — used by hud-bridge-poc.html (not production hud.html).
+ * JSONP client for LSL HTTP-IN (MOAP / CEF 139).
+ * Used by hud-bridge-poc.html and production hud.html (Phase 2+).
  * Pattern: slarcadepub/shared/sl-api.js
  */
 (function (global) {

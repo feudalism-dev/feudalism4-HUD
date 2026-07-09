@@ -571,7 +571,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.49';
+            window.HUD_BUILD_LABEL = '4.2.50';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
@@ -592,20 +592,24 @@
             };
             document.body.appendChild(s);
         }
-        hudLoadScript('js/firebase-config.js', 'firebase-config.js', function () {
-            hudLoadScript('js/seed-data.js', 'seed-data.js', function () {
-                hudLoadScript('js/api-firestore.js', 'api-firestore.js', function () {
-                    hudLoadScript('js/moap-dialogs.js', 'moap-dialogs.js', function () {
-                    hudLoadScript('js/ui.js', 'ui.js', function () {
-                        hudLoadScript('js/app.js', 'app.js', function () {
-                            window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
-                            if (typeof App !== 'undefined' && typeof App.init === 'function') {
-                                App.init().catch(function (err) {
-                                    window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
+        hudLoadScript('shared/f4-api.js', 'f4-api.js', function () {
+            hudLoadScript('js/f4-bridge-hud.js', 'f4-bridge-hud.js', function () {
+                hudLoadScript('js/firebase-config.js', 'firebase-config.js', function () {
+                    hudLoadScript('js/seed-data.js', 'seed-data.js', function () {
+                        hudLoadScript('js/api-firestore.js', 'api-firestore.js', function () {
+                            hudLoadScript('js/moap-dialogs.js', 'moap-dialogs.js', function () {
+                                hudLoadScript('js/ui.js', 'ui.js', function () {
+                                    hudLoadScript('js/app.js', 'app.js', function () {
+                                        window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
+                                        if (typeof App !== 'undefined' && typeof App.init === 'function') {
+                                            App.init().catch(function (err) {
+                                                window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
+                                            });
+                                        }
+                                    });
                                 });
-                            }
+                            });
                         });
-                    });
                     });
                 });
             });

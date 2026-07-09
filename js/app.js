@@ -782,12 +782,18 @@ try {
                             
                             console.log('Character loaded:', this.state.character);
 
-                            // Gameplay XP/pools are authoritative in HUD KVP; Firestore is often stale
-                            this.initEconFromUrl();
-                            this.mergePoolsFromUrl();
-                            const hadMoapDraft = this.restoreMoapSessionDraft();
-                            this.mergeUrlEconIntoCharacter();
-                            this.mergeStatsFromUrlIntoCharacter();
+                            const bridgeHydrated = await this.hydrateCharacterFromBridge(this.state.character.id);
+                            let hadMoapDraft = false;
+                            if (!bridgeHydrated) {
+                                this.initEconFromUrl();
+                                this.mergePoolsFromUrl();
+                                hadMoapDraft = this.restoreMoapSessionDraft();
+                                this.mergeUrlEconIntoCharacter();
+                                this.mergeStatsFromUrlIntoCharacter();
+                            } else {
+                                hadMoapDraft = this.restoreMoapSessionDraft();
+                                this.shadowLogBridgeVsUrl();
+                            }
                             const awaitingHudKvp = this.isAwaitingHudKvpUrl(this.state.character.id);
                             if (!awaitingHudKvp) {
                                 this.normalizeCharacterStats(this.state.character);
@@ -1679,16 +1685,36 @@ try {
         UI.showToast('Saving stats...', 'info', 2000);
         const savedAp = window.getApBalance(char);
         const savedSpent = window.getEconSpent(char);
+        const csv = this.statsCsvFromChar(char);
+        if (!csv) {
+            UI.showToast('Could not build stats for HUD sync', 'error');
+            return false;
+        }
+        if (this.isBridgeHudMode()) {
+            try {
+                await this.saveStatsToHudViaBridge(char, savedSpent, savedAp, csv);
+                const syncPayload = this.buildCharacterSyncPayload(char.id, char);
+                const loadParts = Object.keys(syncPayload).map(function (key) {
+                    return key + ':' + encodeURIComponent(String(syncPayload[key]));
+                });
+                await this.sendToLSLViaBridge('LOAD_CHARACTER|' + loadParts.join('|'));
+                if (typeof UI !== 'undefined' && UI.renderStatsTab) {
+                    UI.renderStatsTab(char);
+                }
+                this.updateSaveStatsButton();
+                this.updateStatusIndicator();
+                return true;
+            } catch (e) {
+                console.error('[Save Stats] bridge failed:', e);
+                UI.showToast('Failed to save stats to HUD (bridge)', 'error');
+                return false;
+            }
+        }
         try {
             const currentUrl = new URL(window.location.href);
             const spentStr = String(savedSpent);
             const apStr = String(savedAp);
             const ts = Date.now().toString();
-            const csv = this.statsCsvFromChar(char);
-            if (!csv) {
-                UI.showToast('Could not build stats for HUD sync', 'error');
-                return false;
-            }
             currentUrl.searchParams.set('xp_spent', spentStr);
             currentUrl.searchParams.set('ap_balance', apStr);
             currentUrl.searchParams.set('econ_ts', ts);
@@ -3852,6 +3878,182 @@ try {
         ];
     },
 
+    isBridgeHudMode() {
+        return typeof F4BridgeHud !== 'undefined' && F4BridgeHud.isEnabled();
+    },
+
+    bridgeHasAuthoritativeHudData(characterId) {
+        if (!this._bridgeSessionApplied || !this._lastBridgeSession) {
+            return false;
+        }
+        const sid = this._lastBridgeSession.characterId || '';
+        const cid = characterId || this.state.character?.id || '';
+        if (sid && cid && sid !== cid) {
+            return false;
+        }
+        const csv = this._lastBridgeSession.stats && this._lastBridgeSession.stats.csv;
+        return !!(csv && !this.csvIsStarterDefault(csv));
+    },
+
+    applyBridgeSessionToCharacter(char, session) {
+        if (!char || !session || !session.ok) {
+            return false;
+        }
+        const id = session.identity || {};
+        const decode = (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.decodeMoapField)
+            ? F4BridgeHud.decodeMoapField
+            : function (v) { return v; };
+        if (id.name) {
+            char.name = decode(id.name);
+        }
+        if (id.title != null) {
+            char.title = decode(id.title);
+        }
+        if (id.gender) {
+            char.gender = id.gender;
+        }
+        if (id.species_id) {
+            char.species_id = id.species_id;
+        }
+        if (id.class_id) {
+            char.class_id = id.class_id;
+        }
+        if (id.mode) {
+            char.mode = id.mode;
+        }
+        if (id.has_mana != null) {
+            char.has_mana = id.has_mana === '1' || id.has_mana === 1 || id.has_mana === true;
+        }
+        if (session.stats && session.stats.csv) {
+            const stats = this.statsObjectFromCsv(session.stats.csv);
+            if (stats) {
+                char.stats = stats;
+                if (this.state.pendingChanges) {
+                    this.state.pendingChanges.stats = Object.assign({}, stats);
+                }
+            }
+        }
+        const econ = session.econ || {};
+        if (econ.xp_lifetime != null) {
+            char.xp_lifetime = parseInt(econ.xp_lifetime, 10) || 0;
+        }
+        if (econ.xp_spent != null) {
+            char.xp_spent = parseInt(econ.xp_spent, 10) || 0;
+        }
+        if (econ.ap_balance != null) {
+            char.ap_balance = parseInt(econ.ap_balance, 10) || 0;
+        }
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = char.xp_lifetime || 0;
+        App.state.econ.xp_spent = char.xp_spent || 0;
+        App.state.econ.ap_balance = char.ap_balance || 0;
+        const pools = session.pools || {};
+        const pipe = (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.poolFromPipe)
+            ? F4BridgeHud.poolFromPipe
+            : function () { return null; };
+        const health = pipe(pools.health);
+        if (health) {
+            char.health = health;
+        }
+        const stamina = pipe(pools.stamina);
+        if (stamina) {
+            char.stamina = stamina;
+        }
+        const mana = pipe(pools.mana);
+        if (mana) {
+            char.mana = mana;
+        }
+        return true;
+    },
+
+    async hydrateCharacterFromBridge(characterId) {
+        if (!this.isBridgeHudMode()) {
+            return false;
+        }
+        try {
+            const session = await F4BridgeHud.fetchSession();
+            if (!session || !session.ok) {
+                console.warn('[F4 Bridge] session not available:', session && session.error);
+                return false;
+            }
+            const char = this.state.character;
+            if (!char) {
+                return false;
+            }
+            if (characterId && session.characterId && session.characterId !== characterId) {
+                console.warn('[F4 Bridge] session characterId mismatch:', session.characterId, characterId);
+            }
+            this.applyBridgeSessionToCharacter(char, session);
+            this._bridgeSessionApplied = true;
+            this._lastBridgeSession = session;
+            if (session.stats && session.stats.csv) {
+                this._lastStatsCsvSynced = session.stats.csv;
+            }
+            console.log('[F4 Bridge] HUD session hydrated from LSL (build ' + (session.build || '?') + ')');
+            return true;
+        } catch (err) {
+            console.warn('[F4 Bridge] hydrate failed:', err);
+            return false;
+        }
+    },
+
+    shadowLogBridgeVsUrl() {
+        if (!this._lastBridgeSession) {
+            return;
+        }
+        const session = this._lastBridgeSession;
+        let params;
+        try {
+            params = new URLSearchParams(window.location.search);
+        } catch (e) {
+            return;
+        }
+        const diffs = [];
+        const pushDiff = function (field, urlVal, bridgeVal) {
+            if (urlVal !== '' && bridgeVal !== '' && String(urlVal) !== String(bridgeVal)) {
+                diffs.push({ field: field, url: urlVal, bridge: bridgeVal });
+            } else if (urlVal === '' && bridgeVal !== '') {
+                diffs.push({ field: field, url: '(missing)', bridge: bridgeVal });
+            }
+        };
+        pushDiff('stats_csv', params.get('stats_csv') || '', (session.stats && session.stats.csv) || '');
+        pushDiff('xp_spent', params.get('xp_spent') || '', session.econ && session.econ.xp_spent);
+        pushDiff('ap_balance', params.get('ap_balance') || '', session.econ && session.econ.ap_balance);
+        pushDiff('health_pipe', params.get('health_pipe') || '', session.pools && session.pools.health);
+        if (diffs.length) {
+            console.log('[F4 Bridge Shadow] URL vs bridge differences:', diffs);
+        } else {
+            console.log('[F4 Bridge Shadow] no URL/bridge conflicts (short URL mode or data agrees)');
+        }
+    },
+
+    async saveStatsToHudViaBridge(char, savedSpent, savedAp, csv) {
+        const statsRes = await F4Bridge.saveStats(csv);
+        if (!statsRes || !statsRes.ok) {
+            throw new Error((statsRes && statsRes.error) || 'save_stats_failed');
+        }
+        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp);
+        if (!econRes || !econRes.ok) {
+            throw new Error((econRes && econRes.error) || 'save_econ_failed');
+        }
+        this._lastStatsCsvSynced = csv;
+        this.clearStatsPendingAfterHudSave();
+        UI.showToast('Stats saved to HUD (bridge)', 'success', 2000);
+        return true;
+    },
+
+    async sendToLSLViaBridge(message) {
+        const res = await F4Bridge.sendCommand(message);
+        if (!res || !res.ok) {
+            console.error('[F4 Bridge] command failed:', res);
+            return false;
+        }
+        console.log('[F4 Bridge] command ok:', message.substring(0, 48));
+        return true;
+    },
+
     statsObjectFromCsv(csv) {
         if (!csv || typeof csv !== 'string') {
             return null;
@@ -3970,6 +4172,9 @@ try {
     },
 
     urlHasAuthoritativeStats(characterId) {
+        if (this.bridgeHasAuthoritativeHudData(characterId)) {
+            return true;
+        }
         try {
             const charId = characterId || this.state.character?.id || '';
             const csv = new URLSearchParams(window.location.search).get('stats_csv') || '';
@@ -4021,6 +4226,14 @@ try {
         const charId = characterId || this.state.character?.id || '';
         if (!charId) {
             return false;
+        }
+        if (this.isBridgeHudMode()) {
+            if (this.bridgeHasAuthoritativeHudData(charId)) {
+                return false;
+            }
+            if (!this._bridgeSessionApplied) {
+                return true;
+            }
         }
         try {
             const params = new URLSearchParams(window.location.search);
@@ -4119,7 +4332,31 @@ try {
             urlCsv = new URLSearchParams(window.location.search).get('stats_csv') || '';
         } catch (e) { /* ignore */ }
         if (this.urlHasAuthoritativeStats(char.id)) {
-            this._lastStatsCsvSynced = urlCsv;
+            const bridgeCsv = this._lastBridgeSession && this._lastBridgeSession.stats
+                ? this._lastBridgeSession.stats.csv
+                : '';
+            this._lastStatsCsvSynced = urlCsv || bridgeCsv || this.statsCsvFromChar(char) || '';
+            return;
+        }
+        if (this.isBridgeHudMode()) {
+            const csvBridge = this.statsCsvFromChar(char);
+            if (!csvBridge || this.csvIsStarterDefault(csvBridge)) {
+                return;
+            }
+            if (this._lastStatsCsvSynced === csvBridge) {
+                return;
+            }
+            const self = this;
+            F4Bridge.saveStats(csvBridge).then(function (res) {
+                if (res && res.ok) {
+                    self._lastStatsCsvSynced = csvBridge;
+                    console.log('[Players HUD Sync] stats saved via bridge');
+                } else {
+                    console.warn('[Players HUD Sync] bridge save_stats failed:', res);
+                }
+            }).catch(function (err) {
+                console.error('[Players HUD Sync] bridge save_stats error:', err);
+            });
             return;
         }
         const csv = this.statsCsvFromChar(char);
@@ -4379,6 +4616,13 @@ try {
                 return entry[0] + ":" + encodeURIComponent(String(entry[1]));
             });
             message += "|" + parts.join("|");
+        }
+
+        if (this.isBridgeHudMode()) {
+            this.sendToLSLViaBridge(message).catch(function (err) {
+                console.error('[LSL] bridge command failed:', command, err);
+            });
+            return;
         }
         
         // Store command in URL so LSL can poll for it
