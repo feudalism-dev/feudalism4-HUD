@@ -165,7 +165,7 @@ try {
         currentVocation: null,
         inventoryPagination: null,  // { cursor: '', hasMore: false, items: [] }
         currentUniverse: null,
-        selectedUniverseId: 'default',
+        selectedUniverseId: (typeof window !== 'undefined' && window.HUD_DEFAULT_UNIVERSE) || 'default',
         selectedCharacterId: null,
         pendingChanges: {},
         statsFloor: null,
@@ -2270,7 +2270,7 @@ try {
             return false;
         }
 
-        const universeId = 'default';
+        const universeId = (typeof window !== 'undefined' && window.HUD_DEFAULT_UNIVERSE) || 'default';
         this.state.selectedUniverseId = universeId;
 
         try {
