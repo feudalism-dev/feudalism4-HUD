@@ -142,12 +142,13 @@
                     return F4Bridge.getSession();
                 })
                 .then(function (sessionRes) {
-                    appendLog({ session: sessionRes });
-                    if (sessionRes && sessionRes.ok) {
-                        var len = JSON.stringify(sessionRes).length;
-                        setStatus("Bridge OK — session ~" + len + " chars JSON", true);
+                    var parsed = (typeof F4BridgeHud !== "undefined" && F4BridgeHud.parseSessionLine)
+                        ? F4BridgeHud.parseSessionLine(sessionRes) : sessionRes;
+                    appendLog({ session: parsed, raw: sessionRes });
+                    if (parsed && parsed.ok) {
+                        setStatus("Bridge OK — " + (parsed.line || parsed.stats_csv || ""), true);
                     } else {
-                        setStatus("Session failed: " + (sessionRes && sessionRes.error || "unknown"), false);
+                        setStatus("Session failed: " + (parsed && parsed.error || "unknown"), false);
                     }
                 });
         }
@@ -174,8 +175,10 @@
             setStatus("Fetching session…", null);
             F4Bridge.getSession()
                 .then(function (sessionRes) {
-                    appendLog({ session: sessionRes });
-                    setStatus(sessionRes && sessionRes.ok ? "Session refreshed" : "Session failed", sessionRes && sessionRes.ok);
+                    var parsed = (typeof F4BridgeHud !== "undefined" && F4BridgeHud.parseSessionLine)
+                        ? F4BridgeHud.parseSessionLine(sessionRes) : sessionRes;
+                    appendLog({ session: parsed, raw: sessionRes });
+                    setStatus(parsed && parsed.ok ? "Session refreshed" : "Session failed", parsed && parsed.ok);
                 })
                 .catch(function (err) {
                     setStatus("JSONP error: " + err.message, false);
@@ -195,10 +198,12 @@
             setStatus("save_stats test…", null);
             F4Bridge.getSession()
                 .then(function (sessionRes) {
-                    if (!sessionRes || !sessionRes.ok || !sessionRes.stats || !sessionRes.stats.csv) {
+                    var sessionResParsed = (typeof F4BridgeHud !== "undefined" && F4BridgeHud.parseSessionLine)
+                        ? F4BridgeHud.parseSessionLine(sessionRes) : sessionRes;
+                    if (!sessionResParsed || !sessionResParsed.ok || !sessionResParsed.stats_csv) {
                         throw new Error("no session stats");
                     }
-                    var parts = sessionRes.stats.csv.split(",");
+                    var parts = sessionResParsed.stats_csv.split(",");
                     if (parts.length !== 20) {
                         throw new Error("bad stats len");
                     }
@@ -206,7 +211,7 @@
                     appendLog._lastSaveBefore0 = String(val);
                     parts[0] = String(Math.min(val + 1, 5));
                     var nextCsv = parts.join(",");
-                    appendLog({ save_stats_before: sessionRes.stats.csv, save_stats_after: nextCsv });
+                    appendLog({ save_stats_before: sessionResParsed.stats_csv, save_stats_after: nextCsv });
                     return F4Bridge.saveStats(nextCsv);
                 })
                 .then(function (saveRes) {
@@ -214,9 +219,11 @@
                     return F4Bridge.getSession();
                 })
                 .then(function (sessionRes) {
-                    appendLog({ session_after_save: sessionRes });
-                    if (sessionRes && sessionRes.ok && sessionRes.stats && sessionRes.stats.csv) {
-                        var after0 = sessionRes.stats.csv.split(",")[0];
+                    var sessionResParsed = (typeof F4BridgeHud !== "undefined" && F4BridgeHud.parseSessionLine)
+                        ? F4BridgeHud.parseSessionLine(sessionRes) : sessionRes;
+                    appendLog({ session_after_save: sessionResParsed, raw: sessionRes });
+                    if (sessionResParsed && sessionResParsed.ok && sessionResParsed.stats_csv) {
+                        var after0 = sessionResParsed.stats_csv.split(",")[0];
                         var before0 = (appendLog._lastSaveBefore0 || "");
                         if (before0 !== "" && after0 === before0) {
                             setStatus("save_stats sent OK but LSD unchanged — recompile Data Manager + Bridge", false);
