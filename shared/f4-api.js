@@ -6,7 +6,7 @@
 (function (global) {
     "use strict";
 
-    var BRIDGE_BUILD = "f4-bridge-poc-v1";
+    var BRIDGE_BUILD = "f4-bridge-poc-v2";
 
     var session = {
         token: "",
@@ -175,6 +175,34 @@
         return jsonp(apiBase, apiParams({ action: "end" }), 10000);
     }
 
+    function saveStats(statsCsv) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({ action: "save_stats", stats: statsCsv }), 15000);
+    }
+
+    function saveEcon(xpSpent, apBalance) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        var extra = { action: "save_econ" };
+        if (xpSpent !== undefined && xpSpent !== null && xpSpent !== "") {
+            extra.xp_spent = xpSpent;
+        }
+        if (apBalance !== undefined && apBalance !== null && apBalance !== "") {
+            extra.ap_balance = apBalance;
+        }
+        return jsonp(apiBase, apiParams(extra), 15000);
+    }
+
+    function sendCommand(cmd) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({ action: "command", cmd: cmd }), 20000);
+    }
+
     global.F4Bridge = {
         BRIDGE_BUILD: BRIDGE_BUILD,
         initFromMoapUrl: initFromMoapUrl,
@@ -183,6 +211,9 @@
         getSession: getSession,
         ping: ping,
         endSession: endSession,
+        saveStats: saveStats,
+        saveEcon: saveEcon,
+        sendCommand: sendCommand,
         getApiBase: function () { return apiBase; },
         getSessionInfo: function () { return session; },
         setApiBase: setApiBase,

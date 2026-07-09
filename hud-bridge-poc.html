@@ -71,12 +71,14 @@
     </p>
     <div class="row">
         <button type="button" class="primary" id="btn-run">Run ping + session</button>
+        <button type="button" id="btn-refetch">Re-fetch session</button>
+        <button type="button" id="btn-save-stats">Test save_stats (+1 stat 0)</button>
         <button type="button" id="btn-end">End session</button>
     </div>
     <p class="status" id="status">Ready.</p>
-    <pre id="log">Waiting…</pre>
+    <pre id="log"></pre>
 
-    <script src="shared/f4-api.js?v=1"></script>
+    <script src="shared/f4-api.js?v=2"></script>
     <script>
     (function () {
         "use strict";
@@ -85,6 +87,8 @@
         var statusEl = document.getElementById("status");
         var logEl = document.getElementById("log");
         var btnRun = document.getElementById("btn-run");
+        var btnRefetch = document.getElementById("btn-refetch");
+        var btnSaveStats = document.getElementById("btn-save-stats");
         var btnEnd = document.getElementById("btn-end");
 
         buildEl.textContent = (window.F4Bridge && F4Bridge.BRIDGE_BUILD) || "f4-bridge-poc";
@@ -118,19 +122,21 @@
             };
         }
 
-        btnRun.addEventListener("click", function () {
-            btnRun.disabled = true;
-            setStatus("Running…", null);
-            appendLog({ bootstrap: bootstrapInfo() });
-
+        function requireCap() {
             if (!F4Bridge.getApiBase()) {
                 setStatus("No sl_cap — open from POC HUD (/f4bridgepoc)", false);
-                appendLog("ERROR: sl_cap missing. Legacy hud.html URL polling is not this page.");
-                btnRun.disabled = false;
-                return;
+                appendLog("ERROR: sl_cap missing.");
+                return false;
             }
+            return true;
+        }
 
-            F4Bridge.ping()
+        function runPingSession() {
+            if (!requireCap()) {
+                return Promise.resolve();
+            }
+            setStatus("Running ping + session…", null);
+            return F4Bridge.ping()
                 .then(function (pingRes) {
                     appendLog({ ping: pingRes });
                     return F4Bridge.getSession();
@@ -143,13 +149,83 @@
                     } else {
                         setStatus("Session failed: " + (sessionRes && sessionRes.error || "unknown"), false);
                     }
-                })
+                });
+        }
+
+        btnRun.addEventListener("click", function () {
+            btnRun.disabled = true;
+            appendLog({ bootstrap: bootstrapInfo() });
+            runPingSession()
                 .catch(function (err) {
                     setStatus("JSONP error: " + err.message, false);
                     appendLog(String(err));
                 })
                 .then(function () {
                     btnRun.disabled = false;
+                });
+        });
+
+        btnRefetch.addEventListener("click", function () {
+            btnRefetch.disabled = true;
+            if (!requireCap()) {
+                btnRefetch.disabled = false;
+                return;
+            }
+            setStatus("Fetching session…", null);
+            F4Bridge.getSession()
+                .then(function (sessionRes) {
+                    appendLog({ session: sessionRes });
+                    setStatus(sessionRes && sessionRes.ok ? "Session refreshed" : "Session failed", sessionRes && sessionRes.ok);
+                })
+                .catch(function (err) {
+                    setStatus("JSONP error: " + err.message, false);
+                    appendLog(String(err));
+                })
+                .then(function () {
+                    btnRefetch.disabled = false;
+                });
+        });
+
+        btnSaveStats.addEventListener("click", function () {
+            btnSaveStats.disabled = true;
+            if (!requireCap()) {
+                btnSaveStats.disabled = false;
+                return;
+            }
+            setStatus("save_stats test…", null);
+            F4Bridge.getSession()
+                .then(function (sessionRes) {
+                    if (!sessionRes || !sessionRes.ok || !sessionRes.stats || !sessionRes.stats.csv) {
+                        throw new Error("no session stats");
+                    }
+                    var parts = sessionRes.stats.csv.split(",");
+                    if (parts.length !== 20) {
+                        throw new Error("bad stats len");
+                    }
+                    var val = parseInt(parts[0], 10) || 0;
+                    parts[0] = String(Math.min(val + 1, 5));
+                    var nextCsv = parts.join(",");
+                    appendLog({ save_stats_before: sessionRes.stats.csv, save_stats_after: nextCsv });
+                    return F4Bridge.saveStats(nextCsv);
+                })
+                .then(function (saveRes) {
+                    appendLog({ save_stats: saveRes });
+                    return F4Bridge.getSession();
+                })
+                .then(function (sessionRes) {
+                    appendLog({ session_after_save: sessionRes });
+                    if (sessionRes && sessionRes.ok) {
+                        setStatus("save_stats OK — stat[0]=" + sessionRes.stats.csv.split(",")[0], true);
+                    } else {
+                        setStatus("save_stats verify failed", false);
+                    }
+                })
+                .catch(function (err) {
+                    setStatus("save_stats error: " + err.message, false);
+                    appendLog(String(err));
+                })
+                .then(function () {
+                    btnSaveStats.disabled = false;
                 });
         });
 
