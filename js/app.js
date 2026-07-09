@@ -806,8 +806,8 @@ try {
                             const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
                                 showModal: false,
                                 afterSlotSwitch: !!characterSwitch,
-                                forceRefresh: !!characterSwitch,
-                                maxAttempts: characterSwitch ? 18 : 10
+                                forceRefresh: true,
+                                maxAttempts: characterSwitch ? 20 : 15
                             });
                             let hadMoapDraft = false;
                             if (!bridgeHydrated) {
