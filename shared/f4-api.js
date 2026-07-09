@@ -7,7 +7,7 @@
 (function (global) {
     "use strict";
 
-    var BRIDGE_BUILD = "f4-bridge-v3";
+    var BRIDGE_BUILD = "f4-bridge-v4";
 
     var session = {
         token: "",
@@ -162,6 +162,13 @@
         return jsonp(apiBase, apiParams({ action: "session" }), 25000);
     }
 
+    function getCharacter() {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({ action: "get_character" }), 25000);
+    }
+
     function ping() {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
@@ -210,6 +217,7 @@
         isBridgeMode: isBridgeMode,
         isHudMode: function () { return hudMode; },
         getSession: getSession,
+        getCharacter: getCharacter,
         ping: ping,
         endSession: endSession,
         saveStats: saveStats,

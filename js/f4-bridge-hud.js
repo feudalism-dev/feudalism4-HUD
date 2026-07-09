@@ -3,7 +3,8 @@
  * Requires shared/f4-api.js (F4Bridge).
  *
  * Session wire format (LSL → JS via JSONP string callback):
- *   OK|characterId|xp_lifetime|xp_spent|ap_balance|stats_csv
+ *   v4: OK|characterId|name|title|gender|species_id|xp|spent|ap|stats_csv
+ *   v3: OK|characterId|xp|spent|ap|stats_csv
  *   ERR|reason
  */
 (function (global) {
@@ -58,11 +59,16 @@
         return {
             ok: true,
             characterId: obj.characterId || "",
+            name: obj.name || "",
+            title: obj.title || "",
+            gender: obj.gender || "",
+            species_id: obj.species_id || "",
             xp_lifetime: parseInt(econ.xp_lifetime, 10) || 0,
             xp_spent: parseInt(econ.xp_spent, 10) || 0,
             ap_balance: parseInt(econ.ap_balance, 10) || 0,
             stats_csv: csv,
-            line: "legacy"
+            line: "legacy",
+            format: "legacy"
         };
     }
 
@@ -75,13 +81,30 @@
         }
         var parts = line.split("|");
         if (parts[0] === "ERR") {
-            return { ok: false, error: parts[1] || "error" };
+            return { ok: false, error: parts[1] || "error", line: line };
         }
         if (parts[0] !== "OK") {
-            return { ok: false, error: "bad_prefix" };
+            return { ok: false, error: "bad_prefix", line: line };
+        }
+        if (parts.length >= 10) {
+            return {
+                ok: true,
+                format: "v4",
+                characterId: parts[1] || "",
+                name: decodeMoapField(parts[2] || ""),
+                title: decodeMoapField(parts[3] || ""),
+                gender: decodeMoapField(parts[4] || ""),
+                species_id: decodeMoapField(parts[5] || ""),
+                xp_lifetime: parseInt(parts[6], 10) || 0,
+                xp_spent: parseInt(parts[7], 10) || 0,
+                ap_balance: parseInt(parts[8], 10) || 0,
+                stats_csv: parts[9] || "",
+                line: line
+            };
         }
         return {
             ok: true,
+            format: "v3",
             characterId: parts[1] || "",
             xp_lifetime: parseInt(parts[2], 10) || 0,
             xp_spent: parseInt(parts[3], 10) || 0,
@@ -96,7 +119,7 @@
             return Promise.resolve({ ok: false, error: "no_bridge" });
         }
         return waitForBridgeReady(8000).then(function () {
-            return F4Bridge.getSession();
+            return F4Bridge.getCharacter();
         }).then(function (res) {
             return parseSessionLine(res);
         });
@@ -122,9 +145,9 @@
     global.F4BridgeHud = {
         isEnabled: isEnabled,
         waitForBridgeReady: waitForBridgeReady,
-        fetchSession: fetchSession,
         parseSessionLine: parseSessionLine,
-        decodeMoapField: decodeMoapField,
-        poolFromPipe: poolFromPipe
+        fetchSession: fetchSession,
+        poolFromPipe: poolFromPipe,
+        decodeMoapField: decodeMoapField
     };
-})(typeof window !== "undefined" ? window : globalThis);
+}(typeof window !== "undefined" ? window : this));

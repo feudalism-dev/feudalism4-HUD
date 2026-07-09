@@ -4006,11 +4006,62 @@ try {
             return session && session.error ? String(session.error) : 'session missing';
         }
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
-        return 'char=' + (session.characterId || '?')
+        const firstStat = csv ? csv.split(',')[0] : '';
+        return 'fmt=' + (session.format || '?')
+            + ' char=' + (session.characterId || '?')
+            + ' name=' + (session.name || '(none)')
             + ' csvLen=' + csv.length
+            + ' stat0=' + firstStat
             + ' xp=' + (session.xp_lifetime != null ? session.xp_lifetime : '?')
             + ' spent=' + (session.xp_spent != null ? session.xp_spent : '?')
             + ' ap=' + (session.ap_balance != null ? session.ap_balance : '?');
+    },
+
+    logHudCharacterPull(session, char, label) {
+        const tag = label || 'HUD pull';
+        const summary = this.bridgeSessionDebugSummary(session);
+        console.log('[F4 Bridge] ' + tag + ': ' + summary);
+        if (typeof window.simpleDebug === 'function') {
+            window.simpleDebug('[F4 Bridge] ' + tag + ': ' + summary, 'info');
+        }
+        if (char && char.stats) {
+            const keys = Object.keys(char.stats);
+            const sample = keys.length ? (keys[0] + '=' + char.stats[keys[0]]) : 'no stats';
+            console.log('[F4 Bridge] ' + tag + ' applied stats sample: ' + sample);
+        }
+    },
+
+    csvIsFactoryOnes(csv) {
+        if (!csv || typeof csv !== 'string') {
+            return false;
+        }
+        const parts = csv.split(',');
+        if (parts.length !== 20) {
+            return false;
+        }
+        let idx;
+        for (idx = 0; idx < parts.length; idx++) {
+            if (parseInt(parts[idx], 10) !== 1) {
+                return false;
+            }
+        }
+        return true;
+    },
+
+    bridgeSessionStatsReady(session) {
+        if (!session || !session.ok) {
+            return false;
+        }
+        const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
+        if (!csv || csv.split(',').length !== 20 || !this.statsObjectFromCsv(csv)) {
+            return false;
+        }
+        const life = parseInt(session.xp_lifetime, 10) || 0;
+        const spent = parseInt(session.xp_spent, 10) || 0;
+        if ((life > 0 || spent > 0) && this.csvIsFactoryOnes(csv)) {
+            return false;
+        }
+        return true;
     },
 
     bridgeHasAuthoritativeHudData(characterId) {
@@ -4022,42 +4073,42 @@ try {
         if (sid && cid && sid !== cid) {
             return false;
         }
-        const csv = this._lastBridgeSession.stats_csv
-            || (this._lastBridgeSession.stats && this._lastBridgeSession.stats.csv)
-            || '';
-        return !!(csv && !this.csvIsStarterDefault(csv));
+        return this.bridgeSessionStatsReady(this._lastBridgeSession);
     },
 
     bridgeSessionHasGameplay(session) {
-        if (!session || !session.ok) {
-            return false;
-        }
-        const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
-        if (csv && !this.csvIsStarterDefault(csv)) {
-            return true;
-        }
-        const life = parseInt(session.xp_lifetime, 10) || 0;
-        const spent = parseInt(session.xp_spent, 10) || 0;
-        const ap = parseInt(session.ap_balance, 10) || 0;
-        return life > 0 || spent > 0 || ap > 0;
+        return this.bridgeSessionStatsReady(session);
     },
 
     applyBridgeSessionToCharacter(char, session) {
         if (!char || !session || !session.ok) {
             return false;
         }
+        if (session.name) {
+            char.name = session.name;
+        }
+        if (session.title != null && session.title !== '') {
+            char.title = session.title;
+        }
+        if (session.gender) {
+            char.gender = session.gender;
+        }
+        if (session.species_id) {
+            char.species_id = session.species_id;
+        }
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
-        if (csv && !this.csvIsStarterDefault(csv)) {
-            const stats = this.statsObjectFromCsv(csv);
-            if (stats) {
+        const life = parseInt(session.xp_lifetime, 10) || 0;
+        const spent = parseInt(session.xp_spent, 10) || 0;
+        if (csv && this.statsObjectFromCsv(csv)) {
+            const staleFactory = (life > 0 || spent > 0) && this.csvIsFactoryOnes(csv);
+            if (!staleFactory) {
+                const stats = this.statsObjectFromCsv(csv);
                 char.stats = stats;
                 if (this.state.pendingChanges) {
                     this.state.pendingChanges.stats = Object.assign({}, stats);
                 }
             }
         }
-        const life = parseInt(session.xp_lifetime, 10) || 0;
-        const spent = parseInt(session.xp_spent, 10) || 0;
         const ap = parseInt(session.ap_balance, 10) || 0;
         const curLife = typeof window.getEconLifetime === 'function' ? window.getEconLifetime(char) : (parseInt(char.xp_lifetime, 10) || 0);
         const curSpent = typeof window.getEconSpent === 'function' ? window.getEconSpent(char) : (parseInt(char.xp_spent, 10) || 0);
@@ -4100,7 +4151,7 @@ try {
             options = {};
         }
         const showModal = options.showModal === true;
-        const maxAttempts = options.maxAttempts || (showModal ? 5 : 3);
+        const maxAttempts = options.maxAttempts || (showModal ? 12 : 15);
         let hideLoading = null;
         const debugLog = (typeof window.simpleDebug === 'function') ? window.simpleDebug : null;
         if (showModal && typeof MoapDialogs !== 'undefined' && MoapDialogs.showLoading) {
@@ -4126,34 +4177,41 @@ try {
                         debugLog('[F4 Bridge] session ' + attempt + ': ' + summary, 'debug');
                     }
                     if (!session || !session.ok || !char) {
-                        await new Promise(function (resolve) { setTimeout(resolve, 500); });
+                        await new Promise(function (resolve) { setTimeout(resolve, 400); });
                         continue;
                     }
                     const sid = session.characterId || '';
                     if (sid && sid !== characterId) {
-                        await new Promise(function (resolve) { setTimeout(resolve, 500); });
+                        await new Promise(function (resolve) { setTimeout(resolve, 400); });
                         continue;
                     }
-                    if (this.bridgeSessionHasGameplay(session)) {
+                    this.applyBridgeSessionToCharacter(char, session);
+                    if (this.bridgeSessionStatsReady(session)) {
                         const csv = session.stats_csv || '';
-                        this.applyBridgeSessionToCharacter(char, session);
                         this._bridgeSessionApplied = true;
                         this._lastBridgeSession = session;
-                        if (csv && !this.csvIsStarterDefault(csv)) {
+                        if (csv) {
                             this._lastStatsCsvSynced = csv;
                         }
                         if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
                             UI.setStatsHudBanner(null);
                         }
+                        this.logHudCharacterPull(session, char, 'hydrated');
                         console.log('[F4 Bridge] gameplay loaded: ' + summary);
                         return true;
+                    }
+                    if (debugLog) {
+                        debugLog('[F4 Bridge] waiting for stats csv (attempt ' + attempt + ')', 'debug');
                     }
                 } catch (err) {
                     console.warn('[F4 Bridge] session fetch failed:', err);
                 }
                 if (attempt < maxAttempts) {
-                    await new Promise(function (resolve) { setTimeout(resolve, 500); });
+                    await new Promise(function (resolve) { setTimeout(resolve, 400); });
                 }
+            }
+            if (lastSession) {
+                this.logHudCharacterPull(lastSession, this.state.character, 'timeout');
             }
             console.warn('[F4 Bridge] no HUD gameplay in session for', characterId, lastSession);
             return false;
