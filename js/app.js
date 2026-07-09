@@ -4180,7 +4180,7 @@ try {
             } catch (refreshErr) {
                 console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
             }
-            const preDelay = forceRefresh ? 1500 : 600;
+            const preDelay = forceRefresh ? 2200 : 600;
             await new Promise(function (resolve) { setTimeout(resolve, preDelay); });
             let attempt = 0;
             let lastSession = null;
@@ -10942,7 +10942,7 @@ window.buyPointsWithXp = function (pointCount) {
         App.persistMoapSessionDraft(true);
     }
     if (typeof UI !== 'undefined' && UI.showToast) {
-        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — click Save Stats when ready', 'info', 2500);
+        UI.showToast('Bought ' + n + ' AP (' + xpCost.toLocaleString() + ' XP) — saving to HUD...', 'info', 2500);
     }
     if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
         UI.renderEconDisplay(char);
@@ -10951,6 +10951,15 @@ window.buyPointsWithXp = function (pointCount) {
         if (typeof UI.renderStatsGrid === 'function') {
             UI.renderStatsGrid(stats, caps, newAp, App.state.statsFloor || {});
         }
+    }
+    if (typeof App.isBridgeHudMode === 'function' && App.isBridgeHudMode()
+        && typeof App.saveStatsToHud === 'function') {
+        App.saveStatsToHud().catch(function (err) {
+            console.error('[Buy AP] bridge save failed:', err);
+            if (typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Bought AP locally — click Save Stats to write to HUD', 'warning', 3000);
+            }
+        });
     }
     return true;
 };
