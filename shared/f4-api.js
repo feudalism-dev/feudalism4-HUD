@@ -7,7 +7,7 @@
 (function (global) {
     "use strict";
 
-    var BRIDGE_BUILD = "f4-bridge-v6.6";
+    var BRIDGE_BUILD = "f4-bridge-v6.7";
 
     var session = {
         token: "",

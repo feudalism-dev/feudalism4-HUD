@@ -3853,7 +3853,7 @@ try {
      * Push pending_starting_xp into HUD LSD and refresh KVP so f4state_* gets the grant.
      * Never reduces existing lifetime XP (Character State applyPendingStartingXp enforces that).
      * @param {object} character
-     * @param {{ forceNavigate?: boolean }} options — forceNavigate for starter provision
+     * @param {{ forceNavigate?: boolean, forceStarter?: boolean }} options
      */
     grantStartingXpToHud(character, options) {
         if (options === undefined) {
@@ -3871,8 +3871,13 @@ try {
             return;
         }
         const current = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
-        if (current >= grant) {
+        const forceStarter = !!options.forceStarter
+            || (!!this.state.creationInProgress && character.id === this.state.selectedCharacterId);
+        if (!forceStarter && current >= grant) {
             return;
+        }
+        if (forceStarter && current > grant) {
+            console.warn('[XP] Forcing starter grant', grant, 'over stale session value', current);
         }
         character.xp_lifetime = grant;
         if (typeof App.state.econ === 'undefined' || !App.state.econ) {
@@ -5410,9 +5415,7 @@ try {
                 } else {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
                 }
-                if (!draft) {
-                    this.grantStartingXpToHud(createdChar);
-                }
+                this.grantStartingXpToHud(createdChar, { forceStarter: true });
                 await this.refreshAfterCharacterSave(result.data.character);
                 return true;
             } else {
@@ -5548,7 +5551,7 @@ try {
                 await this.cacheHudStatsForPlayers(this.state.character, {
                     syncStats: shouldSyncStats && !this.isBridgeHudMode()
                 });
-                this.grantStartingXpToHud(this.state.character);
+                this.grantStartingXpToHud(this.state.character, { forceStarter: !!seedStarterLine });
                 // Defer lsl_cmd cleanup — immediate cleanMoapUrlParams erased LOAD_CHARACTER before LSL poll.
                 setTimeout(function () {
                     if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
