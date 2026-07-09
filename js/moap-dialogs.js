@@ -344,10 +344,27 @@
         });
     }
 
+    function showLoading(message) {
+        installGlobalHandlers();
+        var els = ensureOverlay();
+        var safeMessage = escapeHtml(String(message || 'Please wait...'));
+        var content =
+            '<div class="moap-dialog moap-dialog-loading">' +
+            '<h2 class="moap-dialog-title">Loading</h2>' +
+            '<p class="moap-dialog-message">' + safeMessage + '</p>' +
+            '</div>';
+        showOverlay(els, content, false);
+        activeDone = null;
+        return function hideLoading() {
+            hideOverlay(els);
+        };
+    }
+
     global.MoapDialogs = {
         showConfirm: showConfirm,
         showAlert: showAlert,
         showChoice: showChoice,
+        showLoading: showLoading,
         cancelActiveDialog: cancelActiveDialog,
         isActive: isActive
     };

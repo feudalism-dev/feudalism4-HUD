@@ -791,7 +791,10 @@ try {
                             
                             console.log('Character loaded:', this.state.character);
 
-                            const bridgeHydrated = await this.hydrateCharacterFromBridge(this.state.character.id);
+                            const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
+                                showModal: false,
+                                afterSlotSwitch: !!characterSwitch
+                            });
                             let hadMoapDraft = false;
                             if (!bridgeHydrated) {
                                 this.initEconFromUrl();
@@ -3242,7 +3245,17 @@ try {
                         return;
                     }
                 }
+                if (tabId === 'stats' && typeof App.ensureBridgeGameplayLoaded === 'function'
+                    && App.isBridgeHudMode && App.isBridgeHudMode()) {
+                    const cid = App.state.character && App.state.character.id;
+                    if (cid) {
+                        await App.ensureBridgeGameplayLoaded(cid, { showModal: true, afterSlotSwitch: false });
+                    }
+                }
                 origSwitchTab(tabId);
+                if (tabId === 'stats' && typeof App.refreshStatsTabFromCharacter === 'function') {
+                    App.refreshStatsTabFromCharacter();
+                }
             };
         }
 
@@ -3345,6 +3358,8 @@ try {
                 const isCharacterSwitch = !!(switchingFrom && switchingFrom !== value);
                 if (isCharacterSwitch) {
                     await this.reloadSetupHudForCharacterSwitch(value);
+                    this.updateStepGuide();
+                    this.updateDeleteButtonVisibility();
                     return;
                 }
                 await this.rememberSelectedCharacter(value);
@@ -4034,55 +4049,95 @@ try {
     },
 
     async hydrateCharacterFromBridge(characterId) {
-        if (!this.isBridgeHudMode()) {
+        return this.ensureBridgeGameplayLoaded(characterId, {
+            showModal: false,
+            afterSlotSwitch: false
+        });
+    },
+
+    /**
+     * Poll JSONP bridge session until HUD LSD/EXP has gameplay for this character.
+     * @param {string} characterId
+     * @param {{ showModal?: boolean, afterSlotSwitch?: boolean }} options
+     */
+    async ensureBridgeGameplayLoaded(characterId, options) {
+        if (!this.isBridgeHudMode() || !characterId) {
             return false;
         }
-        const self = this;
-        const maxAttempts = 10;
-        let attempt = 0;
-        async function tryHydrate() {
-            attempt += 1;
-            try {
-                const session = await F4BridgeHud.fetchSession();
-                if (!session || !session.ok) {
-                    if (attempt < maxAttempts) {
-                        await F4BridgeHud.waitForBridgeReady(800);
-                        return tryHydrate();
+        if (options === undefined) {
+            options = {};
+        }
+        const showModal = options.showModal === true;
+        const afterSlotSwitch = options.afterSlotSwitch === true;
+        const maxAttempts = afterSlotSwitch ? 25 : 12;
+        let hideLoading = null;
+        if (showModal && typeof MoapDialogs !== 'undefined' && MoapDialogs.showLoading) {
+            hideLoading = MoapDialogs.showLoading('Loading stats from HUD...');
+        }
+        try {
+            await F4BridgeHud.waitForBridgeReady(8000);
+            let attempt = 0;
+            while (attempt < maxAttempts) {
+                attempt += 1;
+                try {
+                    const session = await F4BridgeHud.fetchSession();
+                    const char = this.state.character;
+                    if (!session || !session.ok || !char) {
+                        await new Promise(function (resolve) { setTimeout(resolve, 400); });
+                        continue;
                     }
-                    console.warn('[F4 Bridge] session not available:', session && session.error);
-                    return false;
+                    const sid = session.characterId || '';
+                    if (sid && sid !== characterId) {
+                        console.warn('[F4 Bridge] waiting for slot', characterId, 'got', sid);
+                        await new Promise(function (resolve) { setTimeout(resolve, 400); });
+                        continue;
+                    }
+                    const csv = session.stats && session.stats.csv;
+                    const csvPresent = !!(csv && String(csv).trim() !== '');
+                    const csvAuthoritative = csvPresent && !this.csvIsStarterDefault(csv);
+                    const lastAttempt = attempt >= maxAttempts;
+                    if (csvPresent && (csvAuthoritative || !afterSlotSwitch || lastAttempt)) {
+                        this.applyBridgeSessionToCharacter(char, session);
+                        this._bridgeSessionApplied = true;
+                        this._lastBridgeSession = session;
+                        this._lastStatsCsvSynced = csv || this._lastStatsCsvSynced;
+                        console.log('[F4 Bridge] gameplay loaded (attempt ' + attempt + ', csvAuth=' + csvAuthoritative + ')');
+                        return true;
+                    }
+                } catch (err) {
+                    console.warn('[F4 Bridge] ensureBridgeGameplayLoaded attempt failed:', err);
                 }
-                const char = self.state.character;
-                if (!char) {
-                    return false;
-                }
-                if (characterId && session.characterId && session.characterId !== characterId) {
-                    console.warn('[F4 Bridge] session characterId mismatch:', session.characterId, characterId);
-                }
-                const csv = session.stats && session.stats.csv;
-                const csvMissing = !csv || String(csv).trim() === '';
-                if (csvMissing && attempt < maxAttempts) {
-                    await new Promise(function (resolve) { setTimeout(resolve, 400); });
-                    return tryHydrate();
-                }
-                self.applyBridgeSessionToCharacter(char, session);
-                self._bridgeSessionApplied = true;
-                self._lastBridgeSession = session;
-                if (csv) {
-                    self._lastStatsCsvSynced = csv;
-                }
-                console.log('[F4 Bridge] HUD session hydrated from LSL (build ' + (session.build || '?') + ')');
-                return true;
-            } catch (err) {
-                if (attempt < maxAttempts) {
-                    await new Promise(function (resolve) { setTimeout(resolve, 400); });
-                    return tryHydrate();
-                }
-                console.warn('[F4 Bridge] hydrate failed:', err);
-                return false;
+                await new Promise(function (resolve) { setTimeout(resolve, 400); });
+            }
+            console.warn('[F4 Bridge] gameplay load timed out for', characterId);
+            return false;
+        } finally {
+            if (hideLoading) {
+                hideLoading();
             }
         }
-        return tryHydrate();
+    },
+
+    refreshStatsTabFromCharacter() {
+        const char = this.state.character;
+        if (!char) {
+            return;
+        }
+        this.normalizeCharacterStats(char);
+        if (typeof window.reconcileStaleApBalance === 'function') {
+            window.reconcileStaleApBalance(char);
+        }
+        const stats = char.stats || this.getDefaultStats();
+        const caps = this.calculateStatCaps();
+        const ap = window.getApBalance(char);
+        if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
+            UI.renderEconDisplay(char);
+        }
+        if (typeof UI !== 'undefined' && UI.renderStatsGrid) {
+            UI.renderStatsGrid(stats, caps, ap, this.state.statsFloor || {});
+        }
+        this.updateSaveStatsButton();
+        this.updateStatusIndicator();
     },
 
     shadowLogBridgeVsUrl() {
@@ -4372,6 +4427,16 @@ try {
             UI.showToast('Loading character from HUD...', 'info', 6000);
         }
         await this.pushCharacterToPlayersHUD(characterId);
+        await this.loadData({ characterSwitch: true });
+        if (this.isBridgeHudMode()) {
+            await this.ensureBridgeGameplayLoaded(characterId, {
+                showModal: true,
+                afterSlotSwitch: true
+            });
+        }
+        this.captureAbandonBaseline(this.state.character);
+        this.refreshStatsTabFromCharacter();
+        await this.renderAll();
     },
 
     /**
