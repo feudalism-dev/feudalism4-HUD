@@ -194,7 +194,7 @@
         return jsonp(apiBase, apiParams(extra), 15000);
     }
 
-    function saveEcon(xpSpent, apBalance) {
+    function saveEcon(xpSpent, apBalance, characterId) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
         }
@@ -204,6 +204,9 @@
         }
         if (apBalance !== undefined && apBalance !== null && apBalance !== "") {
             extra.ap_balance = apBalance;
+        }
+        if (characterId !== undefined && characterId !== null && characterId !== "") {
+            extra.character_id = characterId;
         }
         return jsonp(apiBase, apiParams(extra), 15000);
     }

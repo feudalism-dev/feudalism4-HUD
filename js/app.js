@@ -165,7 +165,7 @@ try {
         currentVocation: null,
         inventoryPagination: null,  // { cursor: '', hasMore: false, items: [] }
         currentUniverse: null,
-        selectedUniverseId: (typeof window !== 'undefined' && window.HUD_DEFAULT_UNIVERSE) || 'default',
+        selectedUniverseId: 'default',
         selectedCharacterId: null,
         pendingChanges: {},
         statsFloor: null,
@@ -752,7 +752,9 @@ try {
                             if (this.isCharacterSetupIncomplete(character)) {
                                 this.state.creationInProgress = true;
                                 this.state.isNewCharacter = true;
-                                this.state.selectedUniverseId = character.universe_id || this.state.selectedUniverseId;
+                            }
+                            if (character.universe_id) {
+                                this.state.selectedUniverseId = character.universe_id;
                             }
                             
                             // Load universe data for the character
@@ -2265,7 +2267,7 @@ try {
             return false;
         }
 
-        const universeId = (typeof window !== 'undefined' && window.HUD_DEFAULT_UNIVERSE) || 'default';
+        const universeId = 'default';
         this.state.selectedUniverseId = universeId;
 
         try {
@@ -2352,9 +2354,13 @@ try {
             }
 
             this._pendingAutoHideSetup = true;
-            await this.pushCharacterToPlayersHUD(character.id);
+            if (this.isBridgeHudMode()) {
+                await this.seedHudKvpGameplay(character, { allowStarterSeed: true, silent: true });
+            } else {
+                await this.pushCharacterToPlayersHUD(character.id);
+            }
             this.scheduleBroadcastToPlayersHUD(character);
-            this.grantStartingXpToHud(character, { forceNavigate: true });
+            this.grantStartingXpToHud(character, { forceNavigate: !this.isBridgeHudMode() });
 
             if (typeof UI !== 'undefined' && UI.showToast) {
                 UI.showToast(
@@ -3877,7 +3883,7 @@ try {
             App.state.econ.ap_balance = Math.max(0, parseInt(character.ap_balance, 10) || 0);
         }
         App.state.econSessionActive = true;
-        if (options.forceNavigate) {
+        if (options.forceNavigate && !this.isBridgeHudMode()) {
             try {
                 const currentUrl = new URL(window.location.href);
                 const message = 'SET_PENDING_STARTING_XP|amount:' + encodeURIComponent(String(grant))
@@ -4291,6 +4297,46 @@ try {
                 this.logHudCharacterPull(lastSession, this.state.character, 'timeout');
             }
             console.warn('[F4 Bridge] no HUD gameplay in session for', characterId, lastSession);
+            if (!this._kvpRepairByChar) {
+                this._kvpRepairByChar = {};
+            }
+            if (!this._kvpRepairByChar[characterId]) {
+                this._kvpRepairByChar[characterId] = true;
+                const repairChar = this.state.character;
+                if (repairChar && repairChar.id === characterId) {
+                    console.log('[F4 Bridge] attempting KVP repair seed for', characterId);
+                    const repaired = await this.seedHudKvpGameplay(repairChar, {
+                        allowStarterSeed: true,
+                        silent: true,
+                        syncEcon: true
+                    });
+                    if (repaired) {
+                        try {
+                            await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                        } catch (repairRefreshErr) {
+                            console.warn('[F4 Bridge] REFRESH_GAMEPLAY after KVP repair failed:', repairRefreshErr);
+                        }
+                        await new Promise(function (resolve) { setTimeout(resolve, 1800); });
+                        try {
+                            const repairedSession = await F4BridgeHud.fetchSession();
+                            if (repairedSession && repairedSession.ok
+                                && this.bridgeSessionStatsReady(repairedSession)) {
+                                this.applyBridgeSessionToCharacter(repairChar, repairedSession);
+                                this._bridgeSessionApplied = true;
+                                this._lastBridgeSession = repairedSession;
+                                const repairCsv = repairedSession.stats_csv || '';
+                                if (repairCsv) {
+                                    this._lastStatsCsvSynced = repairCsv;
+                                }
+                                console.log('[F4 Bridge] KVP repair succeeded for', characterId);
+                                return true;
+                            }
+                        } catch (repairFetchErr) {
+                            console.warn('[F4 Bridge] session fetch after KVP repair failed:', repairFetchErr);
+                        }
+                    }
+                }
+            }
             return false;
         } finally {
             if (hideLoading) {
@@ -4357,7 +4403,11 @@ try {
     },
 
     async saveStatsToHudViaBridge(char, savedSpent, savedAp, csv) {
-        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp);
+        await F4BridgeHud.waitForBridgeReady(12000);
+        if (char && char.id) {
+            await this.ensureHudCharacterSlotSynced(char.id);
+        }
+        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp, char && char.id ? char.id : undefined);
         if (!econRes || !econRes.ok) {
             throw new Error((econRes && econRes.error) || 'save_econ_failed');
         }
@@ -4375,6 +4425,7 @@ try {
         }
         this._lastStatsCsvSynced = csv;
         this.clearStatsPendingAfterHudSave();
+        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
         UI.showToast('Stats saved to HUD (bridge)', 'success', 2000);
         return true;
     },
@@ -4387,11 +4438,32 @@ try {
         if (options === undefined) {
             options = {};
         }
-        if (!char || !char.id || !this.isBridgeHudMode()) {
+        if (!char || !char.id) {
             return false;
+        }
+        if (!this.isBridgeHudMode()) {
+            if (!options.silent) {
+                console.warn('[KVP seed] bridge mode not active — stats stay in Firestore only');
+            }
+            return false;
+        }
+        try {
+            await F4BridgeHud.waitForBridgeReady(options.bridgeTimeout || 12000);
+        } catch (bridgeErr) {
+            console.error('[KVP seed] bridge not ready:', bridgeErr);
+            if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('HUD bridge not ready — reattach and reopen Setup', 'error');
+            }
+            return false;
+        }
+        if (options.syncSlot !== false) {
+            await this.ensureHudCharacterSlotSynced(char.id);
         }
         const csv = options.statsCsv || this.statsCsvFromChar(char);
         if (!csv || csv.split(',').length !== 20) {
+            if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Could not build stats for HUD storage', 'error');
+            }
             return false;
         }
         const allowStarter = !!options.allowStarterSeed;
@@ -4403,26 +4475,40 @@ try {
             if (options.syncEcon !== false) {
                 const econRes = await F4Bridge.saveEcon(
                     window.getEconSpent(char),
-                    window.getApBalance(char)
+                    window.getApBalance(char),
+                    char.id
                 );
                 if (!econRes || !econRes.ok) {
                     console.warn('[KVP seed] save_econ failed:', econRes);
+                    if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                        UI.showToast('Could not save XP/AP to HUD storage', 'warning');
+                    }
                 }
             }
             const statsRes = await F4Bridge.saveStats(csv, char.id);
             if (!statsRes || !statsRes.ok) {
                 console.warn('[KVP seed] save_stats failed:', statsRes);
+                if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast('Could not save stats to HUD storage (KVP)', 'error');
+                }
                 return false;
             }
+            await new Promise(function (resolve) { setTimeout(resolve, options.kvpSettleMs || 1200); });
             this._lastStatsCsvSynced = csv;
             if (this._lastBridgeSession) {
                 this._lastBridgeSession.stats_csv = csv;
             }
             console.log('[KVP seed] f4stats written for', char.id,
                 nonFactory ? '(edited line)' : '(initial factory line)');
+            if (options.showSuccess && typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Gameplay saved to HUD', 'success', 2000);
+            }
             return true;
         } catch (err) {
             console.error('[KVP seed] bridge write failed:', err);
+            if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                UI.showToast('Failed to save gameplay to HUD', 'error');
+            }
             return false;
         }
     },
@@ -5033,7 +5119,7 @@ try {
             console.warn('[Players HUD Sync] LOAD_CHARACTER missing name — meter may show Loading until Bridge fetch');
         }
         console.log('[Players HUD Sync] Switching HUD character:', payload);
-        this.sendToLSL('LOAD_CHARACTER', payload);
+        await this.sendToLSL('LOAD_CHARACTER', payload);
         try {
             const currentUrl = new URL(window.location.href);
             if (char && char.name) {
@@ -5081,10 +5167,7 @@ try {
         }
 
         if (this.isBridgeHudMode()) {
-            this.sendToLSLViaBridge(message).catch(function (err) {
-                console.error('[LSL] bridge command failed:', command, err);
-            });
-            return;
+            return this.sendToLSLViaBridge(message);
         }
         
         // Store command in URL so LSL can poll for it
@@ -5308,12 +5391,16 @@ try {
                 this.updateStepGuide();
                 const createdChar = this.state.character;
                 if (this.isBridgeHudMode() && createdChar) {
-                    await this.seedHudKvpGameplay(createdChar, { allowStarterSeed: true });
+                    await this.seedHudKvpGameplay(createdChar, {
+                        allowStarterSeed: true,
+                        showSuccess: !draft && !silent
+                    });
+                } else {
+                    await this.pushCharacterToPlayersHUD(result.data.character.id);
                 }
                 if (!draft) {
                     this.grantStartingXpToHud(createdChar);
                 }
-                await this.pushCharacterToPlayersHUD(result.data.character.id);
                 await this.refreshAfterCharacterSave(result.data.character);
                 return true;
             } else {
@@ -5434,12 +5521,17 @@ try {
                 const shouldSyncStats = !this.csvIsStarterDefault(statsCsvNow)
                     || !!(gameplaySnapshot.pendingStats);
                 const finishingSetup = !draft && updatePayload.setup_complete;
+                const seedStarterLine = finishingSetup
+                    || (draft && this.state.creationInProgress);
                 if (this.isBridgeHudMode()) {
                     await this.seedHudKvpGameplay(this.state.character, {
                         statsCsv: statsCsvNow,
-                        allowStarterSeed: finishingSetup,
-                        syncEcon: true
+                        allowStarterSeed: seedStarterLine,
+                        syncEcon: true,
+                        showSuccess: finishingSetup && !silent
                     });
+                } else {
+                    await this.pushCharacterToPlayersHUD(characterId);
                 }
                 await this.cacheHudStatsForPlayers(this.state.character, {
                     syncStats: shouldSyncStats && !this.isBridgeHudMode()
