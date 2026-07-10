@@ -191,7 +191,7 @@
         if (characterId !== undefined && characterId !== null && characterId !== "") {
             extra.character_id = characterId;
         }
-        return jsonp(apiBase, apiParams(extra), 22000);
+        return jsonp(apiBase, apiParams(extra), 25000);
     }
 
     function saveEcon(xpSpent, apBalance, characterId, xpLifetime) {

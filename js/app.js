@@ -261,7 +261,8 @@ try {
             allowStarterSeed: true,
             forceWrite: true,
             syncEcon: true,
-            syncSlot: options.syncSlot !== false,
+            syncSlot: true,
+            forceSlotSync: options.forceSlotSync === true,
             silent: options.silent !== false,
             showSuccess: !!options.showSuccess,
             xpLifetime: char.xp_lifetime
@@ -280,7 +281,10 @@ try {
         }
         const statsCsv = options.statsCsv || this.statsCsvFromChar(char);
         if (!this.isCreationKvpSeeded(char.id)) {
-            await this.pushCreationStarterToKvp(char, { statsCsv: statsCsv });
+            await this.pushCreationStarterToKvp(char, {
+                statsCsv: statsCsv,
+                forceSlotSync: true
+            });
             return true;
         }
         if (this.hasEditedGameplay(char, statsCsv) || options.forceGameplaySync) {
@@ -1890,7 +1894,8 @@ try {
                 return true;
             } catch (e) {
                 console.error('[Save Stats] bridge failed:', e);
-                UI.showToast('Failed to save stats to HUD (bridge)', 'error');
+                const errMsg = e && e.message ? String(e.message) : 'unknown';
+                UI.showToast('Failed to save stats to HUD (bridge): ' + errMsg, 'error', 5000);
                 return false;
             }
         }
@@ -4192,8 +4197,7 @@ try {
             console.error('[KVP starter] bridge not ready:', bridgeErr);
             return false;
         }
-        await this.ensureHudCharacterSlotSynced(char.id);
-        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+        await this.ensureHudSlotForWrites(char.id, { force: !!options.forceSlotSync });
         const csv = options.statsCsv || this.statsCsvFromChar(char);
         const statsRes = await F4Bridge.saveStats(csv, char.id);
         if (!statsRes || !statsRes.ok) {
@@ -4594,6 +4598,23 @@ try {
         App.state.econ.ap_balance = ap;
         App.state.econSessionActive = true;
         return true;
+    },
+
+    async ensureHudSlotForWrites(characterId, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!characterId || !this.isBridgeHudMode()) {
+            return false;
+        }
+        if (!options.force && this._hudSlotSyncedCharId === characterId) {
+            return true;
+        }
+        const ok = await this.ensureHudCharacterSlotSynced(characterId);
+        if (ok) {
+            this._hudSlotSyncedCharId = characterId;
+        }
+        return ok;
     },
 
     async ensureHudCharacterSlotSynced(characterId) {
@@ -5115,32 +5136,48 @@ try {
 
     async saveStatsToHudViaBridge(char, savedSpent, savedAp, csv) {
         await F4BridgeHud.waitForBridgeReady(12000);
-        if (char && char.id) {
-            await this.ensureHudCharacterSlotSynced(char.id);
-        }
         const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
         if (!statsRes || !statsRes.ok) {
-            throw new Error((statsRes && statsRes.error) || 'save_stats_failed');
-        }
-        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp, char && char.id ? char.id : undefined);
-        if (!econRes || !econRes.ok) {
-            throw new Error((econRes && econRes.error) || 'save_econ_failed');
-        }
-        if (this._lastBridgeSession) {
-            this._lastBridgeSession.xp_spent = String(savedSpent);
-            this._lastBridgeSession.ap_balance = String(savedAp);
-            this._lastBridgeSession.stats_csv = csv;
-            if (char && char.xp_lifetime != null) {
-                this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
-            }
+            const errCode = (statsRes && statsRes.error) ? String(statsRes.error) : 'save_stats_failed';
+            throw new Error(errCode);
         }
         this._lastStatsCsvSynced = csv;
-        this.clearStatsPendingAfterHudSave();
+        if (this._lastBridgeSession) {
+            this._lastBridgeSession.stats_csv = csv;
+        }
         if (char && char.id) {
+            this._hudSlotSyncedCharId = char.id;
             this.markCreationKvpSeeded(char.id);
         }
-        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
-        UI.showToast('Stats saved to HUD (bridge)', 'success', 2000);
+        let econWarning = '';
+        try {
+            const lifeArg = char && char.xp_lifetime != null ? char.xp_lifetime : undefined;
+            const econRes = await F4Bridge.saveEcon(
+                savedSpent,
+                savedAp,
+                char && char.id ? char.id : undefined,
+                lifeArg
+            );
+            if (!econRes || !econRes.ok) {
+                econWarning = (econRes && econRes.error) ? String(econRes.error) : 'save_econ_failed';
+                console.warn('[Save Stats] save_econ after stats:', econWarning);
+            } else if (this._lastBridgeSession) {
+                this._lastBridgeSession.xp_spent = String(savedSpent);
+                this._lastBridgeSession.ap_balance = String(savedAp);
+                if (char && char.xp_lifetime != null) {
+                    this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
+                }
+            }
+        } catch (econErr) {
+            econWarning = econErr.message || 'save_econ_failed';
+            console.warn('[Save Stats] save_econ error after stats saved:', econWarning);
+        }
+        this.clearStatsPendingAfterHudSave();
+        if (econWarning && typeof UI !== 'undefined' && UI.showToast) {
+            UI.showToast('Stats saved — XP/AP sync may still be finishing (' + econWarning + ')', 'warning', 4000);
+        } else {
+            UI.showToast('Stats saved to HUD (bridge)', 'success', 2000);
+        }
         return true;
     },
 
@@ -5170,8 +5207,8 @@ try {
             }
             return false;
         }
-        if (options.syncSlot !== false) {
-            await this.ensureHudCharacterSlotSynced(char.id);
+        if (options.syncSlot === true) {
+            await this.ensureHudSlotForWrites(char.id, { force: !!options.forceSlotSync });
         }
         const csv = options.statsCsv || this.statsCsvFromChar(char);
         if (!csv || csv.split(',').length !== 20) {
@@ -5507,6 +5544,7 @@ try {
         this._bridgeSessionApplied = false;
         this._lastBridgeSession = null;
         this._lastStatsCsvSynced = null;
+        this._hudSlotSyncedCharId = null;
         this.state.dirty = false;
         this.state.statsPending = false;
         this.state.pendingChanges = {};
