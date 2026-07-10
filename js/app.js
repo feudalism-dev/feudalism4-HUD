@@ -220,6 +220,11 @@ try {
         this._creationKvpSeeded[charId] = true;
     },
 
+    /** True when the Stats tab is active (read-only session polls only). */
+    isMoapStatsTabActive() {
+        return typeof window.getMoapActiveTab === 'function' && window.getMoapActiveTab() === 'stats';
+    },
+
     /** True when the player has spent XP/AP or changed stats beyond the species-confirmed starter line. */
     hasEditedGameplay(char, statsCsvOpt) {
         if (!char) {
@@ -3394,17 +3399,19 @@ try {
                 }
                 if (tabId === 'stats' && typeof App.prepareCreationStatsTab === 'function'
                     && typeof App.isInCreationFlow === 'function' && App.isInCreationFlow()) {
+                    App._hudGameplayHydrationGen = (App._hudGameplayHydrationGen || 0) + 1;
                     origSwitchTab(tabId);
                     await App.prepareCreationStatsTab();
                     return;
                 }
                 if (tabId === 'stats' && typeof App.refreshHudGameplayFromMoap === 'function'
                     && App.isBridgeHudMode && App.isBridgeHudMode()) {
+                    App._hudGameplayHydrationGen = (App._hudGameplayHydrationGen || 0) + 1;
                     origSwitchTab(tabId);
                     const cid = App.state.character && App.state.character.id;
                     if (cid) {
                         const statsLoaded = await App.refreshHudGameplayFromMoap({
-                            showModal: true,
+                            showModal: false,
                             forceRefresh: false
                         });
                         if (!statsLoaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
@@ -4090,7 +4097,7 @@ try {
         }
         if (this.isBridgeHudMode()) {
             const loaded = await this.refreshHudGameplayFromMoap({
-                showModal: true,
+                showModal: false,
                 forceRefresh: false,
                 kvpAuthoritative: true,
                 maxAttempts: 12
@@ -4163,13 +4170,14 @@ try {
         await this.ensureHudCharacterSlotSynced(char.id);
         await new Promise(function (resolve) { setTimeout(resolve, 1200); });
         const csv = this.statsCsvFromChar(char);
-        const econRes = await F4Bridge.saveEcon(spent, ap, char.id, grant);
-        if (!econRes || !econRes.ok) {
-            console.warn('[KVP starter] save_econ failed:', econRes);
-        }
         const statsRes = await F4Bridge.saveStats(csv, char.id);
         if (!statsRes || !statsRes.ok) {
             console.warn('[KVP starter] save_stats failed:', statsRes);
+            return false;
+        }
+        const econRes = await F4Bridge.saveEcon(spent, ap, char.id, grant);
+        if (!econRes || !econRes.ok) {
+            console.warn('[KVP starter] save_econ failed:', econRes);
             return false;
         }
         this._lastStatsCsvSynced = csv;
@@ -4184,12 +4192,6 @@ try {
             format: 'v4'
         };
         this.markCreationKvpSeeded(char.id);
-        await new Promise(function (resolve) { setTimeout(resolve, 1500); });
-        try {
-            await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
-        } catch (refreshErr) {
-            console.warn('[KVP starter] REFRESH_GAMEPLAY failed:', refreshErr);
-        }
         console.log('[KVP starter] wrote starter line for', char.id,
             'xp=' + grant, 'spent=' + spent, 'ap=' + ap);
         return true;
@@ -4488,7 +4490,11 @@ try {
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
         const spent = parseInt(session.xp_spent, 10) || 0;
         const localSpent = window.getEconSpent(char);
-        const localEdited = inCreation && (this.state.statsPending || localSpent > 0);
+        const localEdited = this.hasEditedGameplay(char) || this.state.statsPending || !!this._lastStatsCsvSynced;
+        if (localEdited && spent < localSpent) {
+            console.warn('[F4 Bridge] ignoring stale KVP session — local spent', localSpent, '> session', spent);
+            return false;
+        }
         if (localEdited && spent === 0 && csv && this.csvIsFactoryOnes(csv)) {
             console.warn('[F4 Bridge] ignoring stale factory KVP session — local gameplay edits in memory');
             return false;
@@ -4655,17 +4661,16 @@ try {
                 return false;
             }
         })();
-        if (!skipHudStatsPush && !this.state.statsPending && !awaitingHudKvp) {
+        const onStatsTab = this.isMoapStatsTabActive();
+        if (!onStatsTab && !skipHudStatsPush && !this.state.statsPending && !awaitingHudKvp) {
             await this.cacheHudStatsForPlayers(char, {
                 syncStats: !characterSwitch
             });
-        } else if (!this.state.statsPending && !awaitingHudKvp) {
+        } else if (!onStatsTab && !this.state.statsPending && !awaitingHudKvp) {
             if (characterSwitch || !bridgeHydrated) {
                 await this.pushCharacterToPlayersHUD(char.id);
             }
         }
-        const onStatsTab = typeof window.getMoapActiveTab === 'function'
-            && window.getMoapActiveTab() === 'stats';
         if (bridgeHydrated || onStatsTab) {
             this.refreshStatsTabFromCharacter();
         }
@@ -4684,9 +4689,9 @@ try {
         const inCreationSaved = this.isInCreationFlow() && !!characterId;
         const bridgeHydrated = await this.ensureBridgeGameplayLoaded(characterId, {
             showModal: false,
-            forceRefresh: !!(options.characterSwitch || inCreationSaved),
+            forceRefresh: !!options.characterSwitch,
             kvpAuthoritative: !!inCreationSaved,
-            maxAttempts: options.characterSwitch ? 20 : (inCreationSaved ? 22 : 15)
+            maxAttempts: options.characterSwitch ? 20 : (inCreationSaved ? 15 : 12)
         });
         await this.applyHudGameplayHydrationResult(bridgeHydrated, options);
         return bridgeHydrated;
@@ -4699,6 +4704,9 @@ try {
         if (!characterId || !this.isBridgeHudMode()) {
             return;
         }
+        if (this.isMoapStatsTabActive()) {
+            return;
+        }
         const gen = ++this._hudGameplayHydrationGen;
         const self = this;
         (async function () {
@@ -4709,7 +4717,7 @@ try {
                 const inCreationSaved = self.isInCreationFlow() && !!characterId;
                 const bridgeHydrated = await self.ensureBridgeGameplayLoaded(characterId, {
                     showModal: false,
-                    forceRefresh: !!(options.characterSwitch || inCreationSaved),
+                    forceRefresh: !!options.characterSwitch,
                     kvpAuthoritative: !!inCreationSaved,
                     maxAttempts: options.characterSwitch ? 10 : (inCreationSaved ? 8 : 5)
                 });
@@ -4751,26 +4759,22 @@ try {
         }
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
-            const inCreationSaved = this.hasCreationProgressSaved() && characterId === this.state.character?.id;
-            if (forceRefresh || inCreationSaved) {
-                if (inCreationSaved && !forceRefresh) {
-                    /* Saved creation draft: pull KVP only — no LOAD_CHARACTER spam. */
-                } else if (this.isInCreationFlow() || forceRefresh) {
+            if (forceRefresh) {
+                const inCreationSaved = this.hasCreationProgressSaved() && characterId === this.state.character?.id;
+                if (this.isInCreationFlow() || forceRefresh) {
                     try {
                         await this.ensureHudCharacterSlotSynced(characterId);
                     } catch (slotErr) {
                         console.warn('[F4 Bridge] proactive slot sync failed:', slotErr);
                     }
                 }
-            }
-            if (forceRefresh) {
                 try {
                     await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
                 } catch (refreshErr) {
                     console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
                 }
             }
-            const preDelay = forceRefresh ? 2200 : 600;
+            const preDelay = forceRefresh ? 2200 : 400;
             await new Promise(function (resolve) { setTimeout(resolve, preDelay); });
             let attempt = 0;
             let lastSession = null;
@@ -4794,6 +4798,19 @@ try {
                     }
                     const sid = session.characterId || '';
                     if (sid && sid !== characterId) {
+                        if (!forceRefresh) {
+                            if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                                UI.setStatsHudBanner(
+                                    'HUD is on a different character — switch in the roster or use Refresh from HUD.',
+                                    'warning'
+                                );
+                            }
+                            if (this.hasEditedGameplay(char) || this._lastStatsCsvSynced) {
+                                this.refreshStatsTabFromCharacter();
+                                return true;
+                            }
+                            return false;
+                        }
                         if (!slotSyncSent) {
                             slotSyncSent = true;
                             if (debugLog) {
@@ -4842,6 +4859,7 @@ try {
                 this.logHudCharacterPull(lastSession, this.state.character, 'timeout');
             }
             console.warn('[F4 Bridge] no HUD gameplay in session for', characterId, lastSession);
+            if (forceRefresh) {
             if (!this._kvpRepairByChar) {
                 this._kvpRepairByChar = {};
             }
@@ -4899,6 +4917,7 @@ try {
                         }
                     }
                 }
+            }
             }
             const fallbackChar = this.state.character;
             if (options.allowLocalFallback && fallbackChar && fallbackChar.id === characterId) {
@@ -4981,13 +5000,13 @@ try {
         if (char && char.id) {
             await this.ensureHudCharacterSlotSynced(char.id);
         }
-        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp, char && char.id ? char.id : undefined);
-        if (!econRes || !econRes.ok) {
-            throw new Error((econRes && econRes.error) || 'save_econ_failed');
-        }
         const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
         if (!statsRes || !statsRes.ok) {
             throw new Error((statsRes && statsRes.error) || 'save_stats_failed');
+        }
+        const econRes = await F4Bridge.saveEcon(savedSpent, savedAp, char && char.id ? char.id : undefined);
+        if (!econRes || !econRes.ok) {
+            throw new Error((econRes && econRes.error) || 'save_econ_failed');
         }
         if (this._lastBridgeSession) {
             this._lastBridgeSession.xp_spent = String(savedSpent);
@@ -5049,6 +5068,14 @@ try {
             return false;
         }
         try {
+            const statsRes = await F4Bridge.saveStats(csv, char.id);
+            if (!statsRes || !statsRes.ok) {
+                console.warn('[KVP seed] save_stats failed:', statsRes);
+                if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast('Could not save stats to HUD storage (KVP)', 'error');
+                }
+                return false;
+            }
             if (options.syncEcon !== false) {
                 const econRes = await F4Bridge.saveEcon(
                     window.getEconSpent(char),
@@ -5058,19 +5085,12 @@ try {
                 if (!econRes || !econRes.ok) {
                     console.warn('[KVP seed] save_econ failed:', econRes);
                     if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
-                        UI.showToast('Could not save XP/AP to HUD storage', 'warning');
+                        UI.showToast('Stats saved but XP/AP did not persist — try Save Stats again', 'warning');
                     }
+                    return false;
                 }
             }
-            const statsRes = await F4Bridge.saveStats(csv, char.id);
-            if (!statsRes || !statsRes.ok) {
-                console.warn('[KVP seed] save_stats failed:', statsRes);
-                if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
-                    UI.showToast('Could not save stats to HUD storage (KVP)', 'error');
-                }
-                return false;
-            }
-            await new Promise(function (resolve) { setTimeout(resolve, options.kvpSettleMs || 1200); });
+            await new Promise(function (resolve) { setTimeout(resolve, options.kvpSettleMs || 800); });
             this._lastStatsCsvSynced = csv;
             if (this._lastBridgeSession) {
                 this._lastBridgeSession.stats_csv = csv;

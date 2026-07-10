@@ -191,7 +191,7 @@
         if (characterId !== undefined && characterId !== null && characterId !== "") {
             extra.character_id = characterId;
         }
-        return jsonp(apiBase, apiParams(extra), 15000);
+        return jsonp(apiBase, apiParams(extra), 22000);
     }
 
     function saveEcon(xpSpent, apBalance, characterId, xpLifetime) {
@@ -211,7 +211,7 @@
         if (characterId !== undefined && characterId !== null && characterId !== "") {
             extra.character_id = characterId;
         }
-        return jsonp(apiBase, apiParams(extra), 15000);
+        return jsonp(apiBase, apiParams(extra), 22000);
     }
 
     function sendCommand(cmd) {
