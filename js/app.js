@@ -207,7 +207,17 @@ try {
     _hudGameplayHydrationGen: 0,
 
     isCreationKvpSeeded(charId) {
-        return !!(charId && this._creationKvpSeeded && this._creationKvpSeeded[charId]);
+        if (!charId) {
+            return false;
+        }
+        if (this._creationKvpSeeded && this._creationKvpSeeded[charId]) {
+            return true;
+        }
+        try {
+            return sessionStorage.getItem('f4_kvp_seeded_' + charId) === '1';
+        } catch (e) {
+            return false;
+        }
     },
 
     markCreationKvpSeeded(charId) {
@@ -218,6 +228,9 @@ try {
             this._creationKvpSeeded = {};
         }
         this._creationKvpSeeded[charId] = true;
+        try {
+            sessionStorage.setItem('f4_kvp_seeded_' + charId, '1');
+        } catch (e) { /* ignore */ }
     },
 
     /** True when the Stats tab is active (read-only session polls only). */
@@ -276,11 +289,28 @@ try {
         if (options === undefined) {
             options = {};
         }
-        if (!char || !char.id || !this.isBridgeHudMode()) {
+        if (!char || !char.id || !this.isBridgeHudMode() || !this.isInCreationFlow()) {
             return false;
         }
         const statsCsv = options.statsCsv || this.statsCsvFromChar(char);
+        if (!statsCsv) {
+            return false;
+        }
         if (!this.isCreationKvpSeeded(char.id)) {
+            if (this._lastBridgeSession && this._lastBridgeSession.ok
+                && (this._lastBridgeSession.characterId || '') === char.id) {
+                const sessionCsv = this._lastBridgeSession.stats_csv || '';
+                if (sessionCsv && !this.csvIsStarterDefault(sessionCsv)) {
+                    this.markCreationKvpSeeded(char.id);
+                    return true;
+                }
+            }
+            if (!this.shouldWriteStatsToKvp(char, statsCsv, {
+                allowStarterSeed: true,
+                forceFirstSeed: true
+            })) {
+                return false;
+            }
             await this.pushCreationStarterToKvp(char, {
                 statsCsv: statsCsv,
                 forceSlotSync: true
@@ -288,6 +318,11 @@ try {
             return true;
         }
         if (this.hasEditedGameplay(char, statsCsv) || options.forceGameplaySync) {
+            if (!this.shouldWriteStatsToKvp(char, statsCsv, {
+                allowStarterSeed: true
+            })) {
+                return false;
+            }
             return await this.seedHudKvpGameplay(char, {
                 statsCsv: statsCsv,
                 allowStarterSeed: true,
@@ -1329,6 +1364,7 @@ try {
         const steps = this.getCreationSteps();
         const idx = steps.findIndex(function (s) { return s.id === stepId; });
         this.state.creationMaxStepIndex = idx >= 0 ? idx : 0;
+        this.ensureCreationEconReady(character);
         if (!character.id) {
             this.resetHudUrlForNewCharacterDraft();
             this.resetDraftEconOnCharacter(character);
@@ -1464,7 +1500,7 @@ try {
                 if (!char.species_id) {
                     return { ok: false, message: 'Select a species on the Character tab first.' };
                 }
-                if (!this.hasCreationStarterGameplay(char)) {
+                if (!this.hasCreationGameplayReady(char)) {
                     return { ok: false, message: 'Confirm your species choice to receive starting XP and stats.' };
                 }
                 if (this.state.statsPending) {
@@ -2520,7 +2556,11 @@ try {
 
             this._pendingAutoHideSetup = true;
             if (this.isBridgeHudMode()) {
-                await this.seedHudKvpGameplay(character, { allowStarterSeed: true, silent: true });
+                await this.seedHudKvpGameplay(character, {
+                    allowStarterSeed: true,
+                    silent: true,
+                    forceWrite: true
+                });
             } else {
                 await this.pushCharacterToPlayersHUD(character.id);
             }
@@ -4031,14 +4071,105 @@ try {
         return !!(char && char.id && this.isInCreationFlow());
     },
 
+    getEffectiveXpLifetime(char) {
+        let life = 0;
+        if (char && char.xp_lifetime != null) {
+            life = Math.max(0, parseInt(char.xp_lifetime, 10) || 0);
+        }
+        if (typeof App !== 'undefined' && App.state && App.state.econ && App.state.econ.xp_lifetime != null) {
+            life = Math.max(life, parseInt(App.state.econ.xp_lifetime, 10) || 0);
+        }
+        if (this._lastBridgeSession && this._lastBridgeSession.ok) {
+            life = Math.max(life, parseInt(this._lastBridgeSession.xp_lifetime, 10) || 0);
+        }
+        return life;
+    },
+
     /** True after species is confirmed and starter stats/XP are on the character object. */
     hasCreationStarterGameplay(char) {
         if (!char || !char.species_id || !char.stats) {
             return false;
         }
         const grant = this.getStartingXpGrant(char.species_id);
-        const life = Math.max(0, parseInt(char.xp_lifetime, 10) || 0);
-        return grant > 0 && life >= grant;
+        return grant > 0 && this.getEffectiveXpLifetime(char) >= grant;
+    },
+
+    /**
+     * Creation wizard: species chosen and gameplay is ready (starter grant, HUD session, or edited stats).
+     */
+    hasCreationGameplayReady(char) {
+        if (!char || !char.species_id) {
+            return false;
+        }
+        if (this.hasEditedGameplay(char)) {
+            return true;
+        }
+        if (char.stats && this.hasCreationStarterGameplay(char)) {
+            return true;
+        }
+        if (this._bridgeSessionApplied && this._lastBridgeSession && this._lastBridgeSession.ok) {
+            const sessionLife = parseInt(this._lastBridgeSession.xp_lifetime, 10) || 0;
+            const grant = this.getStartingXpGrant(char.species_id);
+            if (grant > 0 && sessionLife >= grant) {
+                return true;
+            }
+        }
+        return false;
+    },
+
+    ensureCreationEconReady(char) {
+        if (!char || !char.species_id || !this.isInCreationFlow()) {
+            return false;
+        }
+        const grant = this.getStartingXpGrant(char.species_id);
+        if (grant <= 0 || this.getEffectiveXpLifetime(char) >= grant) {
+            return false;
+        }
+        if (!char.stats) {
+            this.applyCalculatedStarterGameplay(char);
+        } else {
+            this.applyCalculatedStarterEcon(char);
+        }
+        return true;
+    },
+
+    /**
+     * Guard all Experience KVP stat writes — never push factory lines or pre-session defaults.
+     */
+    shouldWriteStatsToKvp(char, csv, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!char || !char.id || !csv) {
+            return false;
+        }
+        if (options.forceWrite || options.userInitiated) {
+            return true;
+        }
+        if (this.state.statsPending) {
+            return true;
+        }
+        const factory = this.csvIsStarterDefault(csv);
+        if (factory) {
+            if (!options.allowStarterSeed) {
+                console.warn('[KVP] blocked factory stats write — not an allowed starter seed');
+                return false;
+            }
+            if (!this.isInCreationFlow()) {
+                console.warn('[KVP] blocked factory stats write outside creation flow');
+                return false;
+            }
+            if (this.isCreationKvpSeeded(char.id) && !options.forceFirstSeed) {
+                console.warn('[KVP] blocked factory stats re-seed for', char.id);
+                return false;
+            }
+            return true;
+        }
+        if (this.hasEditedGameplay(char, csv)) {
+            return true;
+        }
+        console.warn('[KVP] blocked stats write — no pending edits and line is not a creation starter seed');
+        return false;
     },
 
     syncStarterEconToMoapUrl(char) {
@@ -4110,12 +4241,12 @@ try {
             return false;
         }
         if (!char.id) {
-            if (char.species_id && !this.hasCreationStarterGameplay(char)) {
+            if (char.species_id && !this.hasCreationGameplayReady(char)) {
                 this.applySpeciesConfirmedStarter(char);
             }
             this.refreshStatsTabFromCharacter();
             if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
-                const ready = this.hasCreationStarterGameplay(char);
+                const ready = this.hasCreationGameplayReady(char);
                 UI.setStatsHudBanner(
                     ready
                         ? 'Starter values from species — use Save Progress to store on your HUD.'
@@ -4125,6 +4256,7 @@ try {
             }
             return true;
         }
+        this.ensureCreationEconReady(char);
         if (this.isBridgeHudMode()) {
             const loaded = await this.refreshHudGameplayFromMoap({
                 showModal: false,
@@ -4174,7 +4306,7 @@ try {
         if (options === undefined) {
             options = {};
         }
-        if (!char || !char.id) {
+        if (!char || !char.id || !this.isInCreationFlow()) {
             return false;
         }
         if (!char.stats && !options.statsCsv) {
@@ -4199,6 +4331,12 @@ try {
         }
         await this.ensureHudSlotForWrites(char.id, { force: !!options.forceSlotSync });
         const csv = options.statsCsv || this.statsCsvFromChar(char);
+        if (!this.shouldWriteStatsToKvp(char, csv, {
+            allowStarterSeed: true,
+            forceFirstSeed: true
+        })) {
+            return false;
+        }
         const statsRes = await F4Bridge.saveStats(csv, char.id);
         if (!statsRes || !statsRes.ok) {
             console.warn('[KVP starter] save_stats failed:', statsRes);
@@ -4402,8 +4540,17 @@ try {
         if (this.bridgeHasAuthoritativeHudData(cid)) {
             return false;
         }
-        if (this.characterHasAuthoritativeGameplay(this.state.character)) {
+        if (this._lastStatsCsvSynced && this.statsObjectFromCsv(this._lastStatsCsvSynced)
+            && !this.csvIsStarterDefault(this._lastStatsCsvSynced)) {
             return false;
+        }
+        const char = this.state.character;
+        const csv = char ? this.statsCsvFromChar(char) : '';
+        if (csv && !this.csvIsStarterDefault(csv)) {
+            return false;
+        }
+        if (this.isMoapStatsTabActive()) {
+            return true;
         }
         return this.isAwaitingHudKvpUrl(cid);
     },
@@ -4461,26 +4608,27 @@ try {
         return true;
     },
 
+    bridgeSessionEconReady(session) {
+        if (!session || !session.ok) {
+            return false;
+        }
+        const life = parseInt(session.xp_lifetime, 10) || 0;
+        return life > 0;
+    },
+
     bridgeSessionStatsReady(session) {
         if (!session || !session.ok) {
             return false;
         }
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
-        if (csv && csv.split(',').length === 20 && this.statsObjectFromCsv(csv)) {
-            const spent = parseInt(session.xp_spent, 10) || 0;
-            if (this.csvIsStarterDefault(csv)) {
-                return true;
-            }
-            if (spent > 0 && this.csvIsFactoryOnes(csv)) {
-                return false;
-            }
-            return true;
+        if (!csv || csv.split(',').length !== 20 || !this.statsObjectFromCsv(csv)) {
+            return false;
         }
-        const life = parseInt(session.xp_lifetime, 10) || 0;
-        if (life > 0) {
-            return true;
+        const spent = parseInt(session.xp_spent, 10) || 0;
+        if (spent > 0 && this.csvIsFactoryOnes(csv)) {
+            return false;
         }
-        return false;
+        return true;
     },
 
     bridgeSessionMissingStats(session) {
@@ -4516,7 +4664,7 @@ try {
             console.log('[F4 Bridge] applied cached bridge session while KVP stats pending');
             return true;
         }
-        if (this.hasCreationStarterGameplay(char) || this.hasEditedGameplay(char)) {
+        if (this.hasCreationGameplayReady(char) || this.hasEditedGameplay(char)) {
             console.log('[F4 Bridge] using in-memory creation gameplay while KVP stats pending');
             return true;
         }
@@ -4576,11 +4724,18 @@ try {
         }
         if (csv && this.statsObjectFromCsv(csv)) {
             const staleFactory = spent > 0 && this.csvIsFactoryOnes(csv);
-            if (!staleFactory) {
+            const factoryFromSession = this.csvIsFactoryOnes(csv) && spent === 0;
+            const noLocalAuthority = !this._lastStatsCsvSynced
+                && !this.urlHasAuthoritativeStats(char.id)
+                && !this.state.statsPending;
+            if (!staleFactory && !(factoryFromSession && noLocalAuthority && !inCreation)) {
                 const stats = this.statsObjectFromCsv(csv);
                 char.stats = stats;
                 if (this.state.pendingChanges) {
                     this.state.pendingChanges.stats = Object.assign({}, stats);
+                }
+                if (!this.csvIsStarterDefault(csv)) {
+                    this.markCreationKvpSeeded(char.id);
                 }
             }
         }
@@ -4971,18 +5126,20 @@ try {
                             this._lastStatsCsvSynced = csv;
                         }
                         if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
-                            if (this.bridgeSessionMissingStats(session)) {
-                                UI.setStatsHudBanner(
-                                    'XP loaded from KVP — f4stats record missing. Raise stats and use Save Stats.',
-                                    'warning'
-                                );
-                            } else {
-                                UI.setStatsHudBanner(null);
-                            }
+                            UI.setStatsHudBanner(null);
                         }
                         this.logHudCharacterPull(session, char, 'hydrated');
                         console.log('[F4 Bridge] gameplay loaded: ' + summary);
                         return true;
+                    }
+                    if (this.bridgeSessionEconReady(session)) {
+                        this._lastBridgeSession = session;
+                        if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                            UI.setStatsHudBanner(
+                                'XP loaded from KVP — waiting for stat line (f4stats)...',
+                                'info'
+                            );
+                        }
                     }
                     if (debugLog) {
                         debugLog('[F4 Bridge] waiting for stats csv (attempt ' + attempt + ')', 'debug');
@@ -5005,24 +5162,14 @@ try {
             if (!this._kvpRepairByChar[characterId]) {
                 this._kvpRepairByChar[characterId] = true;
                 const repairChar = this.state.character;
-                if (repairChar && repairChar.id === characterId) {
-                    let repaired = false;
-                    if (this.hasEditedGameplay(repairChar)) {
-                        console.log('[F4 Bridge] KVP repair using local edited gameplay for', characterId);
-                        repaired = await this.seedHudKvpGameplay(repairChar, {
-                            statsCsv: this.statsCsvFromChar(repairChar),
-                            allowStarterSeed: true,
-                            silent: true,
-                            syncEcon: true
-                        });
-                    } else {
-                        console.log('[F4 Bridge] attempting KVP repair seed for', characterId);
-                        repaired = await this.seedHudKvpGameplay(repairChar, {
-                            allowStarterSeed: true,
-                            silent: true,
-                            syncEcon: true
-                        });
-                    }
+                if (repairChar && repairChar.id === characterId && this.hasEditedGameplay(repairChar)) {
+                    console.log('[F4 Bridge] KVP repair using local edited gameplay for', characterId);
+                    const repaired = await this.seedHudKvpGameplay(repairChar, {
+                        statsCsv: this.statsCsvFromChar(repairChar),
+                        allowStarterSeed: false,
+                        silent: true,
+                        syncEcon: true
+                    });
                     if (repaired) {
                         try {
                             await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
@@ -5082,6 +5229,17 @@ try {
         if (!char) {
             return;
         }
+        if (this.isBridgeHudMode() && this.shouldDeferStatsDisplay(char.id)) {
+            if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                UI.setStatsHudBanner('Loading stats from Experience KVP...', 'info');
+            }
+            if (typeof UI !== 'undefined' && UI.renderEconDisplay) {
+                UI.renderEconDisplay(char);
+            }
+            this.updateSaveStatsButton();
+            this.updateStatusIndicator();
+            return;
+        }
         this.normalizeCharacterStats(char);
         if (typeof window.reconcileStaleApBalance === 'function') {
             window.reconcileStaleApBalance(char);
@@ -5136,6 +5294,9 @@ try {
 
     async saveStatsToHudViaBridge(char, savedSpent, savedAp, csv) {
         await F4BridgeHud.waitForBridgeReady(12000);
+        if (!this.shouldWriteStatsToKvp(char, csv, { userInitiated: true })) {
+            throw new Error('stats_write_blocked');
+        }
         const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
         if (!statsRes || !statsRes.ok) {
             const errCode = (statsRes && statsRes.error) ? String(statsRes.error) : 'save_stats_failed';
@@ -5221,6 +5382,13 @@ try {
         const forceWrite = !!options.forceWrite;
         const nonFactory = !this.csvIsStarterDefault(csv);
         if (!nonFactory && !allowStarter && !forceWrite) {
+            return false;
+        }
+        if (!this.shouldWriteStatsToKvp(char, csv, {
+            allowStarterSeed: allowStarter,
+            forceWrite: forceWrite,
+            forceFirstSeed: forceWrite
+        })) {
             return false;
         }
         try {
@@ -5631,6 +5799,9 @@ try {
         if (!char) {
             return;
         }
+        if (this.isBridgeHudMode()) {
+            return;
+        }
         if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
             this.scheduleSyncStatsToPlayersHUD(char);
             return;
@@ -5646,31 +5817,6 @@ try {
                     || '')
                 : '';
             this._lastStatsCsvSynced = urlCsv || bridgeCsv || this.statsCsvFromChar(char) || '';
-            return;
-        }
-        if (this.isBridgeHudMode()) {
-            const csvBridge = this.statsCsvFromChar(char);
-            if (!csvBridge) {
-                return;
-            }
-            const needsInitialSeed = !this.urlHasAuthoritativeStats(char.id) && !this._lastStatsCsvSynced;
-            if (this.csvIsStarterDefault(csvBridge) && !needsInitialSeed) {
-                return;
-            }
-            if (this._lastStatsCsvSynced === csvBridge) {
-                return;
-            }
-            const self = this;
-            F4Bridge.saveStats(csvBridge, char.id).then(function (res) {
-                if (res && res.ok) {
-                    self._lastStatsCsvSynced = csvBridge;
-                    console.log('[Players HUD Sync] stats saved via bridge');
-                } else {
-                    console.warn('[Players HUD Sync] bridge save_stats failed:', res);
-                }
-            }).catch(function (err) {
-                console.error('[Players HUD Sync] bridge save_stats error:', err);
-            });
             return;
         }
         const csv = this.statsCsvFromChar(char);
@@ -6031,7 +6177,7 @@ try {
                     if (!silent) UI.showToast('Select a species before saving progress', 'warning');
                     return false;
                 }
-                if (!this.hasCreationStarterGameplay(char)) {
+                if (!this.hasCreationGameplayReady(char)) {
                     if (!silent) UI.showToast('Confirm your species choice to set starting XP and stats before saving', 'warning');
                     return false;
                 }

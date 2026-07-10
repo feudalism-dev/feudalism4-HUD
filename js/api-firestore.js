@@ -1559,7 +1559,8 @@ const API = {
         if (!character) {
             return;
         }
-        character.stats = this.getNewCharacterStats();
+        // Do not seed factory all-1s — that line must only come from KVP/HUD session or explicit creation confirm.
+        delete character.stats;
         character.xp_total = 0;
         character.xp_available = 0;
         character.xp_lifetime = 0;
