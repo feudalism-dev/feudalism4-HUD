@@ -3347,7 +3347,7 @@ try {
         });
         document.getElementById('btn-refresh-stats-hud')?.addEventListener('click', function () {
             if (typeof App.refreshHudGameplayFromMoap === 'function') {
-                App.refreshHudGameplayFromMoap({ showModal: true }).then(function (ok) {
+                App.refreshHudGameplayFromMoap({ showModal: true, forceRefresh: true }).then(function (ok) {
                     if (!ok && typeof UI !== 'undefined' && UI.showToast) {
                         UI.showToast('HUD refresh failed', 'warning');
                     }
@@ -3405,7 +3405,7 @@ try {
                     if (cid) {
                         const statsLoaded = await App.refreshHudGameplayFromMoap({
                             showModal: true,
-                            forceRefresh: true
+                            forceRefresh: false
                         });
                         if (!statsLoaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
                             UI.setStatsHudBanner('Could not refresh from HUD — try again or reattach the HUD.', 'warning');
@@ -4091,15 +4091,15 @@ try {
         if (this.isBridgeHudMode()) {
             const loaded = await this.refreshHudGameplayFromMoap({
                 showModal: true,
-                forceRefresh: true,
+                forceRefresh: false,
                 kvpAuthoritative: true,
-                maxAttempts: 20
+                maxAttempts: 12
             });
             if (!loaded) {
                 this.refreshStatsTabFromCharacter();
                 if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
                     UI.setStatsHudBanner(
-                        'Could not load from HUD KVP — try Refresh from HUD or Save Progress again.',
+                        'Could not confirm HUD KVP — values shown are from your last save in this session.',
                         'warning'
                     );
                 }
@@ -4548,20 +4548,46 @@ try {
         if (options === undefined) {
             options = {};
         }
+        const forceRefresh = options.forceRefresh === true;
         const inCreation = this.isInCreationFlow();
-        const kvpAuthoritative = options.kvpAuthoritative === true;
+
+        if (!forceRefresh) {
+            const quickLoaded = await this.ensureBridgeGameplayLoaded(cid, {
+                showModal: false,
+                forceRefresh: false,
+                kvpAuthoritative: options.kvpAuthoritative === true,
+                maxAttempts: options.maxAttempts || 8
+            });
+            if (quickLoaded) {
+                this.refreshStatsTabFromCharacter();
+                if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                    UI.setStatsHudBanner(null);
+                }
+                return true;
+            }
+        }
+
         const loaded = await this.ensureBridgeGameplayLoaded(cid, {
             showModal: options.showModal !== false,
-            forceRefresh: options.forceRefresh !== false,
-            kvpAuthoritative: kvpAuthoritative,
-            maxAttempts: options.maxAttempts || (inCreation ? 20 : 18),
-            allowLocalFallback: inCreation && !this.hasCreationProgressSaved()
+            forceRefresh: forceRefresh,
+            kvpAuthoritative: options.kvpAuthoritative === true,
+            maxAttempts: options.maxAttempts || (forceRefresh ? 18 : (inCreation ? 12 : 10))
         });
         this.refreshStatsTabFromCharacter();
         if (loaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
             UI.setStatsHudBanner(null);
+            return true;
         }
-        return loaded;
+        if (this.hasEditedGameplay(this.state.character) || this._lastStatsCsvSynced) {
+            if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                UI.setStatsHudBanner(
+                    'Showing your saved values — tap Refresh from HUD to pull from Experience KVP.',
+                    'info'
+                );
+            }
+            return true;
+        }
+        return false;
     },
 
     /**
