@@ -4787,7 +4787,7 @@ try {
             return false;
         }
         const char = this.state.character;
-        const payload = this.buildCharacterSyncPayload(characterId, char);
+        const payload = this.buildCharacterSyncPayload(characterId, char, { includeGameplay: true });
         const loadParts = Object.keys(payload).map(function (key) {
             return key + ':' + encodeURIComponent(String(payload[key]));
         });
@@ -5328,9 +5328,6 @@ try {
             throw new Error(errCode);
         }
         this._lastStatsCsvSynced = csv;
-        if (this._lastBridgeSession) {
-            this._lastBridgeSession.stats_csv = csv;
-        }
         if (char && char.id) {
             this._hudSlotSyncedCharId = char.id;
             this.markCreationKvpSeeded(char.id);
@@ -5347,22 +5344,25 @@ try {
             if (!econRes || !econRes.ok) {
                 econWarning = (econRes && econRes.error) ? String(econRes.error) : 'save_econ_failed';
                 console.warn('[Save Stats] save_econ after stats:', econWarning);
-            } else if (this._lastBridgeSession) {
-                this._lastBridgeSession.xp_spent = String(savedSpent);
-                this._lastBridgeSession.ap_balance = String(savedAp);
-                if (char && char.xp_lifetime != null) {
-                    this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
-                }
             }
         } catch (econErr) {
             econWarning = econErr.message || 'save_econ_failed';
             console.warn('[Save Stats] save_econ error after stats saved:', econWarning);
         }
+        if (this._lastBridgeSession) {
+            this._lastBridgeSession.stats_csv = csv;
+            this._lastBridgeSession.xp_spent = String(savedSpent);
+            this._lastBridgeSession.ap_balance = String(savedAp);
+            if (char.xp_lifetime != null) {
+                this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
+            }
+            this._bridgeSessionApplied = true;
+        }
         this.clearStatsPendingAfterHudSave();
         if (econWarning && typeof UI !== 'undefined' && UI.showToast) {
             UI.showToast('Stats saved — XP/AP sync may still be finishing (' + econWarning + ')', 'warning', 4000);
         } else {
-            UI.showToast('Stats saved to HUD (bridge)', 'success', 2000);
+            UI.showToast('Stats saved to Experience (HUD)', 'success', 2000);
         }
         return true;
     },
@@ -5942,7 +5942,10 @@ try {
      * Build pipe-safe payload from loaded Firestore character (MOAP → LSL).
      * LSL bridge HTTP cannot use Firebase auth; MOAP must push identity and pools.
      */
-    buildCharacterSyncPayload(characterId, charOverride) {
+    buildCharacterSyncPayload(characterId, charOverride, options) {
+        if (options === undefined) {
+            options = {};
+        }
         const data = { characterId: characterId };
         let char = charOverride;
         if (!char && this.state.character && this.state.character.id === characterId) {
@@ -6020,6 +6023,18 @@ try {
         if (this._pendingAutoHideSetup) {
             data.auto_hide_setup = 'TRUE';
             this._pendingAutoHideSetup = false;
+        }
+        if (options.includeGameplay && char) {
+            const gameplayCsv = this.statsCsvFromChar(char);
+            if (gameplayCsv && gameplayCsv.split(',').length === 20) {
+                data.stats = gameplayCsv;
+            }
+            const life = this.getEffectiveXpLifetime(char);
+            if (life > 0) {
+                data.xp_lifetime = String(life);
+            }
+            data.xp_spent = String(window.getEconSpent(char));
+            data.ap_balance = String(window.getApBalance(char));
         }
         return data;
     },
