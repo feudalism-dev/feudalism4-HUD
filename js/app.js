@@ -1888,7 +1888,7 @@ try {
         this.updateStatusIndicator();
     },
     async saveStatsToHud() {
-        const char = this.state.character;
+        let char = this.state.character;
         if (!char) {
             UI.showToast('No character loaded', 'warning');
             return false;
@@ -1908,8 +1908,13 @@ try {
         if (typeof this.persistMoapSessionDraft === 'function') {
             this.persistMoapSessionDraft(true);
         }
-        if (this.isInCreationFlow() && char.id && this.state.dirty) {
-            await this.saveCharacter({ draft: true, silent: true });
+        if (this.isInCreationFlow() && (!char.id || this.state.dirty)) {
+            const draftOk = await this.saveCharacter({ draft: true, silent: true });
+            char = this.state.character;
+            if (!draftOk || !char || !char.id) {
+                UI.showToast('Confirm species and save progress first, then Save Stats', 'warning', 4500);
+                return false;
+            }
         }
         UI.showToast('Saving stats...', 'info', 2000);
         const savedAp = window.getApBalance(char);
@@ -4141,6 +4146,11 @@ try {
             options = {};
         }
         if (!char || !char.id || !csv) {
+            if (!char || !char.id) {
+                console.warn('[KVP] blocked stats write — no character id (save progress first)');
+            } else if (!csv) {
+                console.warn('[KVP] blocked stats write — empty CSV');
+            }
             return false;
         }
         if (options.forceWrite || options.userInitiated) {
@@ -5297,9 +5307,21 @@ try {
 
     async saveStatsToHudViaBridge(char, savedSpent, savedAp, csv) {
         await F4BridgeHud.waitForBridgeReady(12000);
+        if (!char || !char.id) {
+            throw new Error('stats_write_no_character_id');
+        }
+        if (!csv) {
+            throw new Error('stats_write_empty_csv');
+        }
         if (!this.shouldWriteStatsToKvp(char, csv, { userInitiated: true })) {
+            console.warn('[Save Stats] blocked by shouldWriteStatsToKvp', {
+                charId: char && char.id,
+                csvLen: csv ? csv.length : 0,
+                statsPending: this.state.statsPending
+            });
             throw new Error('stats_write_blocked');
         }
+        await this.ensureHudSlotForWrites(char.id, { force: this.isInCreationFlow() });
         const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
         if (!statsRes || !statsRes.ok) {
             const errCode = (statsRes && statsRes.error) ? String(statsRes.error) : 'save_stats_failed';
