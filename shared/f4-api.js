@@ -194,7 +194,7 @@
         return jsonp(apiBase, apiParams(extra), 15000);
     }
 
-    function saveEcon(xpSpent, apBalance, characterId) {
+    function saveEcon(xpSpent, apBalance, characterId, xpLifetime) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
         }
@@ -204,6 +204,9 @@
         }
         if (apBalance !== undefined && apBalance !== null && apBalance !== "") {
             extra.ap_balance = apBalance;
+        }
+        if (xpLifetime !== undefined && xpLifetime !== null && xpLifetime !== "") {
+            extra.xp_lifetime = xpLifetime;
         }
         if (characterId !== undefined && characterId !== null && characterId !== "") {
             extra.character_id = characterId;

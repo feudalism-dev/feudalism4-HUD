@@ -589,18 +589,11 @@ try {
             this.state.character.stats = Object.assign({}, this.getNewCharacterStats());
         }
         if (inCreation) {
-            const grant = this.getStartingXpGrant(this.state.character.species_id || 'human');
-            if (grant > 0) {
-                this.state.character.xp_lifetime = grant;
+            if (this._bridgeSessionApplied && this._lastBridgeSession && savedCharacter.id) {
+                this.applyBridgeSessionToCharacter(this.state.character, this._lastBridgeSession);
+            } else if (!savedCharacter.id) {
+                this.applyCalculatedStarterGameplay(this.state.character);
             }
-            this.state.character.xp_spent = 0;
-            this.state.character.ap_balance = 0;
-            if (typeof App.state.econ === 'undefined' || !App.state.econ) {
-                App.state.econ = {};
-            }
-            App.state.econ.xp_lifetime = this.state.character.xp_lifetime || 0;
-            App.state.econ.xp_spent = 0;
-            App.state.econ.ap_balance = 0;
         } else {
             if (hudLife != null) {
                 this.state.character.xp_lifetime = hudLife;
@@ -898,19 +891,25 @@ try {
                                 await this.ensureHudCharacterSlotSynced(this.state.character.id);
                             }
 
+                            const inCreationSaved = this.isInCreationFlow() && !!this.state.character.id;
                             const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
                                 showModal: false,
                                 afterSlotSwitch: !!characterSwitch,
-                                forceRefresh: !!characterSwitch,
-                                maxAttempts: characterSwitch ? 20 : 15
+                                forceRefresh: !!(characterSwitch || inCreationSaved),
+                                kvpAuthoritative: !!inCreationSaved,
+                                maxAttempts: characterSwitch ? 20 : (inCreationSaved ? 22 : 15)
                             });
                             let hadMoapDraft = false;
                             if (!bridgeHydrated) {
-                                this.initEconFromUrl();
-                                this.mergePoolsFromUrl();
-                                hadMoapDraft = this.restoreMoapSessionDraft();
-                                this.mergeUrlEconIntoCharacter();
-                                this.mergeStatsFromUrlIntoCharacter();
+                                if (!inCreationSaved) {
+                                    this.initEconFromUrl();
+                                    this.mergePoolsFromUrl();
+                                    hadMoapDraft = this.restoreMoapSessionDraft();
+                                    this.mergeUrlEconIntoCharacter();
+                                    this.mergeStatsFromUrlIntoCharacter();
+                                } else if (!this.state.character.id) {
+                                    this.applyCalculatedStarterGameplay(this.state.character);
+                                }
                             } else {
                                 hadMoapDraft = this.restoreMoapSessionDraft();
                                 this.shadowLogBridgeVsUrl();
@@ -3357,30 +3356,25 @@ try {
                         return;
                     }
                 }
+                if (tabId === 'stats' && typeof App.prepareCreationStatsTab === 'function'
+                    && typeof App.isInCreationFlow === 'function' && App.isInCreationFlow()) {
+                    origSwitchTab(tabId);
+                    await App.prepareCreationStatsTab();
+                    return;
+                }
                 if (tabId === 'stats' && typeof App.refreshHudGameplayFromMoap === 'function'
                     && App.isBridgeHudMode && App.isBridgeHudMode()) {
+                    origSwitchTab(tabId);
                     const cid = App.state.character && App.state.character.id;
-                    const inCreation = typeof App.isInCreationFlow === 'function' && App.isInCreationFlow();
-                    let statsLoaded = false;
                     if (cid) {
-                        if (inCreation && typeof App.ensureHudCharacterSlotSynced === 'function') {
-                            await App.ensureHudCharacterSlotSynced(cid);
-                        }
-                        statsLoaded = await App.refreshHudGameplayFromMoap({
+                        const statsLoaded = await App.refreshHudGameplayFromMoap({
                             showModal: true,
                             forceRefresh: true
                         });
-                    }
-                    origSwitchTab(tabId);
-                    if (!cid && typeof App.refreshStatsTabFromCharacter === 'function') {
-                        App.refreshStatsTabFromCharacter();
-                    }
-                    if (!statsLoaded && cid && !inCreation
-                        && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
-                        UI.setStatsHudBanner('Could not refresh from HUD — try again or reattach the HUD.', 'warning');
-                    }
-                    if (!statsLoaded && cid && inCreation
-                        && typeof App.refreshStatsTabFromCharacter === 'function') {
+                        if (!statsLoaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                            UI.setStatsHudBanner('Could not refresh from HUD — try again or reattach the HUD.', 'warning');
+                        }
+                    } else if (typeof App.refreshStatsTabFromCharacter === 'function') {
                         App.refreshStatsTabFromCharacter();
                     }
                     return;
@@ -3958,6 +3952,163 @@ try {
         return BASE_STARTING_XP + this.getSpeciesStartingXp(speciesId || 'human');
     },
 
+    /** True once Firestore draft exists (Save Progress completed at least once). */
+    hasCreationProgressSaved() {
+        const char = this.state.character;
+        return !!(char && char.id && this.isInCreationFlow());
+    },
+
+    /**
+     * New-character gameplay from JS only — stats all 1s, XP from species lookup, 0 spent/AP.
+     * Used for unsaved drafts and as the payload written to KVP on Save Progress.
+     */
+    applyCalculatedStarterGameplay(char) {
+        if (!char) {
+            return false;
+        }
+        const speciesId = char.species_id || 'human';
+        const grant = this.getStartingXpGrant(speciesId);
+        char.stats = Object.assign({}, this.getNewCharacterStats());
+        char.xp_lifetime = grant > 0 ? grant : 0;
+        char.xp_spent = 0;
+        char.ap_balance = 0;
+        char.xp_available = char.xp_lifetime;
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = char.xp_lifetime;
+        App.state.econ.xp_spent = 0;
+        App.state.econ.ap_balance = 0;
+        App.state.econSessionActive = true;
+        if (this.state.pendingChanges) {
+            this.state.pendingChanges.stats = Object.assign({}, char.stats);
+        }
+        return true;
+    },
+
+    /**
+     * Stats tab during creation: unsaved draft = local calculate only; saved draft = pull KVP.
+     */
+    async prepareCreationStatsTab() {
+        const char = this.state.character;
+        if (!char) {
+            return false;
+        }
+        if (!char.id) {
+            this.applyCalculatedStarterGameplay(char);
+            this.refreshStatsTabFromCharacter();
+            if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                UI.setStatsHudBanner(
+                    'Starter values calculated locally — use Save Progress to store on your HUD.',
+                    'info'
+                );
+            }
+            return true;
+        }
+        if (this.isBridgeHudMode()) {
+            const loaded = await this.refreshHudGameplayFromMoap({
+                showModal: true,
+                forceRefresh: true,
+                kvpAuthoritative: true,
+                maxAttempts: 20
+            });
+            if (!loaded) {
+                this.refreshStatsTabFromCharacter();
+                if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                    UI.setStatsHudBanner(
+                        'Could not load from HUD KVP — try Refresh from HUD or Save Progress again.',
+                        'warning'
+                    );
+                }
+            }
+            return loaded;
+        }
+        this.refreshStatsTabFromCharacter();
+        return true;
+    },
+
+    /** Recalculate starter XP from species only (preserve current stats). */
+    applyCalculatedStarterEcon(char) {
+        if (!char) {
+            return false;
+        }
+        const grant = this.getStartingXpGrant(char.species_id || 'human');
+        char.xp_lifetime = grant > 0 ? grant : 0;
+        char.xp_spent = 0;
+        char.ap_balance = 0;
+        char.xp_available = char.xp_lifetime;
+        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+            App.state.econ = {};
+        }
+        App.state.econ.xp_lifetime = char.xp_lifetime;
+        App.state.econ.xp_spent = 0;
+        App.state.econ.ap_balance = 0;
+        App.state.econSessionActive = true;
+        return true;
+    },
+
+    /**
+     * After Save Progress: write JS-calculated starter line to Experience KVP (explicit lifetime XP).
+     */
+    async pushCreationStarterToKvp(char, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!char || !char.id) {
+            return false;
+        }
+        const statsCsv = this.statsCsvFromChar(char);
+        const statsAreFactory = !statsCsv || this.csvIsStarterDefault(statsCsv);
+        if (options.preserveStats || !statsAreFactory) {
+            this.applyCalculatedStarterEcon(char);
+            if (!char.stats) {
+                char.stats = Object.assign({}, this.getNewCharacterStats());
+            }
+        } else {
+            this.applyCalculatedStarterGameplay(char);
+        }
+        if (!this.isBridgeHudMode()) {
+            await this.pushCharacterToPlayersHUD(char.id);
+            this.grantStartingXpToHud(char, { forceStarter: true, forceNavigate: true });
+            return true;
+        }
+        try {
+            await F4BridgeHud.waitForBridgeReady(12000);
+        } catch (bridgeErr) {
+            console.error('[KVP starter] bridge not ready:', bridgeErr);
+            return false;
+        }
+        await this.ensureHudCharacterSlotSynced(char.id);
+        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+        const csv = this.statsCsvFromChar(char);
+        const grant = char.xp_lifetime || this.getStartingXpGrant(char.species_id || 'human');
+        const econRes = await F4Bridge.saveEcon(0, 0, char.id, grant);
+        if (!econRes || !econRes.ok) {
+            console.warn('[KVP starter] save_econ (with lifetime) failed:', econRes);
+        }
+        const statsRes = await F4Bridge.saveStats(csv, char.id);
+        if (!statsRes || !statsRes.ok) {
+            console.warn('[KVP starter] save_stats failed:', statsRes);
+            return false;
+        }
+        this._lastStatsCsvSynced = csv;
+        await new Promise(function (resolve) { setTimeout(resolve, 1500); });
+        try {
+            await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+        } catch (refreshErr) {
+            console.warn('[KVP starter] REFRESH_GAMEPLAY failed:', refreshErr);
+        }
+        await new Promise(function (resolve) { setTimeout(resolve, 1800); });
+        const session = await F4BridgeHud.fetchSession();
+        if (session && session.ok) {
+            this.applyBridgeSessionToCharacter(char, session);
+            this._bridgeSessionApplied = true;
+            this._lastBridgeSession = session;
+        }
+        console.log('[KVP starter] wrote starter line for', char.id, 'xp=' + grant);
+        return true;
+    },
+
     /**
      * Push pending_starting_xp into HUD LSD and refresh KVP so f4state_* gets the grant.
      * Never reduces existing lifetime XP (Character State applyPendingStartingXp enforces that).
@@ -3980,13 +4131,12 @@ try {
             return;
         }
         const current = Math.max(0, parseInt(character.xp_lifetime, 10) || 0);
-        const forceStarter = !!options.forceStarter
-            || (!!this.state.creationInProgress && character.id === this.state.selectedCharacterId);
-        if (!forceStarter && current >= grant) {
+        const forceStarter = !!options.forceStarter;
+        if (!forceStarter) {
             return;
         }
-        if (forceStarter && current > grant) {
-            console.warn('[XP] Forcing starter grant', grant, 'over stale session value', current);
+        if (current > grant) {
+            console.warn('[XP] Starter grant', grant, 'replacing session value', current);
         }
         character.xp_lifetime = grant;
         if (typeof App.state.econ === 'undefined' || !App.state.econ) {
@@ -4266,24 +4416,14 @@ try {
         if (typeof App.state.econ === 'undefined' || !App.state.econ) {
             App.state.econ = {};
         }
-        if (this.isInCreationFlow()) {
-            const grant = this.getStartingXpGrant(char.species_id || 'human');
-            char.xp_lifetime = grant > 0 ? grant : 0;
-            char.xp_spent = 0;
-            char.ap_balance = 0;
-            char.xp_available = char.xp_lifetime;
-            App.state.econ.xp_lifetime = char.xp_lifetime;
-            App.state.econ.xp_spent = 0;
-            App.state.econ.ap_balance = 0;
-        } else {
-            char.xp_lifetime = life;
-            char.xp_spent = spent;
-            char.ap_balance = ap;
-            char.xp_available = Math.max(0, life - spent);
-            App.state.econ.xp_lifetime = life;
-            App.state.econ.xp_spent = spent;
-            App.state.econ.ap_balance = ap;
-        }
+        char.xp_lifetime = life;
+        char.xp_spent = spent;
+        char.ap_balance = ap;
+        char.xp_available = Math.max(0, life - spent);
+        App.state.econ.xp_lifetime = life;
+        App.state.econ.xp_spent = spent;
+        App.state.econ.ap_balance = ap;
+        App.state.econSessionActive = true;
         return true;
     },
 
@@ -4317,11 +4457,13 @@ try {
             options = {};
         }
         const inCreation = this.isInCreationFlow();
+        const kvpAuthoritative = options.kvpAuthoritative === true;
         const loaded = await this.ensureBridgeGameplayLoaded(cid, {
             showModal: options.showModal !== false,
             forceRefresh: options.forceRefresh !== false,
+            kvpAuthoritative: kvpAuthoritative,
             maxAttempts: options.maxAttempts || (inCreation ? 20 : 18),
-            allowLocalFallback: inCreation
+            allowLocalFallback: inCreation && !this.hasCreationProgressSaved()
         });
         this.refreshStatsTabFromCharacter();
         if (loaded && typeof UI !== 'undefined' && UI.setStatsHudBanner) {
@@ -4355,11 +4497,16 @@ try {
         }
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
-            if (this.isInCreationFlow() || forceRefresh) {
-                try {
-                    await this.ensureHudCharacterSlotSynced(characterId);
-                } catch (slotErr) {
-                    console.warn('[F4 Bridge] proactive slot sync failed:', slotErr);
+            const inCreationSaved = this.hasCreationProgressSaved() && characterId === this.state.character?.id;
+            if (forceRefresh || inCreationSaved) {
+                if (inCreationSaved && !forceRefresh) {
+                    /* Saved creation draft: pull KVP only — no LOAD_CHARACTER spam. */
+                } else if (this.isInCreationFlow() || forceRefresh) {
+                    try {
+                        await this.ensureHudCharacterSlotSynced(characterId);
+                    } catch (slotErr) {
+                        console.warn('[F4 Bridge] proactive slot sync failed:', slotErr);
+                    }
                 }
             }
             if (forceRefresh) {
@@ -5560,18 +5707,13 @@ try {
                 this.updateStatusIndicator();
                 this.updateStepGuide();
                 const createdChar = this.state.character;
-                if (this.isBridgeHudMode() && createdChar) {
+                if (draft) {
+                    await this.pushCreationStarterToKvp(createdChar);
+                } else if (this.isBridgeHudMode() && createdChar) {
                     await this.seedHudKvpGameplay(createdChar, {
                         allowStarterSeed: true,
-                        showSuccess: !draft && !silent
+                        showSuccess: !silent
                     });
-                    this.grantStartingXpToHud(createdChar, { forceStarter: true });
-                    try {
-                        await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
-                    } catch (refreshErr) {
-                        console.warn('[F4 Bridge] REFRESH_GAMEPLAY after create failed:', refreshErr);
-                    }
-                    await new Promise(function (resolve) { setTimeout(resolve, 1500); });
                 } else {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
                     this.grantStartingXpToHud(createdChar, { forceStarter: true });
@@ -5698,20 +5840,29 @@ try {
                 const finishingSetup = !draft && updatePayload.setup_complete;
                 const seedStarterLine = finishingSetup
                     || (draft && this.state.creationInProgress);
-                if (this.isBridgeHudMode()) {
+                if (draft && this.state.creationInProgress) {
+                    await this.pushCreationStarterToKvp(this.state.character, {
+                        preserveStats: !this.csvIsStarterDefault(statsCsvNow)
+                    });
+                } else if (this.isBridgeHudMode()) {
                     await this.seedHudKvpGameplay(this.state.character, {
                         statsCsv: statsCsvNow,
                         allowStarterSeed: seedStarterLine,
                         syncEcon: true,
                         showSuccess: finishingSetup && !silent
                     });
+                    if (finishingSetup) {
+                        this.grantStartingXpToHud(this.state.character, { forceStarter: true });
+                    }
                 } else {
                     await this.pushCharacterToPlayersHUD(characterId);
+                    if (finishingSetup) {
+                        this.grantStartingXpToHud(this.state.character, { forceStarter: true });
+                    }
                 }
                 await this.cacheHudStatsForPlayers(this.state.character, {
                     syncStats: shouldSyncStats && !this.isBridgeHudMode()
                 });
-                this.grantStartingXpToHud(this.state.character, { forceStarter: !!seedStarterLine });
                 // Defer lsl_cmd cleanup — immediate cleanMoapUrlParams erased LOAD_CHARACTER before LSL poll.
                 setTimeout(function () {
                     if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
@@ -10576,8 +10727,8 @@ window.onSpeciesSelected = async function(speciesId) {
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats reset to all 1s (${species.name})`, 'info', 2000);
-                    if (App.state.character.id) {
-                        App.grantStartingXpToHud(App.state.character);
+                    if (App.isInCreationFlow()) {
+                        App.applyCalculatedStarterEcon(App.state.character);
                     }
                 }
                 
@@ -10643,8 +10794,8 @@ window.onSpeciesSelected = async function(speciesId) {
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats reset to all 1s (${species.name})`, 'info', 2000);
-                    if (App.state.character.id) {
-                        App.grantStartingXpToHud(App.state.character);
+                    if (App.isInCreationFlow()) {
+                        App.applyCalculatedStarterEcon(App.state.character);
                     }
                 }
                 
