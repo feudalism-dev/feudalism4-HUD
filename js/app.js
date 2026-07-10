@@ -203,6 +203,68 @@ try {
     _initPromise: null,
     _loadCharacterSelectorQueue: Promise.resolve(),
     _eventHandlersBound: false,
+    _creationKvpSeeded: {},
+
+    isCreationKvpSeeded(charId) {
+        return !!(charId && this._creationKvpSeeded && this._creationKvpSeeded[charId]);
+    },
+
+    markCreationKvpSeeded(charId) {
+        if (!charId) {
+            return;
+        }
+        if (!this._creationKvpSeeded) {
+            this._creationKvpSeeded = {};
+        }
+        this._creationKvpSeeded[charId] = true;
+    },
+
+    /** True when the player has spent XP/AP or changed stats beyond the species-confirmed starter line. */
+    hasEditedGameplay(char, statsCsvOpt) {
+        if (!char) {
+            return false;
+        }
+        if (this.state.statsPending) {
+            return true;
+        }
+        const spent = window.getEconSpent(char);
+        const ap = window.getApBalance(char);
+        if (spent > 0 || ap > 0) {
+            return true;
+        }
+        const csv = statsCsvOpt || this.statsCsvFromChar(char) || this._lastStatsCsvSynced || '';
+        if (csv && !this.csvIsStarterDefault(csv)) {
+            return true;
+        }
+        return false;
+    },
+
+    /**
+     * Write creation gameplay to Experience KVP: first save seeds starter line; later saves sync edits only.
+     */
+    async syncCreationGameplayToKvp(char, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!char || !char.id || !this.isBridgeHudMode()) {
+            return false;
+        }
+        const statsCsv = options.statsCsv || this.statsCsvFromChar(char);
+        if (!this.isCreationKvpSeeded(char.id)) {
+            await this.pushCreationStarterToKvp(char);
+            return true;
+        }
+        if (this.hasEditedGameplay(char, statsCsv) || options.forceGameplaySync) {
+            return await this.seedHudKvpGameplay(char, {
+                statsCsv: statsCsv,
+                allowStarterSeed: true,
+                syncEcon: true,
+                silent: options.silent !== false,
+                showSuccess: !!options.showSuccess
+            });
+        }
+        return false;
+    },
 
     /**
      * Drop duplicate character rows (same Firestore doc id).
@@ -4116,7 +4178,7 @@ try {
     },
 
     /**
-     * After Save Progress: write JS-calculated starter line to Experience KVP (explicit lifetime XP).
+     * First-time creation KVP write — uses current char stats/XP (never hard-resets spent/AP).
      */
     async pushCreationStarterToKvp(char, options) {
         if (options === undefined) {
@@ -4125,14 +4187,18 @@ try {
         if (!char || !char.id) {
             return false;
         }
-        if (!this.hasCreationStarterGameplay(char)) {
+        if (!char.stats) {
             this.applyCalculatedStarterGameplay(char);
+        } else if (!char.xp_lifetime || char.xp_lifetime <= 0) {
+            this.applyCalculatedStarterEcon(char);
         }
-        char.xp_spent = Math.max(0, parseInt(char.xp_spent, 10) || 0);
-        char.ap_balance = Math.max(0, parseInt(char.ap_balance, 10) || 0);
+        const spent = window.getEconSpent(char);
+        const ap = window.getApBalance(char);
+        const grant = char.xp_lifetime || this.getStartingXpGrant(char.species_id || 'human');
         if (!this.isBridgeHudMode()) {
             await this.pushCharacterToPlayersHUD(char.id);
             this.grantStartingXpToHud(char, { forceStarter: true, forceNavigate: true });
+            this.markCreationKvpSeeded(char.id);
             return true;
         }
         try {
@@ -4144,10 +4210,9 @@ try {
         await this.ensureHudCharacterSlotSynced(char.id);
         await new Promise(function (resolve) { setTimeout(resolve, 1200); });
         const csv = this.statsCsvFromChar(char);
-        const grant = char.xp_lifetime || this.getStartingXpGrant(char.species_id || 'human');
-        const econRes = await F4Bridge.saveEcon(0, 0, char.id, grant);
+        const econRes = await F4Bridge.saveEcon(spent, ap, char.id, grant);
         if (!econRes || !econRes.ok) {
-            console.warn('[KVP starter] save_econ (with lifetime) failed:', econRes);
+            console.warn('[KVP starter] save_econ failed:', econRes);
         }
         const statsRes = await F4Bridge.saveStats(csv, char.id);
         if (!statsRes || !statsRes.ok) {
@@ -4155,20 +4220,25 @@ try {
             return false;
         }
         this._lastStatsCsvSynced = csv;
+        this._bridgeSessionApplied = true;
+        this._lastBridgeSession = {
+            ok: true,
+            characterId: char.id,
+            stats_csv: csv,
+            xp_lifetime: String(grant),
+            xp_spent: String(spent),
+            ap_balance: String(ap),
+            format: 'v4'
+        };
+        this.markCreationKvpSeeded(char.id);
         await new Promise(function (resolve) { setTimeout(resolve, 1500); });
         try {
             await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
         } catch (refreshErr) {
             console.warn('[KVP starter] REFRESH_GAMEPLAY failed:', refreshErr);
         }
-        await new Promise(function (resolve) { setTimeout(resolve, 1800); });
-        const session = await F4BridgeHud.fetchSession();
-        if (session && session.ok) {
-            this.applyBridgeSessionToCharacter(char, session);
-            this._bridgeSessionApplied = true;
-            this._lastBridgeSession = session;
-        }
-        console.log('[KVP starter] wrote starter line for', char.id, 'xp=' + grant);
+        console.log('[KVP starter] wrote starter line for', char.id,
+            'xp=' + grant, 'spent=' + spent, 'ap=' + ap);
         return true;
     },
 
@@ -4464,6 +4534,12 @@ try {
         }
         const csv = session.stats_csv || (session.stats && session.stats.csv) || '';
         const spent = parseInt(session.xp_spent, 10) || 0;
+        const localSpent = window.getEconSpent(char);
+        const localEdited = inCreation && (this.state.statsPending || localSpent > 0);
+        if (localEdited && spent === 0 && csv && this.csvIsFactoryOnes(csv)) {
+            console.warn('[F4 Bridge] ignoring stale factory KVP session — local gameplay edits in memory');
+            return false;
+        }
         if (csv && this.statsObjectFromCsv(csv)) {
             const staleFactory = spent > 0 && this.csvIsFactoryOnes(csv);
             if (!staleFactory) {
@@ -4658,12 +4734,23 @@ try {
                 this._kvpRepairByChar[characterId] = true;
                 const repairChar = this.state.character;
                 if (repairChar && repairChar.id === characterId) {
-                    console.log('[F4 Bridge] attempting KVP repair seed for', characterId);
-                    const repaired = await this.seedHudKvpGameplay(repairChar, {
-                        allowStarterSeed: true,
-                        silent: true,
-                        syncEcon: true
-                    });
+                    let repaired = false;
+                    if (this.hasEditedGameplay(repairChar)) {
+                        console.log('[F4 Bridge] KVP repair using local edited gameplay for', characterId);
+                        repaired = await this.seedHudKvpGameplay(repairChar, {
+                            statsCsv: this.statsCsvFromChar(repairChar),
+                            allowStarterSeed: true,
+                            silent: true,
+                            syncEcon: true
+                        });
+                    } else {
+                        console.log('[F4 Bridge] attempting KVP repair seed for', characterId);
+                        repaired = await this.seedHudKvpGameplay(repairChar, {
+                            allowStarterSeed: true,
+                            silent: true,
+                            syncEcon: true
+                        });
+                    }
                     if (repaired) {
                         try {
                             await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
@@ -4797,6 +4884,9 @@ try {
         }
         this._lastStatsCsvSynced = csv;
         this.clearStatsPendingAfterHudSave();
+        if (char && char.id) {
+            this.markCreationKvpSeeded(char.id);
+        }
         await new Promise(function (resolve) { setTimeout(resolve, 1200); });
         UI.showToast('Stats saved to HUD (bridge)', 'success', 2000);
         return true;
@@ -4869,6 +4959,9 @@ try {
             this._lastStatsCsvSynced = csv;
             if (this._lastBridgeSession) {
                 this._lastBridgeSession.stats_csv = csv;
+            }
+            if (char.id) {
+                this.markCreationKvpSeeded(char.id);
             }
             console.log('[KVP seed] f4stats written for', char.id,
                 nonFactory ? '(edited line)' : '(initial factory line)');
@@ -5817,7 +5910,7 @@ try {
                 this.updateStepGuide();
                 const createdChar = this.state.character;
                 if (draft) {
-                    await this.pushCreationStarterToKvp(createdChar);
+                    await this.syncCreationGameplayToKvp(createdChar, { silent: true });
                 } else if (this.isBridgeHudMode() && createdChar) {
                     await this.seedHudKvpGameplay(createdChar, {
                         allowStarterSeed: true,
@@ -5950,17 +6043,22 @@ try {
                 const seedStarterLine = finishingSetup
                     || (draft && this.state.creationInProgress);
                 if (draft && this.state.creationInProgress) {
-                    await this.pushCreationStarterToKvp(this.state.character, {
-                        preserveStats: !this.csvIsStarterDefault(statsCsvNow)
+                    await this.syncCreationGameplayToKvp(this.state.character, {
+                        statsCsv: statsCsvNow,
+                        silent: true
                     });
                 } else if (this.isBridgeHudMode()) {
-                    await this.seedHudKvpGameplay(this.state.character, {
-                        statsCsv: statsCsvNow,
-                        allowStarterSeed: seedStarterLine,
-                        syncEcon: true,
-                        showSuccess: finishingSetup && !silent
-                    });
-                    if (finishingSetup) {
+                    const needsGameplayKvp = finishingSetup
+                        || this.hasEditedGameplay(this.state.character, statsCsvNow);
+                    if (needsGameplayKvp) {
+                        await this.seedHudKvpGameplay(this.state.character, {
+                            statsCsv: statsCsvNow,
+                            allowStarterSeed: seedStarterLine,
+                            syncEcon: true,
+                            showSuccess: finishingSetup && !silent
+                        });
+                    }
+                    if (finishingSetup && !this.hasEditedGameplay(this.state.character, statsCsvNow)) {
                         this.grantStartingXpToHud(this.state.character, { forceStarter: true });
                     }
                 } else {
