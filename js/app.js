@@ -246,6 +246,29 @@ try {
     },
 
     /**
+     * Finish creation / setup_complete: always persist stats + econ to Experience KVP.
+     */
+    async finishCreationGameplayToKvp(char, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!char || !char.id || !this.isBridgeHudMode()) {
+            return false;
+        }
+        const statsCsv = options.statsCsv || this.statsCsvFromChar(char);
+        return await this.seedHudKvpGameplay(char, {
+            statsCsv: statsCsv,
+            allowStarterSeed: true,
+            forceWrite: true,
+            syncEcon: true,
+            syncSlot: options.syncSlot !== false,
+            silent: options.silent !== false,
+            showSuccess: !!options.showSuccess,
+            xpLifetime: char.xp_lifetime
+        });
+    },
+
+    /**
      * Write creation gameplay to Experience KVP: first save seeds starter line; later saves sync edits only.
      */
     async syncCreationGameplayToKvp(char, options) {
@@ -257,7 +280,7 @@ try {
         }
         const statsCsv = options.statsCsv || this.statsCsvFromChar(char);
         if (!this.isCreationKvpSeeded(char.id)) {
-            await this.pushCreationStarterToKvp(char);
+            await this.pushCreationStarterToKvp(char, { statsCsv: statsCsv });
             return true;
         }
         if (this.hasEditedGameplay(char, statsCsv) || options.forceGameplaySync) {
@@ -2497,7 +2520,9 @@ try {
                 await this.pushCharacterToPlayersHUD(character.id);
             }
             this.scheduleBroadcastToPlayersHUD(character);
-            this.grantStartingXpToHud(character, { forceNavigate: !this.isBridgeHudMode() });
+            if (!this.isBridgeHudMode()) {
+                this.grantStartingXpToHud(character, { forceNavigate: true });
+            }
 
             if (typeof UI !== 'undefined' && UI.showToast) {
                 UI.showToast(
@@ -4147,7 +4172,7 @@ try {
         if (!char || !char.id) {
             return false;
         }
-        if (!char.stats) {
+        if (!char.stats && !options.statsCsv) {
             this.applyCalculatedStarterGameplay(char);
         } else if (!char.xp_lifetime || char.xp_lifetime <= 0) {
             this.applyCalculatedStarterEcon(char);
@@ -4169,7 +4194,7 @@ try {
         }
         await this.ensureHudCharacterSlotSynced(char.id);
         await new Promise(function (resolve) { setTimeout(resolve, 1200); });
-        const csv = this.statsCsvFromChar(char);
+        const csv = options.statsCsv || this.statsCsvFromChar(char);
         const statsRes = await F4Bridge.saveStats(csv, char.id);
         if (!statsRes || !statsRes.ok) {
             console.warn('[KVP starter] save_stats failed:', statsRes);
@@ -4208,6 +4233,9 @@ try {
             options = {};
         }
         if (!character || !character.id) {
+            return;
+        }
+        if (this.isBridgeHudMode()) {
             return;
         }
         // Always keep new-economy characters at 0 AP until they Buy AP with XP.
@@ -4457,6 +4485,38 @@ try {
         }
         const csv = session.stats_csv || '';
         return !csv || csv.split(',').length !== 20 || !this.statsObjectFromCsv(csv);
+    },
+
+    /**
+     * Phase D: when bridge returns PENDING|stats, apply MOAP memory / last sync instead of endless polls.
+     */
+    applyCachedGameplayWhenPending(char, characterId) {
+        if (!char || !characterId || char.id !== characterId) {
+            return false;
+        }
+        if (this.restoreMoapSessionDraft()) {
+            console.log('[F4 Bridge] applied MOAP session draft while KVP stats pending');
+            return true;
+        }
+        if (this._lastStatsCsvSynced && this.statsObjectFromCsv(this._lastStatsCsvSynced)) {
+            char.stats = this.statsObjectFromCsv(this._lastStatsCsvSynced);
+            if (this.state.pendingChanges) {
+                this.state.pendingChanges.stats = Object.assign({}, char.stats);
+            }
+            console.log('[F4 Bridge] applied _lastStatsCsvSynced while KVP stats pending');
+            return true;
+        }
+        if (this._lastBridgeSession && this._lastBridgeSession.ok
+            && (this._lastBridgeSession.characterId || '') === characterId) {
+            this.applyBridgeSessionToCharacter(char, this._lastBridgeSession);
+            console.log('[F4 Bridge] applied cached bridge session while KVP stats pending');
+            return true;
+        }
+        if (this.hasCreationStarterGameplay(char) || this.hasEditedGameplay(char)) {
+            console.log('[F4 Bridge] using in-memory creation gameplay while KVP stats pending');
+            return true;
+        }
+        return false;
     },
 
     bridgeHasAuthoritativeHudData(characterId) {
@@ -4813,6 +4873,8 @@ try {
             let attempt = 0;
             let lastSession = null;
             let slotSyncSent = false;
+            let pendingStreak = 0;
+            const pendingGiveUp = options.pendingGiveUp || (forceRefresh ? 12 : 3);
             while (attempt < maxAttempts) {
                 attempt += 1;
                 try {
@@ -4824,9 +4886,27 @@ try {
                         debugLog('[F4 Bridge] session ' + attempt + ': ' + summary, 'debug');
                     }
                     if (!session || !session.ok || !char) {
+                        if (session && session.pending && !forceRefresh) {
+                            pendingStreak += 1;
+                            if (pendingStreak >= pendingGiveUp) {
+                                if (this.applyCachedGameplayWhenPending(char, characterId)) {
+                                    this.refreshStatsTabFromCharacter();
+                                    if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                                        UI.setStatsHudBanner(
+                                            'Using saved session values — Experience stats still loading or missing (f4stats).',
+                                            'info'
+                                        );
+                                    }
+                                    return true;
+                                }
+                            }
+                        } else {
+                            pendingStreak = 0;
+                        }
                         await new Promise(function (resolve) { setTimeout(resolve, 400); });
                         continue;
                     }
+                    pendingStreak = 0;
                     const sid = session.characterId || '';
                     if (sid && sid !== characterId) {
                         if (!forceRefresh) {
@@ -5101,8 +5181,9 @@ try {
             return false;
         }
         const allowStarter = !!options.allowStarterSeed;
+        const forceWrite = !!options.forceWrite;
         const nonFactory = !this.csvIsStarterDefault(csv);
-        if (!nonFactory && !allowStarter) {
+        if (!nonFactory && !allowStarter && !forceWrite) {
             return false;
         }
         try {
@@ -5115,10 +5196,12 @@ try {
                 return false;
             }
             if (options.syncEcon !== false) {
+                const lifeArg = options.xpLifetime != null ? options.xpLifetime : char.xp_lifetime;
                 const econRes = await F4Bridge.saveEcon(
                     window.getEconSpent(char),
                     window.getApBalance(char),
-                    char.id
+                    char.id,
+                    lifeArg
                 );
                 if (!econRes || !econRes.ok) {
                     console.warn('[KVP seed] save_econ failed:', econRes);
@@ -6095,9 +6178,9 @@ try {
                 if (draft) {
                     await this.syncCreationGameplayToKvp(createdChar, { silent: true });
                 } else if (this.isBridgeHudMode() && createdChar) {
-                    await this.seedHudKvpGameplay(createdChar, {
-                        allowStarterSeed: true,
-                        showSuccess: !silent
+                    await this.finishCreationGameplayToKvp(createdChar, {
+                        showSuccess: !silent,
+                        silent: silent
                     });
                 } else {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
@@ -6223,26 +6306,26 @@ try {
                 const shouldSyncStats = !this.csvIsStarterDefault(statsCsvNow)
                     || !!(gameplaySnapshot.pendingStats);
                 const finishingSetup = !draft && updatePayload.setup_complete;
-                const seedStarterLine = finishingSetup
-                    || (draft && this.state.creationInProgress);
                 if (draft && this.state.creationInProgress) {
                     await this.syncCreationGameplayToKvp(this.state.character, {
                         statsCsv: statsCsvNow,
                         silent: true
                     });
                 } else if (this.isBridgeHudMode()) {
-                    const needsGameplayKvp = finishingSetup
-                        || this.hasEditedGameplay(this.state.character, statsCsvNow);
-                    if (needsGameplayKvp) {
+                    if (finishingSetup) {
+                        await this.finishCreationGameplayToKvp(this.state.character, {
+                            statsCsv: statsCsvNow,
+                            showSuccess: !silent,
+                            silent: silent
+                        });
+                    } else if (this.hasEditedGameplay(this.state.character, statsCsvNow)) {
                         await this.seedHudKvpGameplay(this.state.character, {
                             statsCsv: statsCsvNow,
-                            allowStarterSeed: seedStarterLine,
+                            allowStarterSeed: false,
                             syncEcon: true,
-                            showSuccess: finishingSetup && !silent
+                            silent: true,
+                            xpLifetime: this.state.character.xp_lifetime
                         });
-                    }
-                    if (finishingSetup && !this.hasEditedGameplay(this.state.character, statsCsvNow)) {
-                        this.grantStartingXpToHud(this.state.character, { forceStarter: true });
                     }
                 } else {
                     await this.pushCharacterToPlayersHUD(characterId);
