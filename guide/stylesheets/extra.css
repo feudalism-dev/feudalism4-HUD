@@ -1,0 +1,226 @@
+/* ==========================================
+   FEUDALISM 4 - THE CODEX STYLESHEET
+   ========================================== */
+
+/* Immersive Dark & Gold Themes */
+:root {
+  /* Colors inspired by the Feudalism 4 Sword Logo & Art */
+  --fd-stone-dark: #1a1c23;
+  --fd-stone-medium: #252833;
+  --fd-stone-border: #3f4456;
+  
+  --fd-gem-blue: #2c6cb0;
+  --fd-gem-blue-hover: #4299e1;
+  --fd-gem-ruby: #9b2c2c;
+  --fd-gold: #c8941f;
+  --fd-gold-light: #e0a93a;
+  
+  --fd-parchment: #fcfaf2;
+  --fd-text-dark: #2d2219;
+
+  /* Material Theme Overrides (Light Mode Settings) */
+  --md-primary-fg-color: var(--fd-stone-dark);
+  --md-primary-fg-color--light: var(--fd-stone-medium);
+  --md-primary-fg-color--dark: #0f1015;
+  --md-accent-fg-color: var(--fd-gold);
+  
+  /* Global Background and Fonts */
+  --md-default-bg-color: var(--fd-parchment);
+  --md-default-fg-color: var(--fd-text-dark);
+}
+
+/* Material Slate (Dark Mode) Settings */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: var(--fd-stone-dark);
+  --md-default-fg-color: #e2e8f0;
+  --md-primary-fg-color: #0f1015;
+  --md-accent-fg-color: var(--fd-gold-light);
+  
+  /* Tables and cards in dark mode */
+  --md-card-bg: var(--fd-stone-medium);
+}
+
+/* --- Global Font Size Correction --- */
+body, .md-typeset {
+  font-family: 'Spectral', serif;
+  font-size: 0.95rem; /* Bumped up from 0.85rem so it is comfortable to read on desktop */
+  letter-spacing: 0.01rem;
+  line-height: 1.6;
+}
+
+/* --- Premium Hero Block (Landing Page Title Screen) --- */
+.f4-hero {
+  border: 2px solid var(--fd-gold);
+  border-radius: 0.75rem;
+  padding: 3rem 2rem;
+  margin-bottom: 2.5rem;
+  /* Hero backdrop from docs/images/hero-bg.jpg */
+  background:
+    linear-gradient(rgba(21, 22, 28, 0.65), rgba(26, 28, 35, 0.82)),
+    url('../images/hero-bg.jpg') no-repeat center center;
+  background-size: cover;
+  text-align: center;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  
+  /* Flexbox automatically stacks the logo, text, and buttons vertically with perfect spacing */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* This turns your hidden H1 text element into a beautifully sized, visible image box */
+.f4-hero h1 {
+  visibility: visible !important;
+  text-indent: -9999px;
+  background: url('../images/feudalismLogo2026-withTextwithShadow-trans.png') no-repeat center center;
+
+  /* Tell the image to scale perfectly within the bounding box */
+  background-size: contain;
+  width: 100%;
+
+  /* Crank the maximum width and height allowances way up */
+  max-width: 1100px;
+  height: 380px; /* Gives the wide sword plenty of vertical ceiling to scale into */
+
+  margin: -1rem auto 0 auto; /* Negative top margin pulls it up slightly for better framing */
+}
+
+.f4-hero p {
+  color: #e2e8f0;
+  font-size: 1.05rem;
+  max-width: 38rem;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.f4-hero strong {
+  color: var(--fd-gold-light);
+}
+
+/* Container to make sure buttons don't stretch weirdly */
+.f4-hero .md-button {
+  margin: 0.5rem;
+}
+
+/* --- RPG Style Interactive Buttons --- */
+.md-typeset .f4-hero .md-button {
+  border: 1px solid var(--fd-gold);
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.6em 1.5em;
+  transition: all 0.2s ease;
+  background-color: transparent;
+  color: #ffffff;
+}
+
+.md-typeset .f4-hero .md-button--primary {
+  background-color: var(--fd-gem-blue);
+  border-color: var(--fd-gem-blue);
+}
+
+.md-typeset .f4-hero .md-button--primary:hover {
+  background-color: var(--fd-gem-blue-hover);
+  border-color: var(--fd-gem-blue-hover);
+  box-shadow: 0 0 12px var(--fd-gem-blue-hover);
+}
+
+.md-typeset .f4-hero .md-button:not(.md-button--primary):hover {
+  background-color: rgba(200, 148, 31, 0.15);
+  color: var(--fd-gold-light);
+  border-color: var(--fd-gold-light);
+}
+
+/* --- Card Grids: Immersive Portal Look --- */
+.md-typeset .grid.cards > :is(ul, ol) > li {
+  background-color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(45, 34, 25, 0.15);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > :is(ul, ol) > li {
+  background-color: var(--fd-stone-medium);
+  border: 1px solid var(--fd-stone-border);
+}
+
+.md-typeset .grid.cards > :is(ul, ol) > li:hover {
+  transform: translateY(-3px);
+  border-color: var(--fd-gold);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* Styling icons inside cards to resemble small crests */
+.md-typeset .grid.cards :not(a) > .lg {
+  color: var(--fd-gold);
+  background: rgba(200, 148, 31, 0.1);
+  padding: 8px;
+  border-radius: 50%;
+  margin-bottom: 0.5rem;
+}
+
+/* --- Tables (For Heavy-Duty Admin / Guide Reading) --- */
+.md-typeset table:not([class]) {
+  font-size: 0.8rem;
+  border-collapse: collapse;
+  border: 1px solid var(--fd-stone-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--fd-stone-dark);
+  color: #ffffff;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+/* --- Customized Universe/Quest Callout Box --- */
+.md-typeset .admonition {
+  border-left-width: 0.3rem;
+  border-radius: 4px;
+}
+
+.md-typeset .admonition.note {
+  border-left-color: var(--fd-gem-ruby);
+}
+
+.md-typeset .admonition.note > .admonition-title {
+  background-color: rgba(155, 44, 44, 0.08);
+  color: var(--fd-gem-ruby);
+  font-weight: 700;
+}
+
+/* --- Setup HUD gallery rows (First-Time Setup manual) --- */
+.md-typeset .f4-setup-gallery table {
+  width: 100%;
+  border: none;
+  background: transparent;
+}
+
+.md-typeset .f4-setup-gallery th,
+.md-typeset .f4-setup-gallery td {
+  border: none;
+  padding: 0.35rem;
+  vertical-align: middle;
+  text-align: center;
+  background: transparent;
+}
+
+.md-typeset .f4-setup-gallery img {
+  max-width: 220px;
+  width: 100%;
+  height: auto;
+  border: 2px solid var(--fd-stone-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .f4-setup-gallery img {
+  border-color: var(--fd-gold);
+}
