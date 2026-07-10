@@ -982,6 +982,11 @@ try {
                                 this.clearStaleHudUrlParamsForCharacterSwitch(character.id);
                                 this.syncActiveCharToUrl(character.id);
                             }
+                            if (this.isBridgeHudMode() && character.id) {
+                                this.reconcileHudSlotIfNeeded(character.id, { force: true }).catch(function (slotErr) {
+                                    console.warn('[loadData] HUD slot reconcile:', slotErr);
+                                });
+                            }
 
                             if (this.isCharacterSetupIncomplete(character)) {
                                 this.state.creationInProgress = true;
@@ -4799,8 +4804,39 @@ try {
             console.warn('[F4 Bridge] LOAD_CHARACTER slot sync failed:', syncErr);
             return false;
         }
-        await new Promise(function (resolve) { setTimeout(resolve, 1800); });
+        await new Promise(function (resolve) { setTimeout(resolve, 2800); });
         return true;
+    },
+
+    async reconcileHudSlotIfNeeded(characterId, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!characterId || !this.isBridgeHudMode()) {
+            return true;
+        }
+        try {
+            await F4BridgeHud.waitForBridgeReady(options.bridgeTimeout || 10000);
+            const session = await F4BridgeHud.fetchSession();
+            const sid = session && session.characterId ? session.characterId : '';
+            if (session && session.ok && sid === characterId) {
+                this._hudSlotSyncedCharId = characterId;
+                return true;
+            }
+            if (!options.force && this._hudSlotSyncedCharId === characterId) {
+                return true;
+            }
+            console.warn('[F4 Bridge] HUD slot mismatch — wanted', characterId, 'HUD has', sid || '(none)');
+            const synced = await this.ensureHudCharacterSlotSynced(characterId);
+            if (synced) {
+                this._hudSlotSyncedCharId = characterId;
+                this.syncActiveCharToUrl(characterId);
+            }
+            return synced;
+        } catch (reconcileErr) {
+            console.warn('[F4 Bridge] reconcileHudSlotIfNeeded failed:', reconcileErr);
+            return false;
+        }
     },
 
     async refreshHudGameplayFromMoap(options) {
@@ -5098,6 +5134,26 @@ try {
                     pendingStreak = 0;
                     const sid = session.characterId || '';
                     if (sid && sid !== characterId) {
+                        if (!slotSyncSent && (forceRefresh || this.isInCreationFlow())) {
+                            slotSyncSent = true;
+                            if (debugLog) {
+                                debugLog('[F4 Bridge] HUD slot is ' + sid + ' wanted ' + characterId + ' — LOAD_CHARACTER', 'warn');
+                            }
+                            console.warn('[F4 Bridge] HUD slot mismatch — syncing', sid, '→', characterId);
+                            await this.ensureHudCharacterSlotSynced(characterId);
+                            this._hudSlotSyncedCharId = characterId;
+                            this.syncActiveCharToUrl(characterId);
+                            try {
+                                await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                            } catch (refreshErr2) {
+                                console.warn('[F4 Bridge] REFRESH_GAMEPLAY after slot sync failed:', refreshErr2);
+                            }
+                            await new Promise(function (resolve) {
+                                setTimeout(resolve, forceRefresh ? 2200 : 1800);
+                            });
+                            await new Promise(function (resolve) { setTimeout(resolve, 400); });
+                            continue;
+                        }
                         if (!forceRefresh) {
                             if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
                                 UI.setStatsHudBanner(
@@ -5110,22 +5166,6 @@ try {
                                 return true;
                             }
                             return false;
-                        }
-                        if (!slotSyncSent) {
-                            slotSyncSent = true;
-                            if (debugLog) {
-                                debugLog('[F4 Bridge] HUD slot is ' + sid + ' wanted ' + characterId + ' — LOAD_CHARACTER', 'warn');
-                            }
-                            console.warn('[F4 Bridge] HUD slot mismatch — syncing', sid, '→', characterId);
-                            await this.ensureHudCharacterSlotSynced(characterId);
-                            try {
-                                await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
-                            } catch (refreshErr2) {
-                                console.warn('[F4 Bridge] REFRESH_GAMEPLAY after slot sync failed:', refreshErr2);
-                            }
-                            await new Promise(function (resolve) {
-                                setTimeout(resolve, forceRefresh ? 2200 : 1500);
-                            });
                         }
                         await new Promise(function (resolve) { setTimeout(resolve, 400); });
                         continue;
@@ -5321,7 +5361,7 @@ try {
             });
             throw new Error('stats_write_blocked');
         }
-        await this.ensureHudSlotForWrites(char.id, { force: this.isInCreationFlow() });
+        await this.reconcileHudSlotIfNeeded(char.id, { force: true });
         const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
         if (!statsRes || !statsRes.ok) {
             const errCode = (statsRes && statsRes.error) ? String(statsRes.error) : 'save_stats_failed';
@@ -5334,12 +5374,12 @@ try {
         }
         let econWarning = '';
         try {
-            const lifeArg = char && char.xp_lifetime != null ? char.xp_lifetime : undefined;
+            const lifeArg = this.getEffectiveXpLifetime(char);
             const econRes = await F4Bridge.saveEcon(
                 savedSpent,
                 savedAp,
                 char && char.id ? char.id : undefined,
-                lifeArg
+                lifeArg > 0 ? lifeArg : undefined
             );
             if (!econRes || !econRes.ok) {
                 econWarning = (econRes && econRes.error) ? String(econRes.error) : 'save_econ_failed';
@@ -5354,7 +5394,7 @@ try {
             this._lastBridgeSession.xp_spent = String(savedSpent);
             this._lastBridgeSession.ap_balance = String(savedAp);
             if (char.xp_lifetime != null) {
-                this._lastBridgeSession.xp_lifetime = String(char.xp_lifetime);
+                this._lastBridgeSession.xp_lifetime = String(this.getEffectiveXpLifetime(char));
             }
             this._bridgeSessionApplied = true;
         }
