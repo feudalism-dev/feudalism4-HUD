@@ -5030,7 +5030,6 @@ try {
         try {
             await F4BridgeHud.waitForBridgeReady(8000);
             if (forceRefresh) {
-                const inCreationSaved = this.hasCreationProgressSaved() && characterId === this.state.character?.id;
                 if (this.isInCreationFlow() || forceRefresh) {
                     try {
                         await this.ensureHudCharacterSlotSynced(characterId);
@@ -5038,10 +5037,14 @@ try {
                         console.warn('[F4 Bridge] proactive slot sync failed:', slotErr);
                     }
                 }
-                try {
-                    await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
-                } catch (refreshErr) {
-                    console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
+                const nowMs = Date.now();
+                if (!this._lastRefreshGameplayMs || (nowMs - this._lastRefreshGameplayMs) > 4000) {
+                    this._lastRefreshGameplayMs = nowMs;
+                    try {
+                        await this.sendToLSLViaBridge('REFRESH_GAMEPLAY');
+                    } catch (refreshErr) {
+                        console.warn('[F4 Bridge] REFRESH_GAMEPLAY failed:', refreshErr);
+                    }
                 }
             }
             const preDelay = forceRefresh ? 2200 : 400;
