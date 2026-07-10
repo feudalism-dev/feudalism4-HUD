@@ -1374,11 +1374,11 @@ const API = {
             
             // Build career history entry for old class
             const careerHistory = character.career_history || [];
-            if (currentClassId) {
-                const isAbandoned = totalGained === 0;
+            const paidSwitch = !isFreeAdvanceEffective && xpCost > 0;
+            if (currentClassId && currentClassId !== newClassId) {
+                const isAbandoned = totalGained === 0 && !paidSwitch;
                 
                 if (!isAbandoned) {
-                    // Only add to history if they gained at least 1 point
                     careerHistory.push({
                         class_id: currentClassId,
                         started_at: character.class_started_at || new Date().toISOString(),
@@ -1388,7 +1388,6 @@ const API = {
                         abandoned: false
                     });
                 }
-                // If abandoned (0 points gained), don't add to career history
             }
             
             // Prepare update — class_id / career snapshot / history only.
@@ -1449,6 +1448,11 @@ const API = {
             xpCost: 0,
             reason: ''
         };
+
+        if (character && classData && character.class_id === classData.id) {
+            result.canChange = true;
+            return result;
+        }
         
         // Support both single prerequisite (backward compat) and multiple prerequisites
         const prerequisites = classData.prerequisites || (classData.prerequisite ? [classData.prerequisite] : []);
@@ -1485,7 +1489,6 @@ const API = {
             });
             
             if (!hasAnyPrereq) {
-                // Get prerequisite names for display
                 const prereqNames = prerequisites
                     .map(id => allClasses.find(c => c.id === id)?.name || id)
                     .join(' or ');

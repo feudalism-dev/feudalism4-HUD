@@ -6110,6 +6110,48 @@ try {
     },
     
     /**
+     * Persist XP spent/AP to HUD Experience KVP (bridge) or legacy URL reload.
+     */
+    async persistEconToHud(char, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        if (!char || !char.id) {
+            return false;
+        }
+        const spent = window.getEconSpent(char);
+        const ap = window.getApBalance(char);
+        const life = window.getEconLifetime(char);
+        if (this.isBridgeHudMode()) {
+            try {
+                await F4BridgeHud.waitForBridgeReady(options.bridgeTimeout || 12000);
+                const econRes = await F4Bridge.saveEcon(spent, ap, char.id, life);
+                if (!econRes || !econRes.ok) {
+                    console.warn('[Econ] bridge save_econ failed:', econRes);
+                    if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                        UI.showToast('Could not sync XP spend to HUD (bridge)', 'warning', 4000);
+                    }
+                    return false;
+                }
+                if (this._lastBridgeSession) {
+                    this._lastBridgeSession.xp_spent = String(spent);
+                    this._lastBridgeSession.ap_balance = String(ap);
+                    this._lastBridgeSession.xp_lifetime = String(life);
+                }
+                window.updateEconUrlParams(spent, ap);
+                return true;
+            } catch (bridgeErr) {
+                console.warn('[Econ] bridge save_econ error:', bridgeErr);
+                if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {
+                    UI.showToast('Could not sync XP spend to HUD', 'warning', 4000);
+                }
+                return false;
+            }
+        }
+        return window.pushEconToHudViaUrl(char);
+    },
+
+    /**
      * Save character to server
      */
     applyPendingClassXpChargeAfterSave() {
@@ -6129,8 +6171,11 @@ try {
         }
         delete this.state.pendingClassXpCost;
         window.updateEconUrlParams(this.state.character.xp_spent, this.state.character.ap_balance);
+        const self = this;
         setTimeout(function () {
-            window.pushEconToHud();
+            self.persistEconToHud(self.state.character, { silent: true }).catch(function (err) {
+                console.warn('[Class XP] persistEconToHud failed:', err);
+            });
         }, 600);
     },
 
@@ -11612,6 +11657,7 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
             const savedLife = App.state.character.xp_lifetime;
             const savedAp = App.state.character.ap_balance;
             const savedStats = Object.assign({}, gameplayStats);
+            const savedCareerHistory = result.data.career_history;
             const charResult = await API.getCharacterById(characterId);
             if (charResult.success) {
                 App.state.character = charResult.data.character;
@@ -11622,16 +11668,23 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
                 App.state.character.xp_lifetime = savedLife;
                 App.state.character.xp_spent = savedSpent;
                 App.state.character.ap_balance = savedAp;
+                if (savedCareerHistory) {
+                    App.state.character.career_history = savedCareerHistory;
+                }
             }
             App.state.currentClass = classTemplate;
             App.state.pendingChanges = {};
             App.state.dirty = false;
             App.state.lastAutoSaveMessage = result.data.message || 'Class updated';
+            App.upsertCharacterInRosterCache(App.state.character);
             App.updateStatusIndicator();
             await App.renderAll();
             if (xpCharged > 0) {
                 UI.showToast('Syncing XP spend to HUD...', 'info', 1500);
-                window.pushEconToHud();
+                const econOk = await App.persistEconToHud(App.state.character, { silent: true });
+                if (!econOk && !App.isBridgeHudMode()) {
+                    window.pushEconToHudViaUrl(App.state.character);
+                }
             }
             await App.cacheHudStatsForPlayers(App.state.character);
             UI.showToast((result.data.message || 'Class updated') + ' — saved to server', 'success', 3500);
@@ -12050,9 +12103,9 @@ window.schedulePushEconToHud = function () {
     }, 400);
 };
 
-window.pushEconToHud = function () {
-    const char = App.state.character;
-    if (!char) {
+window.pushEconToHudViaUrl = function (char) {
+    const character = char || App.state.character;
+    if (!character) {
         return false;
     }
     if (typeof App !== 'undefined' && App.persistMoapSessionDraft) {
@@ -12068,26 +12121,39 @@ window.pushEconToHud = function () {
     }
     try {
         const currentUrl = new URL(window.location.href);
-        const spentStr = String(window.getEconSpent(char));
-        const apStr = String(window.getApBalance(char));
+        const spentStr = String(window.getEconSpent(character));
+        const apStr = String(window.getApBalance(character));
         const ts = Date.now().toString();
         currentUrl.searchParams.set('xp_spent', spentStr);
         currentUrl.searchParams.set('ap_balance', apStr);
         currentUrl.searchParams.set('econ_ts', ts);
         currentUrl.searchParams.set('moap_tab', window.getMoapActiveTab());
-        if (char.id) {
-            currentUrl.searchParams.set('active_char', char.id);
+        if (character.id) {
+            currentUrl.searchParams.set('active_char', character.id);
         }
         currentUrl.searchParams.set('lsl_cmd', 'UPDATE_ECON|' + spentStr + '|' + apStr + '|' + ts);
         currentUrl.searchParams.set('lsl_cmd_ts', ts);
         currentUrl.searchParams.set('econ_sync', '1');
-        // Full navigation — SL reads face-4 media URL via llGetLinkMedia
         window.location.assign(currentUrl.toString());
         return true;
     } catch (e) {
-        console.error('[XP] pushEconToHud failed:', e);
+        console.error('[XP] pushEconToHudViaUrl failed:', e);
     }
     return false;
+};
+
+window.pushEconToHud = function () {
+    const char = App.state.character;
+    if (!char) {
+        return false;
+    }
+    if (typeof App !== 'undefined' && App.isBridgeHudMode && App.isBridgeHudMode()) {
+        App.persistEconToHud(char, { silent: true }).catch(function (err) {
+            console.warn('[XP] bridge persistEconToHud failed:', err);
+        });
+        return true;
+    }
+    return window.pushEconToHudViaUrl(char);
 };
 
 window.spendXpForClass = function (xpCost) {
@@ -12100,7 +12166,13 @@ window.spendXpForClass = function (xpCost) {
         return false;
     }
     char.xp_spent = window.getEconSpent(char) + xpCost;
-    window.pushEconToHud();
+    if (typeof App !== 'undefined' && App.persistEconToHud) {
+        App.persistEconToHud(char, { silent: true }).catch(function (err) {
+            console.warn('[Class XP] spendXpForClass persist failed:', err);
+        });
+    } else {
+        window.pushEconToHud();
+    }
     return true;
 };
 

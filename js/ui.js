@@ -723,11 +723,15 @@ const UI = {
             const manaLocked = requiresMana && !hasMana;
             
             const isCurrent = cls.id === currentClassId;
-            let isLocked = character ? !this.checkPrerequisites(cls, character) : false;
-            if (!isLocked && character && enforceStatMins && typeof API !== 'undefined' && API.canChangeToClass) {
-                const changeCheck = API.canChangeToClass(character, cls, allClasses, classChangeOptions);
-                if (!changeCheck.canChange && changeCheck.reason && changeCheck.reason.indexOf('Stat requirements') === 0) {
-                    isLocked = true;
+            let isLocked = false;
+            if (!isCurrent && character) {
+                isLocked = !this.checkPrerequisites(cls, character);
+                if (!isLocked && enforceStatMins && typeof API !== 'undefined' && API.canChangeToClass) {
+                    const changeCheck = API.canChangeToClass(character, cls, allClasses, classChangeOptions);
+                    if (!changeCheck.canChange && changeCheck.reason
+                        && changeCheck.reason.indexOf('Stat requirements') === 0) {
+                        isLocked = true;
+                    }
                 }
             }
             const isCompleted = !isCurrent && completedClasses.includes(cls.id);
@@ -957,6 +961,12 @@ const UI = {
      * Supports both single prerequisite (backward compat) and multiple prerequisites
      */
     checkPrerequisites(classTemplate, character) {
+        if (!character || !classTemplate) {
+            return true;
+        }
+        if (character.class_id === classTemplate.id) {
+            return true;
+        }
         // Support both single prerequisite (backward compat) and multiple prerequisites
         const prerequisites = classTemplate.prerequisites || (classTemplate.prerequisite ? [classTemplate.prerequisite] : []);
         
