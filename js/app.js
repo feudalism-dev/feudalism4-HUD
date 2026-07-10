@@ -181,7 +181,7 @@ try {
         statsPending: false,  // AP / stat grid edits not yet pushed to HUD LSD/KVP
         econSessionActive: false,  // AP/XP edits this session override stale URL params
         creationStepHints: {
-            identity: 'Enter <strong>name</strong>, optional <strong>title</strong>, then pick <strong>gender</strong> and <strong>species</strong> on this page. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.',
+            identity: 'Enter <strong>name</strong>, optional <strong>title</strong>, then pick <strong>gender</strong> and <strong>species</strong>. Confirming species sets starting XP and stats. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.',
             stats: 'Buy XP and spend AP when you choose — click <strong>Save Stats</strong> to keep XP/AP and stat changes on your HUD. Unused AP is saved for later. Then <strong>Next »</strong> for Class.',
             class: 'Click a <strong>class card</strong> to view details and select your starting class, then click <strong>Finish</strong>.'
         }
@@ -552,12 +552,13 @@ try {
         if (savedCharacter) {
             this.upsertCharacterInRosterCache(savedCharacter);
         }
-        const hudStats = this.state.character?.stats
-            ? Object.assign({}, this.state.character.stats)
+        const preSaveChar = this.state.character;
+        const hudStats = preSaveChar?.stats
+            ? Object.assign({}, preSaveChar.stats)
             : null;
-        const hudAp = inCreation ? null : (this.state.character ? window.getApBalance(this.state.character) : null);
-        const hudSpent = inCreation ? null : (this.state.character ? window.getEconSpent(this.state.character) : null);
-        const hudLife = inCreation ? null : (this.state.character ? window.getEconLifetime(this.state.character) : null);
+        const hudAp = preSaveChar ? window.getApBalance(preSaveChar) : null;
+        const hudSpent = preSaveChar ? window.getEconSpent(preSaveChar) : null;
+        const hudLife = preSaveChar ? window.getEconLifetime(preSaveChar) : null;
         const hudStatsCsv = this._lastStatsCsvSynced || '';
         this.state.character = savedCharacter;
         if (typeof API !== 'undefined' && API.discardFirestoreGameplayFields) {
@@ -591,8 +592,25 @@ try {
         if (inCreation) {
             if (this._bridgeSessionApplied && this._lastBridgeSession && savedCharacter.id) {
                 this.applyBridgeSessionToCharacter(this.state.character, this._lastBridgeSession);
-            } else if (!savedCharacter.id) {
-                this.applyCalculatedStarterGameplay(this.state.character);
+            } else {
+                if (hudStats) {
+                    this.state.character.stats = Object.assign({}, hudStats);
+                }
+                if (hudLife != null && hudLife > 0) {
+                    this.state.character.xp_lifetime = hudLife;
+                    this.state.character.xp_spent = hudSpent != null ? hudSpent : 0;
+                    this.state.character.ap_balance = hudAp != null ? hudAp : 0;
+                    this.state.character.xp_available = Math.max(0, hudLife - (hudSpent || 0));
+                    if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                        App.state.econ = {};
+                    }
+                    App.state.econ.xp_lifetime = hudLife;
+                    App.state.econ.xp_spent = hudSpent || 0;
+                    App.state.econ.ap_balance = hudAp || 0;
+                    App.state.econSessionActive = true;
+                } else if (this.state.character.species_id) {
+                    this.applyCalculatedStarterEcon(this.state.character);
+                }
             }
         } else {
             if (hudLife != null) {
@@ -1396,8 +1414,11 @@ try {
             case 'species':
                 return this.validateCreationStep('identity');
             case 'stats': {
-                if (!char.id) {
-                    return { ok: false, message: 'Click Save Progress on the Character tab first — your character needs an ID before Stats.' };
+                if (!char.species_id) {
+                    return { ok: false, message: 'Select a species on the Character tab first.' };
+                }
+                if (!this.hasCreationStarterGameplay(char)) {
+                    return { ok: false, message: 'Confirm your species choice to receive starting XP and stats.' };
                 }
                 if (this.state.statsPending) {
                     return { ok: false, message: 'Save your stat and AP changes with Save Stats before continuing (or abandon them).' };
@@ -3958,6 +3979,48 @@ try {
         return !!(char && char.id && this.isInCreationFlow());
     },
 
+    /** True after species is confirmed and starter stats/XP are on the character object. */
+    hasCreationStarterGameplay(char) {
+        if (!char || !char.species_id || !char.stats) {
+            return false;
+        }
+        const grant = this.getStartingXpGrant(char.species_id);
+        const life = Math.max(0, parseInt(char.xp_lifetime, 10) || 0);
+        return grant > 0 && life >= grant;
+    },
+
+    syncStarterEconToMoapUrl(char) {
+        if (!char) {
+            return;
+        }
+        try {
+            const url = new URL(window.location.href);
+            const grant = char.xp_lifetime || this.getStartingXpGrant(char.species_id || 'human');
+            url.searchParams.set('xp_lifetime', String(grant));
+            url.searchParams.set('xp_spent', '0');
+            url.searchParams.set('ap_balance', '0');
+            this.safeHistoryReplaceState(url.toString());
+        } catch (e) { /* ignore */ }
+        if (typeof window.updateEconUrlParams === 'function') {
+            window.updateEconUrlParams(0, 0);
+        }
+    },
+
+    /**
+     * After species is confirmed in creation: stats all 1s, starter XP, 0 spent/AP (local only).
+     */
+    applySpeciesConfirmedStarter(char) {
+        if (!char || !char.species_id) {
+            return false;
+        }
+        this.applyCalculatedStarterGameplay(char);
+        this.state.statsPending = false;
+        this.syncStarterEconToMoapUrl(char);
+        this.captureStatsFloor(char);
+        this.updateSaveStatsButton();
+        return true;
+    },
+
     /**
      * New-character gameplay from JS only — stats all 1s, XP from species lookup, 0 spent/AP.
      * Used for unsaved drafts and as the payload written to KVP on Save Progress.
@@ -3987,7 +4050,7 @@ try {
     },
 
     /**
-     * Stats tab during creation: unsaved draft = local calculate only; saved draft = pull KVP.
+     * Stats tab during creation: unsaved draft = values from species confirm; saved draft = pull KVP.
      */
     async prepareCreationStatsTab() {
         const char = this.state.character;
@@ -3995,12 +4058,17 @@ try {
             return false;
         }
         if (!char.id) {
-            this.applyCalculatedStarterGameplay(char);
+            if (char.species_id && !this.hasCreationStarterGameplay(char)) {
+                this.applySpeciesConfirmedStarter(char);
+            }
             this.refreshStatsTabFromCharacter();
             if (typeof UI !== 'undefined' && UI.setStatsHudBanner) {
+                const ready = this.hasCreationStarterGameplay(char);
                 UI.setStatsHudBanner(
-                    'Starter values calculated locally — use Save Progress to store on your HUD.',
-                    'info'
+                    ready
+                        ? 'Starter values from species — use Save Progress to store on your HUD.'
+                        : 'Select and confirm a species to receive starting XP and stats.',
+                    ready ? 'info' : 'warning'
                 );
             }
             return true;
@@ -4057,16 +4125,11 @@ try {
         if (!char || !char.id) {
             return false;
         }
-        const statsCsv = this.statsCsvFromChar(char);
-        const statsAreFactory = !statsCsv || this.csvIsStarterDefault(statsCsv);
-        if (options.preserveStats || !statsAreFactory) {
-            this.applyCalculatedStarterEcon(char);
-            if (!char.stats) {
-                char.stats = Object.assign({}, this.getNewCharacterStats());
-            }
-        } else {
+        if (!this.hasCreationStarterGameplay(char)) {
             this.applyCalculatedStarterGameplay(char);
         }
+        char.xp_spent = Math.max(0, parseInt(char.xp_spent, 10) || 0);
+        char.ap_balance = Math.max(0, parseInt(char.ap_balance, 10) || 0);
         if (!this.isBridgeHudMode()) {
             await this.pushCharacterToPlayersHUD(char.id);
             this.grantStartingXpToHud(char, { forceStarter: true, forceNavigate: true });
@@ -5565,6 +5628,17 @@ try {
             
             // Determine if this is a new character or an update
             const useCreatePath = !char.id && (this.state.isNewCharacter || this.state.creationInProgress);
+
+            if (draft && useCreatePath) {
+                if (!char.species_id) {
+                    if (!silent) UI.showToast('Select a species before saving progress', 'warning');
+                    return false;
+                }
+                if (!this.hasCreationStarterGameplay(char)) {
+                    if (!silent) UI.showToast('Confirm your species choice to set starting XP and stats before saving', 'warning');
+                    return false;
+                }
+            }
             
             if (useCreatePath) {
                 if (!this.state.selectedUniverseId) {
@@ -5664,6 +5738,15 @@ try {
                     createPayload.class_id = char.class_id;
                 }
 
+                const preservedStarter = draft ? {
+                    stats: char.stats ? Object.assign({}, char.stats) : null,
+                    xp_lifetime: char.xp_lifetime,
+                    xp_spent: char.xp_spent,
+                    ap_balance: char.ap_balance,
+                    has_mana: char.has_mana,
+                    mana: char.mana ? Object.assign({}, char.mana) : null
+                } : null;
+
                 const result = await API.createCharacter(createPayload);
                 
                 console.log('[saveCharacter] createCharacter result:', result);
@@ -5684,8 +5767,34 @@ try {
                 }
                 
                 this.state.character = result.data.character;
-                this.resetDraftEconOnCharacter(this.state.character);
                 this.state.selectedCharacterId = result.data.character.id;
+                if (preservedStarter) {
+                    if (preservedStarter.stats) {
+                        this.state.character.stats = Object.assign({}, preservedStarter.stats);
+                    }
+                    if (preservedStarter.xp_lifetime != null && preservedStarter.xp_lifetime > 0) {
+                        this.state.character.xp_lifetime = preservedStarter.xp_lifetime;
+                        this.state.character.xp_spent = preservedStarter.xp_spent != null ? preservedStarter.xp_spent : 0;
+                        this.state.character.ap_balance = preservedStarter.ap_balance != null ? preservedStarter.ap_balance : 0;
+                        this.state.character.xp_available = Math.max(
+                            0,
+                            this.state.character.xp_lifetime - this.state.character.xp_spent
+                        );
+                        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                            App.state.econ = {};
+                        }
+                        App.state.econ.xp_lifetime = this.state.character.xp_lifetime;
+                        App.state.econ.xp_spent = this.state.character.xp_spent;
+                        App.state.econ.ap_balance = this.state.character.ap_balance;
+                        App.state.econSessionActive = true;
+                    }
+                    if (preservedStarter.has_mana != null) {
+                        this.state.character.has_mana = preservedStarter.has_mana;
+                    }
+                    if (preservedStarter.mana) {
+                        this.state.character.mana = Object.assign({}, preservedStarter.mana);
+                    }
+                }
                 this.state.dirty = false;
                 this.applyPendingClassXpChargeAfterSave();
                 if (draft) {
@@ -10721,15 +10830,14 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}${hasMana ? ' (with mana!)' : ''}`, 'success', 3000);
                 
-                // Species change resets to all 1s only — never apply base_stats as free bumps.
-                if (speciesId !== previousSpeciesId) {
+                if (App.isInCreationFlow()) {
+                    App.applySpeciesConfirmedStarter(App.state.character);
+                    UI.showToast(`Starting XP and stats set (${species.name})`, 'info', 2500);
+                } else if (speciesId !== previousSpeciesId) {
                     const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats reset to all 1s (${species.name})`, 'info', 2000);
-                    if (App.isInCreationFlow()) {
-                        App.applyCalculatedStarterEcon(App.state.character);
-                    }
                 }
                 
                 // Re-render to update UI
@@ -10788,15 +10896,14 @@ window.onSpeciesSelected = async function(speciesId) {
                 UI.hideModal();
                 UI.showToast(`Selected: ${species.name}`, 'success', 3000);
                 
-                // Species change resets to all 1s only — never apply base_stats as free bumps.
-                if (speciesId !== previousSpeciesId) {
+                if (App.isInCreationFlow()) {
+                    App.applySpeciesConfirmedStarter(App.state.character);
+                    UI.showToast(`Starting XP and stats set (${species.name})`, 'info', 2500);
+                } else if (speciesId !== previousSpeciesId) {
                     const mergedStats = window.getSpeciesDefaultStats(speciesId);
                     App.state.character.stats = mergedStats;
                     App.state.pendingChanges.stats = mergedStats;
                     UI.showToast(`Stats reset to all 1s (${species.name})`, 'info', 2000);
-                    if (App.isInCreationFlow()) {
-                        App.applyCalculatedStarterEcon(App.state.character);
-                    }
                 }
                 
                 // Re-render to update UI

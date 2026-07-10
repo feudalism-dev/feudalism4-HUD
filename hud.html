@@ -165,7 +165,7 @@
                     </div>
                 </div>
 
-                <p class="field-hint tab-step-hint" data-creation-step="identity" style="display: none;">Enter name and title, pick gender and species on this page. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="identity" style="display: none;">Enter name and title, pick gender and species. Confirming species sets starting XP and stats. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.</p>
                 <div id="character-identity-section">
                 <div class="panel">
                     <h2>Identity</h2>
@@ -572,7 +572,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.80';
+            window.HUD_BUILD_LABEL = '4.2.81';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
