@@ -204,6 +204,7 @@ try {
     _loadCharacterSelectorQueue: Promise.resolve(),
     _eventHandlersBound: false,
     _creationKvpSeeded: {},
+    _hudGameplayHydrationGen: 0,
 
     isCreationKvpSeeded(charId) {
         return !!(charId && this._creationKvpSeeded && this._creationKvpSeeded[charId]);
@@ -967,83 +968,10 @@ try {
                             
                             console.log('Character loaded:', this.state.character);
 
-                            if (this.isBridgeHudMode() && characterSwitch) {
-                                await this.ensureHudCharacterSlotSynced(this.state.character.id);
-                            }
-
-                            const inCreationSaved = this.isInCreationFlow() && !!this.state.character.id;
-                            const bridgeHydrated = await this.ensureBridgeGameplayLoaded(this.state.character.id, {
-                                showModal: false,
-                                afterSlotSwitch: !!characterSwitch,
-                                forceRefresh: !!(characterSwitch || inCreationSaved),
-                                kvpAuthoritative: !!inCreationSaved,
-                                maxAttempts: characterSwitch ? 20 : (inCreationSaved ? 22 : 15)
-                            });
-                            let hadMoapDraft = false;
-                            if (!bridgeHydrated) {
-                                if (!inCreationSaved) {
-                                    this.initEconFromUrl();
-                                    this.mergePoolsFromUrl();
-                                    hadMoapDraft = this.restoreMoapSessionDraft();
-                                    this.mergeUrlEconIntoCharacter();
-                                    this.mergeStatsFromUrlIntoCharacter();
-                                } else if (!this.state.character.id) {
-                                    this.applyCalculatedStarterGameplay(this.state.character);
-                                }
-                            } else {
-                                hadMoapDraft = this.restoreMoapSessionDraft();
-                                this.shadowLogBridgeVsUrl();
-                                this.refreshStatsTabFromCharacter();
-                            }
-                            const awaitingHudKvp = this.isAwaitingHudKvpUrl(this.state.character.id);
-                            if (!awaitingHudKvp) {
-                                this.normalizeCharacterStats(this.state.character);
-                            } else if (typeof UI !== 'undefined' && UI.showToast) {
-                                UI.showToast('Waiting for HUD KVP data...', 'info', 5000);
-                            }
-                            if (!hadMoapDraft) {
-                                this.migrateLegacyEconIfNeeded();
-                            }
-                            if (!econSyncOnly && !window.hasHudEconInUrl()
-                                && window.reconcileStaleApBalance(this.state.character)) {
-                                window.updateEconUrlParams(
-                                    window.getEconSpent(this.state.character),
-                                    window.getApBalance(this.state.character)
-                                );
-                            }
-                            this.captureAbandonBaseline(this.state.character);
-                            this.resumeCreationFlowIfNeeded(this.state.character);
-                            if (!econSyncOnly) {
-                                this.state.statsPending = false;
-                                this.updateSaveStatsButton();
-                            }
-
-                            const skipHudStatsPush = (function () {
-                                try {
-                                    const params = new URLSearchParams(window.location.search);
-                                    if (params.get('econ_sync') === '1') {
-                                        return true;
-                                    }
-                                    if (params.get('request_data') === '1' && App.urlHasAuthoritativeStats(App.state.character?.id)) {
-                                        return true;
-                                    }
-                                    return App.urlHasAuthoritativeStats(App.state.character?.id);
-                                } catch (e) {
-                                    return false;
-                                }
-                            })();
-                            if (!skipHudStatsPush && !this.state.statsPending && !awaitingHudKvp) {
-                                await this.cacheHudStatsForPlayers(this.state.character, {
-                                    syncStats: !characterSwitch
-                                });
-                            } else if (this.state.character && !this.state.statsPending && !awaitingHudKvp) {
-                                if (characterSwitch || !bridgeHydrated) {
-                                    await this.pushCharacterToPlayersHUD(this.state.character.id);
-                                }
-                            }
-                            
-                            // One-shot buff load (no onSnapshot — saves Firestore reads in Setup HUD)
-                            await this.loadBuffs();
+                            this._pendingHudHydration = {
+                                characterSwitch: characterSwitch,
+                                econSyncOnly: econSyncOnly
+                            };
                         }
                     }
                 } else {
@@ -1111,6 +1039,31 @@ try {
             DebugLog.log('Calling renderAll()...', 'debug');
             await this.renderAll();
             DebugLog.log('renderAll() completed', 'debug');
+
+            const pendingHud = this._pendingHudHydration;
+            this._pendingHudHydration = null;
+            if (pendingHud && this.state.character && this.state.character.id) {
+                if (this.isBridgeHudMode()) {
+                    const openOnStatsTab = (function () {
+                        try {
+                            return new URLSearchParams(window.location.search).get('moap_tab') === 'stats';
+                        } catch (e) {
+                            return false;
+                        }
+                    })();
+                    const needsBlockingHud = econSyncReload || openOnStatsTab;
+                    if (needsBlockingHud) {
+                        DebugLog.log('Blocking HUD KVP hydrate (stats tab / econ sync)', 'debug');
+                        await this.hydrateHudGameplayFromBridge(this.state.character.id, pendingHud);
+                    } else {
+                        DebugLog.log('Scheduling background HUD KVP hydrate (galleries already rendered)', 'debug');
+                        this.scheduleHudGameplayHydration(this.state.character.id, pendingHud);
+                    }
+                } else {
+                    await this.applyHudGameplayHydrationResult(false, pendingHud);
+                }
+            }
+            this.loadBuffs();
         } catch (error) {
             DebugLog.log('loadData() ERROR: ' + error.message, 'error');
             DebugLog.log('Stack: ' + (error.stack || 'N/A'), 'error');
@@ -4609,6 +4562,142 @@ try {
             UI.setStatsHudBanner(null);
         }
         return loaded;
+    },
+
+    /**
+     * Apply bridge/KVP gameplay to character state after hydration (stats/XP only — not identity templates).
+     */
+    async applyHudGameplayHydrationResult(bridgeHydrated, options) {
+        if (options === undefined) {
+            options = {};
+        }
+        const char = this.state.character;
+        if (!char || !char.id) {
+            return;
+        }
+        const characterSwitch = !!options.characterSwitch;
+        const econSyncOnly = !!options.econSyncOnly;
+        const inCreationSaved = this.isInCreationFlow() && !!char.id;
+        let hadMoapDraft = false;
+        if (!bridgeHydrated) {
+            if (!inCreationSaved) {
+                this.initEconFromUrl();
+                this.mergePoolsFromUrl();
+                hadMoapDraft = this.restoreMoapSessionDraft();
+                this.mergeUrlEconIntoCharacter();
+                this.mergeStatsFromUrlIntoCharacter();
+            } else if (!char.id) {
+                this.applyCalculatedStarterGameplay(char);
+            }
+        } else {
+            hadMoapDraft = this.restoreMoapSessionDraft();
+            this.shadowLogBridgeVsUrl();
+        }
+        const awaitingHudKvp = this.isAwaitingHudKvpUrl(char.id);
+        if (!awaitingHudKvp) {
+            this.normalizeCharacterStats(char);
+        } else if (typeof UI !== 'undefined' && UI.showToast) {
+            UI.showToast('Waiting for HUD KVP data...', 'info', 5000);
+        }
+        if (!hadMoapDraft) {
+            this.migrateLegacyEconIfNeeded();
+        }
+        if (!econSyncOnly && !window.hasHudEconInUrl()
+            && window.reconcileStaleApBalance(char)) {
+            window.updateEconUrlParams(
+                window.getEconSpent(char),
+                window.getApBalance(char)
+            );
+        }
+        this.captureAbandonBaseline(char);
+        this.resumeCreationFlowIfNeeded(char);
+        if (!econSyncOnly) {
+            this.state.statsPending = false;
+            this.updateSaveStatsButton();
+        }
+        const skipHudStatsPush = (function () {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('econ_sync') === '1') {
+                    return true;
+                }
+                if (params.get('request_data') === '1' && App.urlHasAuthoritativeStats(char.id)) {
+                    return true;
+                }
+                return App.urlHasAuthoritativeStats(char.id);
+            } catch (e) {
+                return false;
+            }
+        })();
+        if (!skipHudStatsPush && !this.state.statsPending && !awaitingHudKvp) {
+            await this.cacheHudStatsForPlayers(char, {
+                syncStats: !characterSwitch
+            });
+        } else if (!this.state.statsPending && !awaitingHudKvp) {
+            if (characterSwitch || !bridgeHydrated) {
+                await this.pushCharacterToPlayersHUD(char.id);
+            }
+        }
+        const onStatsTab = typeof window.getMoapActiveTab === 'function'
+            && window.getMoapActiveTab() === 'stats';
+        if (bridgeHydrated || onStatsTab) {
+            this.refreshStatsTabFromCharacter();
+        }
+    },
+
+    /**
+     * Blocking KVP hydrate — only when Stats tab or econ_sync reload needs gameplay immediately.
+     */
+    async hydrateHudGameplayFromBridge(characterId, options) {
+        if (!characterId || !this.isBridgeHudMode()) {
+            return false;
+        }
+        if (options.characterSwitch) {
+            await this.ensureHudCharacterSlotSynced(characterId);
+        }
+        const inCreationSaved = this.isInCreationFlow() && !!characterId;
+        const bridgeHydrated = await this.ensureBridgeGameplayLoaded(characterId, {
+            showModal: false,
+            forceRefresh: !!(options.characterSwitch || inCreationSaved),
+            kvpAuthoritative: !!inCreationSaved,
+            maxAttempts: options.characterSwitch ? 20 : (inCreationSaved ? 22 : 15)
+        });
+        await this.applyHudGameplayHydrationResult(bridgeHydrated, options);
+        return bridgeHydrated;
+    },
+
+    /**
+     * Background KVP hydrate — identity galleries already rendered from Firestore templates.
+     */
+    scheduleHudGameplayHydration(characterId, options) {
+        if (!characterId || !this.isBridgeHudMode()) {
+            return;
+        }
+        const gen = ++this._hudGameplayHydrationGen;
+        const self = this;
+        (async function () {
+            try {
+                if (options.characterSwitch) {
+                    await self.ensureHudCharacterSlotSynced(characterId);
+                }
+                const inCreationSaved = self.isInCreationFlow() && !!characterId;
+                const bridgeHydrated = await self.ensureBridgeGameplayLoaded(characterId, {
+                    showModal: false,
+                    forceRefresh: !!(options.characterSwitch || inCreationSaved),
+                    kvpAuthoritative: !!inCreationSaved,
+                    maxAttempts: options.characterSwitch ? 10 : (inCreationSaved ? 8 : 5)
+                });
+                if (gen !== self._hudGameplayHydrationGen) {
+                    return;
+                }
+                if (!self.state.character || self.state.character.id !== characterId) {
+                    return;
+                }
+                await self.applyHudGameplayHydrationResult(bridgeHydrated, options);
+            } catch (hydrateErr) {
+                console.warn('[HUD hydration] background failed:', hydrateErr);
+            }
+        })();
     },
 
     /**
