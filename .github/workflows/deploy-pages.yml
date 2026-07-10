@@ -36,6 +36,8 @@ jobs:
           if [ -d shared ]; then cp -r shared _site/; fi
           if [ -d dev ]; then cp -r dev _site/; fi
           if [ -d data ]; then cp -r data _site/; fi
+          # Player guide (MkDocs) lives in guide/ on main — keep it separate from MOAP root files.
+          if [ -d guide ]; then cp -r guide _site/; fi
           touch _site/.nojekyll
           grep -o "HUD_BUILD_LABEL = '[^']*'" _site/hud.html || (echo "hud.html missing build label" && exit 1)
           test -f _site/data/manifest.json || (echo "data/manifest.json missing — run export-templates-cdn before deploy" && exit 1)
