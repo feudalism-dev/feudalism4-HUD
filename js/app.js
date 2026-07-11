@@ -4352,7 +4352,7 @@ try {
         })) {
             return false;
         }
-        const statsRes = await F4Bridge.saveStats(csv, char.id);
+        const statsRes = await F4Bridge.saveStats(csv, char.id, { allowStarter: true });
         if (!statsRes || !statsRes.ok) {
             console.warn('[KVP starter] save_stats failed:', statsRes);
             return false;
@@ -5457,7 +5457,9 @@ try {
             return false;
         }
         try {
-            const statsRes = await F4Bridge.saveStats(csv, char.id);
+            const statsRes = await F4Bridge.saveStats(csv, char.id, {
+                allowStarter: allowStarter || forceWrite
+            });
             if (!statsRes || !statsRes.ok) {
                 console.warn('[KVP seed] save_stats failed:', statsRes);
                 if (!options.silent && typeof UI !== 'undefined' && UI.showToast) {

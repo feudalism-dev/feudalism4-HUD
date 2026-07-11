@@ -183,13 +183,19 @@
         return jsonp(apiBase, apiParams({ action: "end" }), 10000);
     }
 
-    function saveStats(statsCsv, characterId) {
+    function saveStats(statsCsv, characterId, options) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        if (!options) {
+            options = {};
         }
         var extra = { action: "save_stats", stats: statsCsv };
         if (characterId !== undefined && characterId !== null && characterId !== "") {
             extra.character_id = characterId;
+        }
+        if (options.allowStarter === true || options.allowStarterSeed === true) {
+            extra.allow_starter = "1";
         }
         return jsonp(apiBase, apiParams(extra), 25000);
     }
