@@ -200,9 +200,12 @@
         return jsonp(apiBase, apiParams(extra), 25000);
     }
 
-    function saveEcon(xpSpent, apBalance, characterId, xpLifetime) {
+    function saveEcon(xpSpent, apBalance, characterId, xpLifetime, options) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        if (!options) {
+            options = {};
         }
         var extra = { action: "save_econ" };
         if (xpSpent !== undefined && xpSpent !== null && xpSpent !== "") {
@@ -216,6 +219,9 @@
         }
         if (characterId !== undefined && characterId !== null && characterId !== "") {
             extra.character_id = characterId;
+        }
+        if (options.allowSeed === true || options.allowStarterSeed === true) {
+            extra.allow_seed = "1";
         }
         return jsonp(apiBase, apiParams(extra), 25000);
     }

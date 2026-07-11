@@ -4539,7 +4539,7 @@ try {
             console.warn('[KVP starter] save_stats failed:', statsRes);
             return false;
         }
-        const econRes = await F4Bridge.saveEcon(spent, ap, char.id, grant);
+        const econRes = await F4Bridge.saveEcon(spent, ap, char.id, grant, { allowSeed: true });
         if (!econRes || !econRes.ok) {
             console.warn('[KVP starter] save_econ failed:', econRes);
             return false;
@@ -5658,7 +5658,10 @@ try {
                     window.getEconSpent(char),
                     window.getApBalance(char),
                     char.id,
-                    lifeArg
+                    lifeArg,
+                    {
+                        allowSeed: allowStarter || forceWrite || !!options.allowSeed
+                    }
                 );
                 if (!econRes || !econRes.ok) {
                     console.warn('[KVP seed] save_econ failed:', econRes);
