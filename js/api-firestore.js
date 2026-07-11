@@ -870,7 +870,8 @@ const API = {
             return { success: true, data: { characters: this._dedupeCharactersById(this._listCharactersCache) }, cached: true };
         }
 
-        if (!forceRefresh && this.uuid) {
+        // Bridge mode: never use stale sessionStorage roster (legacy Firestore / admin index).
+        if (!forceRefresh && this.uuid && !this.shouldDiscardFirestoreGameplay()) {
             try {
                 var rosterRaw = sessionStorage.getItem('f4_roster_' + this.uuid);
                 if (rosterRaw) {
@@ -882,6 +883,10 @@ const API = {
                         return { success: true, data: { characters: this._listCharactersCache }, cached: true };
                     }
                 }
+            } catch (e) { /* ignore */ }
+        } else if (this.shouldDiscardFirestoreGameplay() && this.uuid) {
+            try {
+                sessionStorage.removeItem('f4_roster_' + this.uuid);
             } catch (e) { /* ignore */ }
         }
 
@@ -1279,6 +1284,48 @@ const API = {
         
         if (!characterId) {
             return { success: false, error: 'No character ID provided' };
+        }
+
+        if (this.shouldDiscardFirestoreGameplay()) {
+            try {
+                await F4BridgeHud.waitForBridgeReady(10000);
+                const res = await F4Bridge.deleteCharacter(characterId);
+                if (!res || !res.ok) {
+                    return { success: false, error: (res && res.error) || 'delete_failed' };
+                }
+                if (this._listCharactersCache) {
+                    this._listCharactersCache = this._listCharactersCache.filter(function (c) {
+                        return c.id !== characterId;
+                    });
+                }
+                this._listCharactersCacheTs = Date.now();
+                if (this.uuid) {
+                    try {
+                        sessionStorage.setItem(
+                            'f4_roster_' + this.uuid,
+                            JSON.stringify({ characters: this._listCharactersCache || [] })
+                        );
+                    } catch (e) { /* ignore */ }
+                }
+                if (this.activeCharacterId === characterId) {
+                    this.activeCharacterId = null;
+                    if (this.user) {
+                        this.user.activeCharacter = null;
+                    }
+                    this._saveUserSession();
+                }
+                console.log('[deleteCharacter] bridge deleted:', characterId);
+                return {
+                    success: true,
+                    data: {
+                        message: 'Character deleted successfully',
+                        characterId: characterId
+                    }
+                };
+            } catch (error) {
+                console.error('deleteCharacter bridge error:', error);
+                return { success: false, error: error.message || String(error) };
+            }
         }
         
         try {

@@ -7,7 +7,7 @@
 (function (global) {
     "use strict";
 
-    var BRIDGE_BUILD = "f4-bridge-v8.1-identsplit";
+    var BRIDGE_BUILD = "f4-bridge-v8.2-delete";
 
     var session = {
         token: "",
@@ -313,6 +313,16 @@
         return jsonp(apiBase, apiParams({ action: "get_active" }), 20000);
     }
 
+    function deleteCharacter(characterId) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({
+            action: "delete_character",
+            character_id: characterId || ""
+        }), 30000);
+    }
+
     function sendCommand(cmd) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
@@ -336,6 +346,7 @@
         updateCharacter: updateCharacter,
         setActiveCharacter: setActiveCharacter,
         getActiveCharacter: getActiveCharacter,
+        deleteCharacter: deleteCharacter,
         sendCommand: sendCommand,
         getApiBase: function () { return apiBase; },
         getSessionInfo: function () { return session; },
