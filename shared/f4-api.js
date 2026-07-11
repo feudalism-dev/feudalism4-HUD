@@ -7,7 +7,7 @@
 (function (global) {
     "use strict";
 
-    var BRIDGE_BUILD = "f4-bridge-v6.7";
+    var BRIDGE_BUILD = "f4-bridge-v8.1-identsplit";
 
     var session = {
         token: "",
@@ -220,6 +220,99 @@
         return jsonp(apiBase, apiParams(extra), 25000);
     }
 
+    function createCharacter(charData) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        if (!charData) {
+            charData = {};
+        }
+        var extra = {
+            action: "create_character",
+            name: charData.name || "Unnamed",
+            title: charData.title || "",
+            gender: charData.gender || "other",
+            species_id: charData.species_id || "human",
+            class_id: charData.class_id || "",
+            universe_id: charData.universe_id || "default",
+            has_mana: charData.has_mana ? "1" : "0",
+            mode: charData.mode || "roleplay",
+            setup_complete: charData.setup_complete ? "1" : "0",
+            currency: charData.currency != null ? String(charData.currency) : "50"
+        };
+        if (charData.stats) {
+            if (typeof charData.stats === "string") {
+                extra.stats = charData.stats;
+            } else if (Array.isArray(charData.stats)) {
+                extra.stats = charData.stats.join(",");
+            } else if (typeof charData.stats === "object") {
+                var order = [
+                    "agility", "animal_handling", "athletics", "awareness", "crafting",
+                    "deception", "endurance", "entertaining", "fighting", "healing",
+                    "influence", "intelligence", "knowledge", "marksmanship", "persuasion",
+                    "stealth", "survival", "thievery", "will", "wisdom"
+                ];
+                var parts = [];
+                var si;
+                for (si = 0; si < order.length; si++) {
+                    var sv = charData.stats[order[si]];
+                    parts.push(sv != null ? String(sv) : "2");
+                }
+                extra.stats = parts.join(",");
+            }
+        }
+        return jsonp(apiBase, apiParams(extra), 30000);
+    }
+
+    function listCharacters() {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({ action: "list_characters" }), 25000);
+    }
+
+    function updateCharacter(charData, characterId) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        if (!charData) {
+            charData = {};
+        }
+        var id = characterId || charData.id || "";
+        var extra = {
+            action: "update_character",
+            character_id: id,
+            name: charData.name || "Unnamed",
+            title: charData.title || "",
+            gender: charData.gender || "other",
+            species_id: charData.species_id || "human",
+            class_id: charData.class_id || "",
+            universe_id: charData.universe_id || "default",
+            has_mana: charData.has_mana ? "1" : "0",
+            mode: charData.mode || "roleplay",
+            setup_complete: charData.setup_complete ? "1" : "0",
+            currency: charData.currency != null ? String(charData.currency) : "50"
+        };
+        return jsonp(apiBase, apiParams(extra), 25000);
+    }
+
+    function setActiveCharacter(characterId) {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({
+            action: "set_active",
+            character_id: characterId || ""
+        }), 20000);
+    }
+
+    function getActiveCharacter() {
+        if (!apiBase) {
+            return Promise.resolve({ ok: false, error: "no_cap" });
+        }
+        return jsonp(apiBase, apiParams({ action: "get_active" }), 20000);
+    }
+
     function sendCommand(cmd) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
@@ -238,6 +331,11 @@
         endSession: endSession,
         saveStats: saveStats,
         saveEcon: saveEcon,
+        createCharacter: createCharacter,
+        listCharacters: listCharacters,
+        updateCharacter: updateCharacter,
+        setActiveCharacter: setActiveCharacter,
+        getActiveCharacter: getActiveCharacter,
         sendCommand: sendCommand,
         getApiBase: function () { return apiBase; },
         getSessionInfo: function () { return session; },

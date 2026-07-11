@@ -4791,8 +4791,11 @@ try {
         if (!characterId || !this.isBridgeHudMode()) {
             return false;
         }
+        // Identity only — do NOT push stats/xp in LOAD_CHARACTER.
+        // includeGameplay caused LSL to emit stats_loaded as if from EXP and
+        // stacked with KVP pulls into MOAP reload / sync storms.
         const char = this.state.character;
-        const payload = this.buildCharacterSyncPayload(characterId, char, { includeGameplay: true });
+        const payload = this.buildCharacterSyncPayload(characterId, char, { includeGameplay: false });
         const loadParts = Object.keys(payload).map(function (key) {
             return key + ':' + encodeURIComponent(String(payload[key]));
         });
@@ -6401,7 +6404,7 @@ try {
                     universe_id: this.state.selectedUniverseId,
                     has_mana: hasMana,
                     mana: manaPool,
-                    stats: char.stats,
+                    stats: this.statsCsvFromChar(char) || char.stats,
                     setup_complete: false
                 };
                 if (char.class_id) {
@@ -6538,11 +6541,14 @@ try {
                     title: char.title,
                     gender: char.gender,
                     species_id: char.species_id,
+                    universe_id: char.universe_id || this.state.selectedUniverseId || 'default',
                     has_mana: char.has_mana,
+                    mode: char.mode || 'roleplay',
                     mana: char.mana,
                     health: char.health,
                     stamina: char.stamina,
-                    setup_complete: draft ? false : true
+                    setup_complete: draft ? false : true,
+                    currency: char.currency != null ? char.currency : 50
                 };
                 if (classId) {
                     updatePayload.class_id = classId;
