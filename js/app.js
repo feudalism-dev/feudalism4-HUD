@@ -5547,7 +5547,11 @@ try {
             throw new Error('stats_write_blocked');
         }
         await this.reconcileHudSlotIfNeeded(char.id, { force: true });
-        const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined);
+        // Creation / first seed must pass allow_starter — bleed guards reject unresolved writes.
+        const allowStarter = this.isInCreationFlow() || !this.isCreationKvpSeeded(char.id);
+        const statsRes = await F4Bridge.saveStats(csv, char && char.id ? char.id : undefined, {
+            allowStarter: allowStarter
+        });
         if (!statsRes || !statsRes.ok) {
             const errCode = (statsRes && statsRes.error) ? String(statsRes.error) : 'save_stats_failed';
             throw new Error(errCode);
@@ -5564,7 +5568,8 @@ try {
                 savedSpent,
                 savedAp,
                 char && char.id ? char.id : undefined,
-                lifeArg > 0 ? lifeArg : undefined
+                lifeArg > 0 ? lifeArg : undefined,
+                { allowSeed: allowStarter }
             );
             if (!econRes || !econRes.ok) {
                 econWarning = (econRes && econRes.error) ? String(econRes.error) : 'save_econ_failed';
