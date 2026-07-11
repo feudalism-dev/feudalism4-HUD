@@ -359,6 +359,22 @@ try {
         return trimmed;
     },
 
+    /** True when character has no persisted universe (legacy KVP roster / migration gap). */
+    characterMissingUniverse(char) {
+        if (!char || !char.id) {
+            return false;
+        }
+        const u = char.universe_id;
+        if (u === undefined || u === null) {
+            return true;
+        }
+        if (typeof u !== 'string') {
+            return true;
+        }
+        const trimmed = u.trim();
+        return trimmed === '' || trimmed === 'JSON_INVALID' || trimmed === 'null';
+    },
+
     _clearSelectOptions(selector) {
         if (!selector) {
             return;
@@ -992,6 +1008,10 @@ try {
                                 this.state.creationInProgress = true;
                                 this.state.isNewCharacter = true;
                             }
+                            if (this.characterMissingUniverse(this.state.character)) {
+                                await this.promptUniverseRepairIfNeeded(this.state.character);
+                                character = this.state.character || character;
+                            }
                             if (character.universe_id) {
                                 this.state.selectedUniverseId = character.universe_id;
                             }
@@ -1152,6 +1172,166 @@ try {
                 console.error('Firebase error code:', error.code);
             }
         }
+    },
+
+    /**
+     * Forced universe pick for legacy characters missing universe_id in KVP.
+     * Blocks dismiss until the player saves a universe.
+     */
+    async promptUniverseRepairIfNeeded(character) {
+        if (!this.characterMissingUniverse(character)) {
+            return character;
+        }
+        if (this._universeRepairInFlight) {
+            return this._universeRepairInFlight;
+        }
+        this._universeRepairInFlight = this._runUniverseRepairModal(character);
+        try {
+            return await this._universeRepairInFlight;
+        } finally {
+            this._universeRepairInFlight = null;
+        }
+    },
+
+    async _runUniverseRepairModal(character) {
+        const self = this;
+        const result = await API.listAvailableUniverses();
+        if (!result.success || !result.data || !result.data.universes || !result.data.universes.length) {
+            UI.showToast('Could not load universes — reopen Setup HUD to set character universe', 'error');
+            return character;
+        }
+        const universes = result.data.universes;
+        let universeOptions = '';
+        universes.forEach(function (universe) {
+            const requiresCode = universe.registrationCode && universe.registrationCode.trim() !== '';
+            universeOptions += '<option value="' + universe.id + '" data-requires-code="'
+                + (requiresCode ? 'true' : 'false') + '">' + (universe.name || universe.id)
+                + (requiresCode ? ' (Requires Code)' : '') + '</option>';
+        });
+        const charLabel = (character.name && String(character.name).trim())
+            ? String(character.name).trim()
+            : 'this character';
+        const safeLabel = charLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        return new Promise(function (resolve) {
+            UI.setModalCloseBlocked(true);
+            UI.showModal(
+                '<div class="modal-content">'
+                + '<h2 class="modal-title">Universe required</h2>'
+                + '<p class="modal-text">We lost the universe for <strong>'
+                + safeLabel
+                + '</strong> during a data migration. Please pick the correct universe so species, gender, and classes load properly.</p>'
+                + '<div class="form-group" style="margin: var(--space-md) 0;">'
+                + '<label for="repair-char-universe">Universe</label>'
+                + '<select id="repair-char-universe" style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">'
+                + universeOptions
+                + '</select></div>'
+                + '<div id="repair-char-registration-group" class="form-group" style="display: none; margin: var(--space-md) 0;">'
+                + '<label for="repair-char-registration-code">Registration Code</label>'
+                + '<input type="text" id="repair-char-registration-code" placeholder="Enter registration code..." style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">'
+                + '<small style="color: var(--text-muted); display: block; margin-top: var(--space-xxs);">This universe requires a registration code</small>'
+                + '</div>'
+                + '<div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-lg);">'
+                + '<button class="btn-primary" id="btn-repair-char-universe">Save universe</button>'
+                + '</div></div>'
+            );
+
+            const universeSelect = document.getElementById('repair-char-universe');
+            const registrationGroup = document.getElementById('repair-char-registration-group');
+            const registrationInput = document.getElementById('repair-char-registration-code');
+            const saveBtn = document.getElementById('btn-repair-char-universe');
+
+            function syncCodeField() {
+                const selectedOption = universeSelect.options[universeSelect.selectedIndex];
+                const requiresCode = selectedOption && selectedOption.dataset.requiresCode === 'true';
+                registrationGroup.style.display = requiresCode ? 'block' : 'none';
+                if (!requiresCode) {
+                    registrationInput.value = '';
+                }
+            }
+            universeSelect.onchange = syncCodeField;
+            syncCodeField();
+
+            saveBtn.onclick = async function () {
+                const universeId = universeSelect.value;
+                if (!universeId) {
+                    UI.showToast('Select a universe', 'warning');
+                    return;
+                }
+                if (registrationGroup.style.display !== 'none') {
+                    const registrationCode = registrationInput.value.trim();
+                    if (!registrationCode) {
+                        UI.showToast('Registration code is required', 'warning');
+                        return;
+                    }
+                    const universeResult = await API.getUniverse(universeId);
+                    if (!universeResult.success) {
+                        UI.showToast('Failed to verify universe', 'error');
+                        return;
+                    }
+                    if (universeResult.data.universe.registrationCode !== registrationCode) {
+                        UI.showToast('Invalid registration code', 'error');
+                        return;
+                    }
+                }
+
+                saveBtn.disabled = true;
+                UI.showToast('Saving universe...', 'info', 1200);
+                const payload = {
+                    id: character.id,
+                    name: character.name || 'Unnamed',
+                    title: character.title || '',
+                    gender: character.gender || 'other',
+                    species_id: character.species_id || 'human',
+                    class_id: character.class_id || '',
+                    universe_id: universeId,
+                    has_mana: !!character.has_mana,
+                    mode: character.mode || 'roleplay',
+                    setup_complete: character.setup_complete === true,
+                    currency: character.currency != null ? character.currency : 50
+                };
+                const saveResult = await API.updateCharacter(payload, character.id);
+                if (!saveResult || !saveResult.success) {
+                    saveBtn.disabled = false;
+                    UI.showToast('Failed to save universe: ' + ((saveResult && saveResult.error) || 'Unknown error'), 'error');
+                    return;
+                }
+
+                const updated = (saveResult.data && saveResult.data.character)
+                    ? saveResult.data.character
+                    : Object.assign({}, character, { universe_id: universeId });
+                if (self.state.character && self.state.character.id === character.id) {
+                    self.state.character = Object.assign({}, self.state.character, updated, {
+                        universe_id: universeId
+                    });
+                }
+                self.state.selectedUniverseId = universeId;
+                const universeLoaded = await API.getUniverse(universeId);
+                if (universeLoaded.success) {
+                    self.state.currentUniverse = universeLoaded.data.universe;
+                }
+                if (API._listCharactersCache) {
+                    API._listCharactersCache = API._listCharactersCache.map(function (c) {
+                        if (c.id === character.id) {
+                            return Object.assign({}, c, { universe_id: universeId });
+                        }
+                        return c;
+                    });
+                }
+                UI.setModalCloseBlocked(false);
+                UI.closeModal();
+                UI.showToast('Universe saved', 'success', 2000);
+                if (typeof self.loadCharacterSelector === 'function' && API._listCharactersCache) {
+                    await self.loadCharacterSelector(API._listCharactersCache);
+                }
+                if (typeof self.renderAll === 'function') {
+                    await self.renderAll();
+                }
+                resolve(self.state.character && self.state.character.id === character.id
+                    ? self.state.character
+                    : updated);
+            };
+        });
     },
     
     /**
@@ -2263,7 +2443,9 @@ try {
         // Group characters by universe
         const byUniverse = {};
         characters.forEach(char => {
-            const universe = this._normalizeUniverseId(char.universe_id);
+            const universe = this.characterMissingUniverse(char)
+                ? '(needs universe)'
+                : this._normalizeUniverseId(char.universe_id);
             if (!byUniverse[universe]) {
                 byUniverse[universe] = [];
             }

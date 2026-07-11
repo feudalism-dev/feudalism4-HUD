@@ -235,6 +235,9 @@ const UI = {
         
         // Modal close — route through MoapDialogs when a confirm/alert is open
         this.elements.modalClose?.addEventListener('click', () => {
+            if (this.blockClose) {
+                return;
+            }
             if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog('close')) {
                 return;
             }
@@ -242,6 +245,9 @@ const UI = {
         });
         this.elements.modal?.addEventListener('click', (e) => {
             if (e.target === this.elements.modal) {
+                if (this.blockClose) {
+                    return;
+                }
                 if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog('backdrop')) {
                     return;
                 }
@@ -252,6 +258,9 @@ const UI = {
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                if (this.blockClose) {
+                    return;
+                }
                 if (typeof MoapDialogs !== 'undefined' && MoapDialogs.cancelActiveDialog('escape')) {
                     return;
                 }
@@ -1612,12 +1621,22 @@ const UI = {
      * Close the modal
      */
     closeModal() {
+        if (this.blockClose) {
+            return;
+        }
         if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
             MoapDialogs.cancelActiveDialog('close');
             return;
         }
         if (!this.elements.modal) return;
         this.elements.modal.classList.add('hidden');
+    },
+
+    setModalCloseBlocked(blocked) {
+        this.blockClose = !!blocked;
+        if (this.elements.modalClose) {
+            this.elements.modalClose.style.display = blocked ? 'none' : '';
+        }
     },
 
     /**
