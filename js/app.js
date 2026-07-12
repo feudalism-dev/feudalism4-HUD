@@ -6910,14 +6910,20 @@ try {
                     return true;
                 }
 
-                const preservedStarter = draft ? {
+                // Always keep local gameplay across create — bridge reply is identity-only.
+                const preservedGameplay = {
                     stats: char.stats ? Object.assign({}, char.stats) : null,
+                    statsCsv: this.statsCsvFromChar(char) || '',
                     xp_lifetime: char.xp_lifetime,
                     xp_spent: char.xp_spent,
                     ap_balance: char.ap_balance,
                     has_mana: char.has_mana,
-                    mana: char.mana ? Object.assign({}, char.mana) : null
-                } : null;
+                    mana: char.mana ? Object.assign({}, char.mana) : null,
+                    health: char.health ? Object.assign({}, char.health) : null,
+                    stamina: char.stamina ? Object.assign({}, char.stamina) : null,
+                    class_id: char.class_id || '',
+                    setup_complete: !draft
+                };
 
                 const result = await API.createCharacter(createPayload);
                 
@@ -6940,34 +6946,48 @@ try {
                 
                 this.state.character = result.data.character;
                 this.state.selectedCharacterId = result.data.character.id;
-                if (preservedStarter) {
-                    if (preservedStarter.stats) {
-                        this.state.character.stats = Object.assign({}, preservedStarter.stats);
+                if (preservedGameplay.stats) {
+                    this.state.character.stats = Object.assign({}, preservedGameplay.stats);
+                }
+                if (preservedGameplay.xp_lifetime != null && preservedGameplay.xp_lifetime > 0) {
+                    this.state.character.xp_lifetime = preservedGameplay.xp_lifetime;
+                    this.state.character.xp_spent = preservedGameplay.xp_spent != null ? preservedGameplay.xp_spent : 0;
+                    this.state.character.ap_balance = preservedGameplay.ap_balance != null ? preservedGameplay.ap_balance : 0;
+                    this.state.character.xp_available = Math.max(
+                        0,
+                        this.state.character.xp_lifetime - this.state.character.xp_spent
+                    );
+                    if (typeof App.state.econ === 'undefined' || !App.state.econ) {
+                        App.state.econ = {};
                     }
-                    if (preservedStarter.xp_lifetime != null && preservedStarter.xp_lifetime > 0) {
-                        this.state.character.xp_lifetime = preservedStarter.xp_lifetime;
-                        this.state.character.xp_spent = preservedStarter.xp_spent != null ? preservedStarter.xp_spent : 0;
-                        this.state.character.ap_balance = preservedStarter.ap_balance != null ? preservedStarter.ap_balance : 0;
-                        this.state.character.xp_available = Math.max(
-                            0,
-                            this.state.character.xp_lifetime - this.state.character.xp_spent
-                        );
-                        if (typeof App.state.econ === 'undefined' || !App.state.econ) {
-                            App.state.econ = {};
-                        }
-                        App.state.econ.xp_lifetime = this.state.character.xp_lifetime;
-                        App.state.econ.xp_spent = this.state.character.xp_spent;
-                        App.state.econ.ap_balance = this.state.character.ap_balance;
-                        App.state.econSessionActive = true;
-                    }
-                    if (preservedStarter.has_mana != null) {
-                        this.state.character.has_mana = preservedStarter.has_mana;
-                    }
-                    if (preservedStarter.mana) {
-                        this.state.character.mana = Object.assign({}, preservedStarter.mana);
-                    }
+                    App.state.econ.xp_lifetime = this.state.character.xp_lifetime;
+                    App.state.econ.xp_spent = this.state.character.xp_spent;
+                    App.state.econ.ap_balance = this.state.character.ap_balance;
+                    App.state.econSessionActive = true;
+                }
+                if (preservedGameplay.has_mana != null) {
+                    this.state.character.has_mana = preservedGameplay.has_mana;
+                }
+                if (preservedGameplay.mana) {
+                    this.state.character.mana = Object.assign({}, preservedGameplay.mana);
+                }
+                if (preservedGameplay.health) {
+                    this.state.character.health = Object.assign({}, preservedGameplay.health);
+                }
+                if (preservedGameplay.stamina) {
+                    this.state.character.stamina = Object.assign({}, preservedGameplay.stamina);
+                }
+                if (preservedGameplay.class_id) {
+                    this.state.character.class_id = preservedGameplay.class_id;
+                }
+                if (preservedGameplay.setup_complete) {
+                    this.state.character.setup_complete = true;
                 }
                 this.state.dirty = false;
+                // Starting class during creation is free — do not charge XP after mint
+                if (!draft) {
+                    delete this.state.pendingClassXpCost;
+                }
                 this.applyPendingClassXpChargeAfterSave();
                 if (draft) {
                     await this.rememberSelectedCharacter(result.data.character.id);
@@ -6991,9 +7011,13 @@ try {
                 if (draft) {
                     await this.syncCreationGameplayToKvp(createdChar, { silent: true });
                 } else if (this.isBridgeHudMode() && createdChar) {
+                    // Create already seeded f4stats_/f4state_ via Identity — re-sync quietly
+                    // (avoid scary "Could not…" toasts if the second write races).
                     await this.finishCreationGameplayToKvp(createdChar, {
-                        showSuccess: !silent,
-                        silent: silent
+                        showSuccess: false,
+                        silent: true,
+                        forceSlotSync: true,
+                        statsCsv: preservedGameplay.statsCsv || this.statsCsvFromChar(createdChar)
                     });
                 } else {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
