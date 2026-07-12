@@ -3624,6 +3624,9 @@ try {
         let filteredSpecies = [];
         let filteredClasses = [];
         const universeManaEnabled = this.state.currentUniverse?.manaEnabled !== false;
+        const identityGateMessage = this.state.awaitingWelcomeChoice
+            ? 'Choose Play as Starter or Create New Character to begin.'
+            : 'Start character creation to choose identity options.';
 
         if (identityReady) {
             const universeId = this.getActiveUniverseId();
