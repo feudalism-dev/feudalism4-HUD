@@ -3067,6 +3067,11 @@ try {
         if (!this.hasCreationGameplayReady(char)) {
             this.applyCalculatedStarterGameplay(char);
         }
+        // Ghost id from LSD / failed delete must not turn Finish into an identity-only update.
+        if (char.id) {
+            console.warn('[Hybrid] Finish mint — clearing ghost character id', char.id);
+            delete char.id;
+        }
         const saved = await this.saveCharacter({ draft: false, silent: false, completeMint: true });
         if (saved === false) {
             return false;
@@ -6938,8 +6943,10 @@ try {
                 UI.showToast(draft ? 'Saving progress...' : 'Saving...', 'info', 1000);
             }
             
-            // Determine if this is a new character or an update
-            const useCreatePath = !char.id && (this.state.isNewCharacter || this.state.creationInProgress);
+            // Determine if this is a new character or an update.
+            // completeMint during creation always creates (ghost ids already cleared in finishLocalCreation).
+            const useCreatePath = !char.id && (this.state.isNewCharacter || this.state.creationInProgress
+                || options.completeMint === true);
 
             if (draft && useCreatePath) {
                 if (!char.species_id) {

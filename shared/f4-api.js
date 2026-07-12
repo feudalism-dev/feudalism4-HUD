@@ -282,24 +282,27 @@
             if (isNaN(ap) || ap < 0) {
                 ap = 0;
             }
-            var healthPipe = "100|100|100";
-            var staminaPipe = "100|100|100";
-            var manaPipe = "0|0|0";
+            var healthPipe = "100/100/100";
+            var staminaPipe = "100/100/100";
+            var manaPipe = "0/0/0";
+            function poolPipe(pool, fallback) {
+                if (!pool || pool.base == null) {
+                    return fallback;
+                }
+                var cur = pool.current != null ? pool.current : pool.base;
+                var mx = pool.max != null ? pool.max : pool.base;
+                return String(cur) + "/" + String(pool.base) + "/" + String(mx);
+            }
             if (charData.health && charData.health.base != null) {
-                healthPipe = String(charData.health.current != null ? charData.health.current : charData.health.base)
-                    + "|" + String(charData.health.base)
-                    + "|" + String(charData.health.max != null ? charData.health.max : charData.health.base);
+                healthPipe = poolPipe(charData.health, healthPipe);
             }
             if (charData.stamina && charData.stamina.base != null) {
-                staminaPipe = String(charData.stamina.current != null ? charData.stamina.current : charData.stamina.base)
-                    + "|" + String(charData.stamina.base)
-                    + "|" + String(charData.stamina.max != null ? charData.stamina.max : charData.stamina.base);
+                staminaPipe = poolPipe(charData.stamina, staminaPipe);
             }
             if (charData.mana && charData.mana.base != null) {
-                manaPipe = String(charData.mana.current != null ? charData.mana.current : charData.mana.base)
-                    + "|" + String(charData.mana.base)
-                    + "|" + String(charData.mana.max != null ? charData.mana.max : charData.mana.base);
+                manaPipe = poolPipe(charData.mana, manaPipe);
             }
+            // Use / not | so LSL createChar || delimiters cannot be confused with pool separators.
             extra.state = life + "," + spent + "," + ap + "," + healthPipe + "," + staminaPipe + "," + manaPipe;
         }
         return jsonp(apiBase, apiParams(extra), 30000);
