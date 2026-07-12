@@ -2405,6 +2405,22 @@ input::placeholder {
     color: #cbd5e1;
 }
 
+#creation-review-panel .review-portrait-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    padding: 8px;
+    background: rgba(15, 23, 42, 0.55);
+    border-radius: 8px;
+    border: 1px solid #3a5f8f;
+    color: #cbd5e1;
+}
+
+#creation-review-panel .review-portrait-caption {
+    margin-top: 8px;
+}
+
 #creation-review-panel .review-portrait img {
     width: 120px;
     height: 120px;

@@ -2953,7 +2953,9 @@ try {
         panel.style.display = 'block';
         const gender = (this.state.genders || []).find(function (g) { return g.id === char.gender; });
         const species = (this.state.species || []).find(function (s) { return s.id === char.species_id; });
-        const cls = (this.state.classes || []).find(function (c) { return c.id === char.class_id; });
+        const cls = (this.state.filteredClasses && this.state.filteredClasses.length
+            ? this.state.filteredClasses
+            : (this.state.classes || [])).find(function (c) { return c.id === char.class_id; });
         const life = Math.max(0, parseInt(char.xp_lifetime, 10) || 0);
         const spent = Math.max(0, parseInt(char.xp_spent, 10) || 0);
         const ap = Math.max(0, parseInt(char.ap_balance, 10) || 0);
@@ -2966,20 +2968,47 @@ try {
             const key = statKeys[si];
             statsHtml += '<div class="review-stat"><span>' + key.replace(/_/g, ' ') + '</span><strong>' + stats[key] + '</strong></div>';
         }
-        function imgBlock(label, obj, fallback) {
-            const src = obj && (obj.image || obj.image_url || obj.portrait);
+
+        function resolveTemplateImageSrc(obj, kind) {
+            if (!obj) {
+                return '';
+            }
+            if (kind === 'class' && typeof UI !== 'undefined' && typeof UI.getClassImageSrc === 'function') {
+                return UI.getClassImageSrc(obj) || '';
+            }
+            let path = obj.image || obj.image_url || obj.portrait || '';
+            if (!path) {
+                return '';
+            }
+            if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) {
+                return path;
+            }
+            if (path.indexOf('images/') === 0) {
+                return path;
+            }
+            return 'images/' + path;
+        }
+
+        function imgBlock(label, obj, fallback, kind) {
+            const src = resolveTemplateImageSrc(obj, kind);
             const name = (obj && obj.name) || fallback || '—';
             if (src) {
-                return '<div class="review-portrait"><img src="' + src + '" alt="' + name + '"><div>' + label + ': <strong>' + name + '</strong></div></div>';
+                return '<div class="review-portrait">'
+                    + '<img src="' + src + '" alt="' + name + '"'
+                    + ' onerror="this.style.display=\'none\';'
+                    + ' var fb=this.nextElementSibling; if(fb){fb.style.display=\'flex\';}">'
+                    + '<div class="review-portrait-fallback" style="display:none;">' + label + ': <strong>' + name + '</strong></div>'
+                    + '<div class="review-portrait-caption">' + label + ': <strong>' + name + '</strong></div>'
+                    + '</div>';
             }
             return '<div class="review-portrait"><div class="review-portrait-fallback">' + label + ': <strong>' + name + '</strong></div></div>';
         }
         body.innerHTML =
             '<p class="review-lead">Click <strong>Finish</strong> to keep this character, or <strong>Cancel creation</strong> to discard it.</p>'
             + '<div class="review-portraits">'
-            + imgBlock('Gender', gender, char.gender)
-            + imgBlock('Species', species, char.species_id)
-            + imgBlock('Class', cls, char.class_id)
+            + imgBlock('Gender', gender, char.gender, 'gender')
+            + imgBlock('Species', species, char.species_id, 'species')
+            + imgBlock('Class', cls, char.class_id, 'class')
             + '</div>'
             + '<div class="review-identity"><strong>' + (char.name || 'Unnamed') + '</strong>'
             + (char.title ? ' <span class="review-title">— ' + char.title + '</span>' : '')
