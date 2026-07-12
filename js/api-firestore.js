@@ -1765,10 +1765,21 @@ const API = {
      * Check if character has maxed their current class
      */
     /**
-     * Drop Firestore stats on read — live stat line is Experience f4stats / HUD LSD only.
-     * Only when JSONP bridge mode is active (f4_bridge=1 + sl_cap). Legacy URL users keep Firestore gameplay.
+     * Drop Firestore stats/roster on read — live data is Experience KVP / HUD only.
+     * f4_bridge=1 in the URL means Experience authority even before sl_cap is ready.
+     * Never fall back to Firestore characters when Setup HUD is in bridge mode
+     * (that resurrected wiped KVP rosters and treated avatar UUIDs as characters).
      */
     shouldDiscardFirestoreGameplay() {
+        try {
+            if (new URLSearchParams(window.location.search).get('f4_bridge') === '1') {
+                return true;
+            }
+        } catch (e) { /* ignore */ }
+        if (typeof F4Bridge !== 'undefined' && typeof F4Bridge.isBridgeMode === 'function'
+            && F4Bridge.isBridgeMode()) {
+            return true;
+        }
         return typeof F4BridgeHud !== 'undefined' && F4BridgeHud.isEnabled();
     },
 

@@ -362,9 +362,79 @@ try {
         return trimmed;
     },
 
+    /** True for Second Life avatar keys (8-4-4-4-12). Character mint ids are 32 hex without dashes. */
+    isAvatarUuidKey(value) {
+        if (!value || typeof value !== 'string') {
+            return false;
+        }
+        const s = value.trim().toLowerCase();
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s);
+    },
+
+    /**
+     * Experience / Firestore character document ids — never an avatar UUID.
+     * Rejects blank-write garbage like "1," and owner-uuid-as-character ghosts.
+     */
+    isPlausibleCharacterId(id) {
+        if (!id || typeof id !== 'string') {
+            return false;
+        }
+        const s = id.trim();
+        if (s.length < 8) {
+            return false;
+        }
+        if (s.indexOf(',') >= 0 || s.indexOf('|') >= 0 || s.indexOf(';') >= 0) {
+            return false;
+        }
+        if (this.isAvatarUuidKey(s)) {
+            return false;
+        }
+        if (API.uuid && s.toLowerCase() === String(API.uuid).toLowerCase()) {
+            return false;
+        }
+        return true;
+    },
+
+    filterPlausibleCharacters(characters) {
+        const list = Array.isArray(characters) ? characters : [];
+        const out = [];
+        let i;
+        for (i = 0; i < list.length; i++) {
+            const c = list[i];
+            if (!c || !this.isPlausibleCharacterId(c.id)) {
+                console.warn('[loadData] Dropping non-character id from roster:', c && c.id);
+                continue;
+            }
+            out.push(c);
+        }
+        return out;
+    },
+
+    clearStaleCharacterSelection() {
+        this.state.selectedCharacterId = null;
+        if (typeof API !== 'undefined') {
+            API.activeCharacterId = null;
+            if (API.user) {
+                API.user.activeCharacter = null;
+            }
+        }
+        try {
+            sessionStorage.removeItem(this.getActiveCharacterStorageKey());
+        } catch (e) { /* ignore */ }
+        try {
+            if (API.uuid) {
+                sessionStorage.removeItem('f4_roster_' + API.uuid);
+            }
+        } catch (e2) { /* ignore */ }
+        if (typeof API !== 'undefined') {
+            API._listCharactersCache = [];
+            API._listCharactersCacheTs = 0;
+        }
+    },
+
     /** True when character has no persisted universe (legacy KVP roster / migration gap). */
     characterMissingUniverse(char) {
-        if (!char || !char.id) {
+        if (!char || !this.isPlausibleCharacterId(char.id)) {
             return false;
         }
         const u = char.universe_id;
@@ -642,7 +712,7 @@ try {
     },
 
     upsertCharacterInRosterCache(character) {
-        if (!character || !character.id) {
+        if (!character || !this.isPlausibleCharacterId(character.id)) {
             return;
         }
         if (!API._listCharactersCache) {
@@ -900,6 +970,11 @@ try {
                         || new URLSearchParams(window.location.search).get('active_char')
                         || sessionStorage.getItem(this.getActiveCharacterStorageKey());
                 } catch (e) { /* ignore */ }
+                if (preferredCharId && !this.isPlausibleCharacterId(preferredCharId)) {
+                    console.warn('[loadData] Ignoring avatar-UUID / garbage preferred id:', preferredCharId);
+                    preferredCharId = null;
+                    this.clearStaleCharacterSelection();
+                }
                 if (econSyncOnly && !forceRefresh) {
                     try {
                         const cached = sessionStorage.getItem(rosterCacheKey);
@@ -931,9 +1006,24 @@ try {
                 
                 if (!charsResult.success) {
                     console.error('[loadData] listCharacters failed:', charsResult.error);
-                    UI.showToast('Failed to load characters: ' + (charsResult.error || 'Unknown error'), 'error');
-                    this.state.character = null;
-                    this.state.isNewCharacter = true;
+                    // Bridge Setup with empty/failed Experience roster must Welcome — not invent from UUID.
+                    if (API.shouldDiscardFirestoreGameplay && API.shouldDiscardFirestoreGameplay()) {
+                        this.clearStaleCharacterSelection();
+                        this.state.character = null;
+                        this.state.isNewCharacter = false;
+                        this.state.creationInProgress = false;
+                        this.state.creationStepId = null;
+                        this.state.awaitingWelcomeChoice = true;
+                        await this.loadCharacterSelector([]);
+                        this.updateStatusIndicator();
+                        this.updateStepGuide();
+                        UI.showToast('Could not read Experience roster — create a character if you have none', 'warning');
+                        console.log('[loadData] Bridge list failed — showing Welcome');
+                    } else {
+                        UI.showToast('Failed to load characters: ' + (charsResult.error || 'Unknown error'), 'error');
+                        this.state.character = null;
+                        this.state.isNewCharacter = true;
+                    }
                     return;
                 }
                 
@@ -943,16 +1033,22 @@ try {
                 console.log('[loadData] Found', characters.length, 'character(s) in roster');
                 // HOTFIX 4.3.2+: never auto-delete roster rows. Keep every listed char.
                 characters = await this.cleanupIncompleteCharacters(characters);
+                characters = this.filterPlausibleCharacters(characters);
                 if (!characters.length) {
-                    const recovered = await this.recoverExistingCharactersWhenRosterEmpty(preferredCharId);
-                    if (recovered && recovered.length) {
-                        characters = recovered;
-                        console.log('[loadData] Recovered', characters.length, 'existing character(s) — skipping Welcome');
+                    // Experience empty = Welcome. Do NOT recover via avatar UUID / Firestore ghosts.
+                    if (API.shouldDiscardFirestoreGameplay && API.shouldDiscardFirestoreGameplay()) {
+                        console.log('[loadData] Experience roster empty — Welcome (no UUID/Firestore invent)');
+                    } else {
+                        const recovered = await this.recoverExistingCharactersWhenRosterEmpty(preferredCharId);
+                        if (recovered && recovered.length) {
+                            characters = this.filterPlausibleCharacters(recovered);
+                            console.log('[loadData] Recovered', characters.length, 'existing character(s) — skipping Welcome');
+                        }
                     }
                 }
                 if (!characters.length) {
+                    this.clearStaleCharacterSelection();
                     this.state.character = null;
-                    this.state.selectedCharacterId = null;
                     this.state.isNewCharacter = false;
                     this.state.creationInProgress = false;
                     this.state.creationStepId = null;
@@ -963,12 +1059,16 @@ try {
                     console.log('[loadData] No existing characters — showing Welcome');
                 } else {
                     this.state.awaitingWelcomeChoice = false;
-                    if (preferredCharId && !characters.some(function (c) { return c.id === preferredCharId; })) {
+                    if (preferredCharId && this.isPlausibleCharacterId(preferredCharId)
+                        && !characters.some(function (c) { return c.id === preferredCharId; })) {
                         try {
                             const orphanResult = await API.getCharacterById(preferredCharId);
-                            if (orphanResult.success && orphanResult.data && orphanResult.data.character) {
+                            if (orphanResult.success && orphanResult.data && orphanResult.data.character
+                                && this.isPlausibleCharacterId(orphanResult.data.character.id)) {
                                 this.upsertCharacterInRosterCache(orphanResult.data.character);
-                                characters = API._listCharactersCache || characters.concat([orphanResult.data.character]);
+                                characters = this.filterPlausibleCharacters(
+                                    API._listCharactersCache || characters.concat([orphanResult.data.character])
+                                );
                                 console.log('[loadData] Merged missing roster entry for', preferredCharId);
                             }
                         } catch (orphanErr) {
@@ -1187,6 +1287,14 @@ try {
      * Blocks dismiss until the player saves a universe.
      */
     async promptUniverseRepairIfNeeded(character) {
+        if (!character || !this.isPlausibleCharacterId(character.id)) {
+            return character;
+        }
+        // Avatar UUID stuck in name/id is a ghost — not a migratable character.
+        if (this.isAvatarUuidKey(character.name) || this.isAvatarUuidKey(character.id)) {
+            console.warn('[UniverseRepair] Skipping ghost character labeled with avatar UUID');
+            return character;
+        }
         if (!this.characterMissingUniverse(character)) {
             return character;
         }
@@ -1216,9 +1324,12 @@ try {
                 + (requiresCode ? 'true' : 'false') + '">' + (universe.name || universe.id)
                 + (requiresCode ? ' (Requires Code)' : '') + '</option>';
         });
-        const charLabel = (character.name && String(character.name).trim())
+        let charLabel = (character.name && String(character.name).trim())
             ? String(character.name).trim()
-            : 'this character';
+            : '';
+        if (!charLabel || self.isAvatarUuidKey(charLabel)) {
+            charLabel = 'this character';
+        }
         const safeLabel = charLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         return new Promise(function (resolve) {
@@ -2649,8 +2760,9 @@ try {
     async recoverExistingCharactersWhenRosterEmpty(preferredCharId) {
         const recovered = [];
         const seen = {};
+        const self = this;
         const pushChar = function (char) {
-            if (!char || !char.id || seen[char.id]) {
+            if (!char || !self.isPlausibleCharacterId(char.id) || seen[char.id]) {
                 return;
             }
             seen[char.id] = true;
@@ -2662,6 +2774,10 @@ try {
 
         // Never invent a character from HUD LSD alone — that resurrects deleted chars.
         // Session / f4active_ may only supply a preferred id to verify against roster/KVP.
+        // Never use the avatar UUID as a character id.
+        if (preferredCharId && !this.isPlausibleCharacterId(preferredCharId)) {
+            preferredCharId = null;
+        }
         if (this.isBridgeHudMode()) {
             try {
                 if (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.waitForBridgeReady) {
@@ -2669,13 +2785,13 @@ try {
                 }
                 if (typeof F4Bridge !== 'undefined' && F4Bridge.getActiveCharacter) {
                     const activeRes = await F4Bridge.getActiveCharacter();
-                    if (activeRes && activeRes.ok && activeRes.characterId) {
+                    if (activeRes && activeRes.ok && this.isPlausibleCharacterId(activeRes.characterId)) {
                         preferredCharId = preferredCharId || activeRes.characterId;
                     }
                 }
                 if (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.fetchSession) {
                     const session = await F4BridgeHud.fetchSession();
-                    if (session && session.ok && session.characterId) {
+                    if (session && session.ok && this.isPlausibleCharacterId(session.characterId)) {
                         preferredCharId = preferredCharId || session.characterId;
                     }
                 }
@@ -2685,7 +2801,7 @@ try {
         }
 
         const tryIds = [];
-        if (preferredCharId) {
+        if (preferredCharId && this.isPlausibleCharacterId(preferredCharId)) {
             tryIds.push(preferredCharId);
         }
         let ti;
@@ -2704,7 +2820,8 @@ try {
             }
         }
 
-        if (!recovered.length && !this.isBridgeHudMode()) {
+        if (!recovered.length && !this.isBridgeHudMode()
+            && !(API.shouldDiscardFirestoreGameplay && API.shouldDiscardFirestoreGameplay())) {
             try {
                 const legacy = await API.getCharacter();
                 if (legacy.success && legacy.data && legacy.data.character) {
@@ -4517,6 +4634,11 @@ try {
         if (!id && activeCharFromUrl) {
             id = activeCharFromUrl;
         }
+        if (id && !this.isPlausibleCharacterId(id)) {
+            console.warn('[Character] Ignoring avatar-UUID selection:', id);
+            this.clearStaleCharacterSelection();
+            return;
+        }
         if (id) {
             this.state.selectedCharacterId = id;
             console.log('[Character] Initial selection:', id);
@@ -4524,15 +4646,20 @@ try {
     },
 
     /**
-     * Pick character document id when loading roster from Firestore.
-     * Always honor explicit Setup selection even if roster cache is briefly stale.
+     * Pick character document id when loading roster.
+     * Preferred id wins only when it is still on the roster (never invent from avatar UUID).
      */
     pickCharacterIdToLoad(characters) {
         const preferred = this.state.selectedCharacterId
             || API.activeCharacterId
             || null;
-        if (preferred) {
-            return preferred;
+        if (preferred && this.isPlausibleCharacterId(preferred) && characters && characters.length) {
+            let i;
+            for (i = 0; i < characters.length; i++) {
+                if (characters[i].id === preferred) {
+                    return preferred;
+                }
+            }
         }
         if (!characters || characters.length === 0) {
             return null;
@@ -4541,7 +4668,7 @@ try {
     },
 
     syncActiveCharToUrl(characterId) {
-        if (!characterId) {
+        if (!characterId || !this.isPlausibleCharacterId(characterId)) {
             return;
         }
         try {
@@ -4555,7 +4682,7 @@ try {
     },
 
     async rememberSelectedCharacter(characterId) {
-        if (!characterId) {
+        if (!characterId || !this.isPlausibleCharacterId(characterId)) {
             return;
         }
         this.state.selectedCharacterId = characterId;
