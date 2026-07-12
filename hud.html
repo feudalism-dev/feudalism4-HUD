@@ -284,8 +284,8 @@
                         <span class="econ-hint" id="buy-points-cost">(1,000 XP)</span>
                         <button type="button" class="action-btn primary" id="buy-points-ok" style="padding: 4px 14px; font-size: 0.85rem;">Buy</button>
                         <button type="button" class="action-btn" id="btn-refresh-stats-hud" title="Reload stats, XP, and AP from HUD Experience" style="padding: 4px 14px; font-size: 0.85rem;">Refresh from HUD</button>
-                        <button type="button" class="action-btn abandon" id="btn-abandon-stats" disabled title="Revert stat and AP changes since last Save Stats" style="padding: 4px 14px; font-size: 0.85rem; margin-left: auto;">Abandon</button>
-                        <button type="button" class="action-btn primary" id="btn-save-stats" disabled title="No stat or AP changes to save" style="padding: 4px 14px; font-size: 0.85rem;">Save Stats</button>
+                        <button type="button" class="action-btn abandon" id="btn-abandon-stats" disabled title="Revert stat and AP changes since last apply/save" style="padding: 4px 14px; font-size: 0.85rem; margin-left: auto;">Abandon</button>
+                        <button type="button" class="action-btn primary" id="btn-save-stats" disabled title="No stat or AP changes to apply" style="padding: 4px 14px; font-size: 0.85rem;">Apply Changes</button>
                     </div>
                     <div id="stats-grid" class="stats-grid">
                     </div>
@@ -614,7 +614,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.3.3';
+            window.HUD_BUILD_LABEL = '4.3.4';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

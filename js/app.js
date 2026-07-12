@@ -1605,6 +1605,22 @@ try {
         if (!inCreation) {
             if (hintEl) hintEl.style.display = 'none';
             document.querySelectorAll('.step-item').forEach(item => item.classList.remove('step-item-current'));
+            const cancelBtnOut = document.getElementById('btn-cancel-creation');
+            if (cancelBtnOut) {
+                cancelBtnOut.style.display = 'none';
+            }
+            const nextBtnOut = document.getElementById('btn-creation-next');
+            if (nextBtnOut) {
+                nextBtnOut.style.display = 'none';
+            }
+            const backBtnOut = document.getElementById('btn-creation-back');
+            if (backBtnOut) {
+                backBtnOut.style.display = 'none';
+            }
+            const resetStatsBtnOut = document.getElementById('btn-reset-creation-stats');
+            if (resetStatsBtnOut) {
+                resetStatsBtnOut.style.display = 'none';
+            }
             return;
         }
 
@@ -1695,7 +1711,17 @@ try {
         const currentIndex = steps.findIndex(s => s.id === currentId);
 
         if (currentId === 'review' || currentIndex >= steps.length - 1) {
-            await this.finishLocalCreation();
+            const finished = await this.finishLocalCreation();
+            if (finished) {
+                this.updateCreationNavigation();
+                this.updateStepGuide();
+                this.updateStatusIndicator();
+                this.updateSaveStatsButton();
+                if (typeof this.renderCreationReview === 'function') {
+                    this.renderCreationReview();
+                }
+                await this.renderAll();
+            }
             return;
         }
 
@@ -1973,11 +1999,15 @@ try {
         const pending = !!this.state.statsPending;
         const inCreation = this.isInCreationFlow();
         if (btn) {
+            btn.style.display = '';
+            btn.disabled = !pending;
             if (inCreation) {
-                btn.style.display = 'none';
+                btn.textContent = 'Apply Changes';
+                btn.title = pending
+                    ? 'Keep these stats for creation (written to Experience when you Finish)'
+                    : 'No stat or AP changes to apply';
             } else {
-                btn.style.display = '';
-                btn.disabled = !pending;
+                btn.textContent = 'Save Stats';
                 btn.title = pending
                     ? 'Apply AP, XP spent, and stat changes to your HUD'
                     : 'No stat or AP changes to save';
@@ -1985,7 +2015,12 @@ try {
         }
         if (abandonBtn) {
             if (inCreation) {
-                abandonBtn.style.display = 'none';
+                // Creation: Apply Changes is enough — abandon stays available if they want to revert.
+                abandonBtn.style.display = '';
+                abandonBtn.disabled = !pending;
+                abandonBtn.title = pending
+                    ? 'Revert stat and AP changes since last Apply Changes'
+                    : 'No stat or AP changes to abandon';
             } else {
                 abandonBtn.style.display = '';
                 abandonBtn.disabled = !pending;
@@ -2016,7 +2051,12 @@ try {
             return false;
         }
         if (typeof MoapDialogs !== 'undefined' && MoapDialogs.isActive && MoapDialogs.isActive()) {
-            UI.showToast('Close the dialog first, then Save Stats', 'warning');
+            UI.showToast(
+                this.isInCreationFlow()
+                    ? 'Close the dialog first, then Apply Changes'
+                    : 'Close the dialog first, then Save Stats',
+                'warning'
+            );
             return false;
         }
         if (typeof UI !== 'undefined' && UI.isFormFieldFocused && UI.isFormFieldFocused()) {
@@ -2027,12 +2067,12 @@ try {
             this.persistMoapSessionDraft(true);
         }
         if (this.isInCreationFlow()) {
-            // Hybrid: stats stay local until Finish — treat as acknowledged
+            // Hybrid: Apply Changes = local only until Finish writes Experience KVP
             this.state.statsPending = false;
             this.captureAbandonBaseline(char);
             this.updateSaveStatsButton();
             this.updateStatusIndicator();
-            UI.showToast('Stats kept for creation — they save when you Finish', 'info', 2500);
+            UI.showToast('Changes applied — they save to Experience when you Finish', 'info', 2500);
             return true;
         }
         UI.showToast('Saving stats...', 'info', 2000);
@@ -2100,6 +2140,11 @@ try {
         if (!this.state.statsPending) {
             return true;
         }
+        // Creation: auto-apply locally so Continue is not blocked by Save/Abandon
+        if (this.isInCreationFlow()) {
+            const ok = await this.saveStatsToHud();
+            return ok !== false && !this.state.statsPending;
+        }
         if (typeof MoapDialogs === 'undefined' || !MoapDialogs.showChoice) {
             return true;
         }
@@ -2131,6 +2176,13 @@ try {
             return true;
         }
         if (fromTab === 'stats' && toTab !== 'stats') {
+            if (this.isInCreationFlow()) {
+                // Soft gate: Apply Changes locally if pending; never force Save/Abandon dialog
+                if (this.state.statsPending) {
+                    await this.saveStatsToHud();
+                }
+                return true;
+            }
             return this.resolveUnsavedStatsPrompt();
         }
         return true;
@@ -2886,6 +2938,10 @@ try {
         this.state.character.setup_complete = false;
         this.resetDraftEconOnCharacter(this.state.character);
         this.captureStatsFloor(this.state.character);
+        // Clear stale name/title left in the form after deleting a prior character
+        if (typeof UI !== 'undefined' && UI.populateIdentityForm) {
+            UI.populateIdentityForm(this.state.character, '');
+        }
         if (options.universeId) {
             this.state.selectedUniverseId = options.universeId;
             this.state.character.universe_id = options.universeId;
@@ -3019,7 +3075,12 @@ try {
         this.state.creationInProgress = false;
         this.state.isNewCharacter = false;
         this.state.creationStepId = null;
+        this.state.statsPending = false;
         this._pendingAutoHideSetup = true;
+        // Exit creation chrome immediately (Cancel / Continue bar must not linger after SAVED)
+        this.updateCreationNavigation();
+        this.updateStatusIndicator();
+        this.updateSaveStatsButton();
         return true;
     },
 
@@ -3966,7 +4027,11 @@ try {
             if (typeof App.refreshHudGameplayFromMoap === 'function') {
                 App.refreshHudGameplayFromMoap({ showModal: true, forceRefresh: true }).then(function (ok) {
                     if (!ok && typeof UI !== 'undefined' && UI.showToast) {
-                        UI.showToast('HUD refresh failed', 'warning');
+                        UI.showToast(
+                            'HUD refresh failed — Experience has no f4stats_/f4state_ for this character (or HUD slot mismatch). Use Save Stats, then try again.',
+                            'warning',
+                            6000
+                        );
                     }
                 });
             }
@@ -7095,14 +7160,21 @@ try {
                 if (draft) {
                     await this.syncCreationGameplayToKvp(createdChar, { silent: true });
                 } else if (this.isBridgeHudMode() && createdChar) {
-                    // Create already seeded f4stats_/f4state_ via Identity — re-sync quietly
-                    // (avoid scary "Could not…" toasts if the second write races).
-                    await this.finishCreationGameplayToKvp(createdChar, {
+                    // Identity should have written f4stats_/f4state_ — re-sync and surface failures
+                    // (silent seed hid missing gameplay KVP after "Character created!").
+                    const gameplayOk = await this.finishCreationGameplayToKvp(createdChar, {
                         showSuccess: false,
-                        silent: true,
+                        silent: false,
                         forceSlotSync: true,
                         statsCsv: preservedGameplay.statsCsv || this.statsCsvFromChar(createdChar)
                     });
+                    if (!gameplayOk && typeof UI !== 'undefined' && UI.showToast) {
+                        UI.showToast(
+                            'Character identity saved, but stats/XP did not write to Experience — use Save Stats, then Refresh from HUD',
+                            'error',
+                            7000
+                        );
+                    }
                 } else {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
                     this.grantStartingXpToHud(createdChar, { forceStarter: true });
