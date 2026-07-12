@@ -940,6 +940,8 @@ try {
                 if (charsResult.data && charsResult.data.characters && charsResult.data.characters.length > 0) {
                     console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
                     let characters = charsResult.data.characters;
+                    // HOTFIX 4.3.2: never auto-delete roster rows. Legacy / migrated chars often
+                    // lack setup_complete=true; 4.3.1 cleanup wiped them. Keep every listed char.
                     characters = await this.cleanupIncompleteCharacters(characters);
                     if (!characters.length) {
                         this.state.character = null;
@@ -951,8 +953,9 @@ try {
                         await this.loadCharacterSelector([]);
                         this.updateStatusIndicator();
                         this.updateStepGuide();
-                        console.log('[loadData] Only incomplete drafts existed — cleaned up; showing Welcome');
+                        console.log('[loadData] Empty roster after sanitize — showing Welcome');
                     } else {
+                    this.state.awaitingWelcomeChoice = false;
                     if (preferredCharId && !characters.some(function (c) { return c.id === preferredCharId; })) {
                         try {
                             const orphanResult = await API.getCharacterById(preferredCharId);
@@ -1021,8 +1024,8 @@ try {
                             }
 
                             if (this.isCharacterSetupIncomplete(character)) {
-                                // Hybrid: incompletes are deleted on roster load — do not reopen wizard
-                                console.warn('[loadData] Incomplete character slipped through cleanup:', character.id);
+                                // Legacy / pre-flag characters: load and play; do not delete or force wizard
+                                console.log('[loadData] Character missing setup_complete/class — loading anyway:', character.id);
                             }
                             if (this.characterMissingUniverse(this.state.character)) {
                                 await this.promptUniverseRepairIfNeeded(this.state.character);
@@ -2572,47 +2575,21 @@ try {
     },
     
     /**
-     * Delete leftover incomplete drafts (setup_complete false / no class).
-     * Hybrid creation never persists incompletes — clean up legacy Save Progress orphans.
-     * @returns {Promise<Array>} remaining finished characters
+     * HOTFIX 4.3.2: NEVER delete characters on load.
+     * 4.3.1 deleted any roster row with setup_complete===false / no class_id — that wiped
+     * existing players who never had the Hybrid flag. Keep every character with an id.
+     * @returns {Promise<Array>} all listed characters (id required)
      */
     async cleanupIncompleteCharacters(characters) {
         const list = Array.isArray(characters) ? characters.slice() : [];
         const keep = [];
-        const toDelete = [];
         let i;
         for (i = 0; i < list.length; i++) {
             const c = list[i];
-            if (this.isCharacterSetupIncomplete(c)) {
-                toDelete.push(c);
-            } else {
+            if (c && c.id) {
                 keep.push(c);
             }
         }
-        if (!toDelete.length) {
-            return keep;
-        }
-        console.warn('[Hybrid] Deleting', toDelete.length, 'incomplete character draft(s)');
-        for (i = 0; i < toDelete.length; i++) {
-            const doomed = toDelete[i];
-            try {
-                if (doomed && doomed.id && API.deleteCharacter) {
-                    await API.deleteCharacter(doomed.id);
-                }
-            } catch (delErr) {
-                console.error('[Hybrid] Failed to delete incomplete', doomed && doomed.id, delErr);
-            }
-        }
-        if (typeof UI !== 'undefined' && UI.showToast) {
-            UI.showToast(
-                'Removed ' + toDelete.length + ' unfinished character draft(s). Create a complete character to play.',
-                'info',
-                4500
-            );
-        }
-        try {
-            sessionStorage.removeItem('f4_roster_' + (API.uuid || ''));
-        } catch (e) { /* ignore */ }
         if (API._listCharactersCache) {
             API._listCharactersCache = keep.slice();
         }
@@ -2855,7 +2832,7 @@ try {
         this.resetHudUrlForNewCharacterDraft();
 
         const roster = (API._listCharactersCache || []).filter(function (c) {
-            return c && c.setup_complete !== false && c.class_id;
+            return c && c.id;
         });
         if (roster.length) {
             this.state.awaitingWelcomeChoice = false;
