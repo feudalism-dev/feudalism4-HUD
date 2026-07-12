@@ -373,17 +373,24 @@ try {
 
     /**
      * Experience / Firestore character document ids — never an avatar UUID.
-     * Rejects blank-write garbage like "1," and owner-uuid-as-character ghosts.
+     * Rejects blank-write garbage like "1,", owner-uuid-as-character ghosts,
+     * and wire status tokens like "ident_list_ok" (empty-roster LSL slice bug).
      */
     isPlausibleCharacterId(id) {
         if (!id || typeof id !== 'string') {
             return false;
         }
         const s = id.trim();
-        if (s.length < 8) {
+        if (s.length < 8 || s.length > 64) {
             return false;
         }
         if (s.indexOf(',') >= 0 || s.indexOf('|') >= 0 || s.indexOf(';') >= 0) {
+            return false;
+        }
+        if (/^ident_/i.test(s) || /_(ok|fail)$/i.test(s)) {
+            return false;
+        }
+        if (/^(OK|ERR|PENDING|BRIDGE_)/i.test(s)) {
             return false;
         }
         if (this.isAvatarUuidKey(s)) {
