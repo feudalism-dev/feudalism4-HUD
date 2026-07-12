@@ -5574,10 +5574,21 @@ try {
             if (!econRes || !econRes.ok) {
                 econWarning = (econRes && econRes.error) ? String(econRes.error) : 'save_econ_failed';
                 console.warn('[Save Stats] save_econ after stats:', econWarning);
+                // Never leave raised stats with unspent XP — treat as hard failure.
+                if (savedSpent > 0 || allowStarter) {
+                    throw new Error('stats_saved_but_xp_spend_failed:' + econWarning);
+                }
             }
         } catch (econErr) {
-            econWarning = econErr.message || 'save_econ_failed';
+            const msg = econErr && econErr.message ? String(econErr.message) : 'save_econ_failed';
+            if (msg.indexOf('stats_saved_but_xp_spend_failed:') === 0) {
+                throw econErr;
+            }
+            econWarning = msg;
             console.warn('[Save Stats] save_econ error after stats saved:', econWarning);
+            if (savedSpent > 0 || allowStarter) {
+                throw new Error('stats_saved_but_xp_spend_failed:' + econWarning);
+            }
         }
         if (this._lastBridgeSession) {
             this._lastBridgeSession.stats_csv = csv;
