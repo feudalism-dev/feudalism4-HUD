@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
-    <link rel="stylesheet" href="css/styles.css?v=22">
+    <link rel="stylesheet" href="css/styles.css?v=23">
     <link rel="stylesheet" href="css/moap-dialogs.css?v=3">
 </head>
 <body>
@@ -105,7 +105,12 @@
             <div class="step-guide-panel" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: rgba(30, 58, 95, 0.5); border: 1px solid #3a5f8f; border-radius: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-md);">
                     <!-- Step Indicators -->
-                    <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center;">
+                    <div class="step-indicators" style="display: flex; gap: var(--space-md); flex: 1; align-items: center; flex-wrap: wrap;">
+                        <div class="step-item" data-step="universe" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Universe</span>
+                        </div>
+                        <div style="color: #6b7280;">→</div>
                         <div class="step-item" data-step="identity" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
                             <span class="step-marker" style="font-size: 1.2em;">○</span>
                             <span class="step-name">Character</span>
@@ -120,10 +125,21 @@
                             <span class="step-marker" style="font-size: 1.2em;">○</span>
                             <span class="step-name">Class</span>
                         </div>
+                        <div style="color: #6b7280;">→</div>
+                        <div class="step-item" data-step="review" style="display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;">
+                            <span class="step-marker" style="font-size: 1.2em;">○</span>
+                            <span class="step-name">Review</span>
+                        </div>
                     </div>
                     
                     <!-- Save + step navigation (creation flow) -->
                     <div class="creation-toolbar" style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm);">
+                        <button type="button" id="btn-cancel-creation" class="action-btn abandon" style="display: none; padding: 10px 20px; font-weight: 600;" title="Discard this draft and cancel creation">
+                            ✕ Cancel creation
+                        </button>
+                        <button type="button" id="btn-reset-creation-stats" class="action-btn secondary" style="display: none; padding: 10px 20px; font-weight: 600;" title="Reset XP, AP, and stats to starting values">
+                            ↩ Reset to defaults
+                        </button>
                         <button type="button" id="btn-abandon-character" class="action-btn abandon" style="display: none; padding: 10px 20px; font-weight: 600;" title="Revert unsaved character edits">
                             ↩ Abandon Changes
                         </button>
@@ -131,7 +147,7 @@
                             💾 Save Character
                         </button>
                         <button type="button" id="btn-creation-back" class="action-btn secondary creation-nav-btn" style="display: none;">« Back</button>
-                        <button type="button" id="btn-creation-next" class="action-btn primary creation-nav-btn" style="display: none;">Next »</button>
+                        <button type="button" id="btn-creation-next" class="action-btn primary creation-nav-btn" style="display: none;">Continue »</button>
                     </div>
                 </div>
                 <p id="creation-step-hint" class="creation-step-hint" style="display: none; margin: var(--space-md) 0 0; padding: var(--space-sm) var(--space-md); background: rgba(15, 23, 42, 0.6); border-left: 3px solid #60a5fa; color: #e2e8f0; font-size: 0.95em; line-height: 1.5;"></p>
@@ -140,18 +156,43 @@
             <!-- Character Tab -->
             <section id="tab-character" class="tab-content active">
                 
-                <!-- Hero callout for no character -->
+                <!-- Welcome gate: empty roster (Hybrid) -->
+                <div id="welcome-empty-roster" class="hero-callout welcome-hybrid" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-xl); background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6b 100%); border: 2px solid #3a5f8f; border-radius: 8px; text-align: center;">
+                    <h2 style="margin: 0 0 var(--space-md) 0; color: #fff; font-size: 1.5em;">Welcome to Feudalism 4</h2>
+                    <p style="margin: 0 0 var(--space-md) 0; color: #e0e0e0; font-size: 1.05em; line-height: 1.5;">
+                        In order to play you must create a character. Play now with a generic starter, or create your own from scratch.
+                    </p>
+                    <p style="margin: 0 0 var(--space-lg) 0; color: #94a3b8; font-size: 0.9em;">
+                        Starter: Human · Other · Adventurer · 20,000 XP · all stats at 1
+                    </p>
+                    <div style="display: flex; flex-wrap: wrap; gap: var(--space-md); justify-content: center;">
+                        <button id="btn-play-as-starter" class="action-btn primary" style="padding: 12px 28px; font-size: 1.05em; font-weight: 600;">
+                            ▶ Play as starter
+                        </button>
+                        <button id="btn-create-my-own" class="action-btn secondary" style="padding: 12px 28px; font-size: 1.05em; font-weight: 600;">
+                            🆕 Create my own
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Legacy hero (hidden; Welcome replaces it) -->
                 <div id="no-character-hero" class="hero-callout" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-xl); background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6b 100%); border: 2px solid #3a5f8f; border-radius: 8px; text-align: center;">
                     <h2 style="margin: 0 0 var(--space-md) 0; color: #fff; font-size: 1.5em;">You do not have a character yet.</h2>
-                    <p style="margin: 0 0 var(--space-lg) 0; color: #e0e0e0; font-size: 1.1em;">Click the button below to begin creating your character.</p>
+                    <p style="margin: 0 0 var(--space-lg) 0; color: #e0e0e0; font-size: 1.1em;">Choose Play as starter or Create my own above.</p>
                     <button id="btn-create-new-hero" class="action-btn primary" style="padding: 12px 32px; font-size: 1.1em; font-weight: 600;">
                         🆕 Create New Character
                     </button>
                 </div>
 
+                <div id="creation-review-panel" class="panel" style="display: none; margin-bottom: var(--space-lg);">
+                    <h2>Review your character</h2>
+                    <div id="creation-review-body"></div>
+                </div>
+
                 <div id="universe-selection-group" class="panel" style="display: none; margin-bottom: var(--space-lg);">
                     <h2>Universe</h2>
                     <p id="universe-filter-notice" style="color: #cbd5e1; font-size: 0.95em; margin-bottom: var(--space-sm);"></p>
+                    <p class="field-hint tab-step-hint" data-creation-step="universe" style="display: none;">Pick your universe, then Continue. Nothing is saved until you Finish at Review.</p>
                     <div class="form-group">
                         <label for="char-universe">Universe for this character</label>
                         <select id="char-universe" style="width: 100%; max-width: 400px; padding: 8px 12px; background: #1e3a5f; color: #fff; border: 1px solid #3a5f8f; border-radius: 4px;">
@@ -161,11 +202,11 @@
                     <div id="universe-registration-group" class="form-group" style="display: none;">
                         <label for="universe-registration-code">Registration Code</label>
                         <input type="text" id="universe-registration-code" placeholder="Enter registration code..." maxlength="100" style="width: 100%; max-width: 400px; padding: 8px 12px; background: #0f172a; border: 1px solid #3a5f8f; border-radius: 4px; color: #fff;">
-                        <small style="color: #94a3b8; display: block; margin-top: var(--space-xxs);">This universe requires a registration code before you can save.</small>
+                        <small style="color: #94a3b8; display: block; margin-top: var(--space-xxs);">This universe requires a registration code before you can continue.</small>
                     </div>
                 </div>
 
-                <p class="field-hint tab-step-hint" data-creation-step="identity" style="display: none;">Enter name and title, pick gender and species. Confirming species sets starting XP and stats. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="identity" style="display: none;">Enter name and title, pick gender and species. Confirming species sets starting XP and stats. Then <strong>Continue</strong> to Stats. Nothing is saved until Finish.</p>
                 <div id="character-identity-section">
                 <div class="panel">
                     <h2>Identity</h2>
@@ -216,7 +257,7 @@
 
             <!-- Stats Tab -->
             <section id="tab-stats" class="tab-content">
-                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy XP and spend AP when you can afford the next stat bump — click <strong>Save Stats</strong> to keep XP, AP, and stats on your HUD (unused AP is saved for later). Then use <strong>Next »</strong>. Without a class, stats are capped at 2.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="stats" style="display: none;">Buy AP and raise stats if you want — or leave them. Use <strong>Reset to defaults</strong> to undo. Then <strong>Continue</strong>. Nothing is saved until Finish.</p>
                 <div class="panel">
                     <div class="stats-header">
                         <h2>Attributes</h2>
@@ -260,7 +301,8 @@
 
             <!-- Classes tab (internal id: tab-career / data-tab career) -->
             <section id="tab-career" class="tab-content">
-                <p class="field-hint tab-step-hint" data-creation-step="class" style="display: none;">Click a class card below to view details and select your starting class.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="class" style="display: none;">Click a class card to select your starting class, then <strong>Continue</strong> to Review.</p>
+                <p class="field-hint tab-step-hint" data-creation-step="review" style="display: none;">Confirm everything looks right, then <strong>Finish</strong> to create your character — or Cancel creation.</p>
                 <div class="panel">
                     <h2>Current Class</h2>
                     <div id="current-career" class="career-display">
@@ -395,12 +437,12 @@
                     <h1>Help & Instructions</h1>
                     
                     <h2>Character Creation</h2>
-                    <p>To create a new character:</p>
+                    <p>If you have no character, the Welcome screen offers <strong>Play as starter</strong> or <strong>Create my own</strong>.</p>
                     <ol>
-                        <li>Choose <strong>Create New Character</strong> and pick a universe</li>
-                        <li>Follow the blue step bar: use <strong>Next »</strong> after each step</li>
-                        <li>Click portraits and cards to select gender, species, and class</li>
-                        <li>Use <strong>Save Progress</strong> anytime; click <strong>Finish</strong> on the last step</li>
+                        <li><strong>Play as starter</strong> — creates a complete Human / Adventurer character immediately</li>
+                        <li><strong>Create my own</strong> — Universe → Character → Stats → Class → Review → Finish</li>
+                        <li>Use <strong>Cancel creation</strong> to discard, or <strong>Continue</strong> until Finish</li>
+                        <li>On Stats, <strong>Reset to defaults</strong> undoes spends. Nothing is saved until Finish</li>
                     </ol>
                     
                     <h2>Editing Your Character</h2>
@@ -572,7 +614,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.2.99';
+            window.HUD_BUILD_LABEL = '4.3.00';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

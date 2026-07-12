@@ -2382,3 +2382,65 @@ input::placeholder {
     gap: var(--space-sm);
 }
 
+/* Hybrid creation — review + welcome */
+.welcome-hybrid .action-btn {
+    min-width: 180px;
+}
+
+#creation-review-panel .review-lead {
+    color: #e2e8f0;
+    margin-bottom: var(--space-md);
+}
+
+#creation-review-panel .review-portraits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+#creation-review-panel .review-portrait {
+    flex: 1 1 140px;
+    text-align: center;
+    color: #cbd5e1;
+}
+
+#creation-review-panel .review-portrait img {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #3a5f8f;
+    display: block;
+    margin: 0 auto 8px;
+}
+
+#creation-review-panel .review-identity {
+    font-size: 1.15em;
+    color: #fff;
+    margin-bottom: var(--space-sm);
+}
+
+#creation-review-panel .review-econ {
+    color: #93c5fd;
+    margin-bottom: var(--space-md);
+}
+
+#creation-review-panel .review-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px 12px;
+}
+
+#creation-review-panel .review-stat {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 8px;
+    background: rgba(15, 23, 42, 0.55);
+    border-radius: 4px;
+    color: #cbd5e1;
+    text-transform: capitalize;
+    font-size: 0.85em;
+}
+

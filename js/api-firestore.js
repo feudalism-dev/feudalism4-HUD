@@ -1685,8 +1685,12 @@ const API = {
             }
         }
         
+        // Creation / starter grant: first class may ignore career prerequisites and XP cost.
+        const creationStartingClass = options.creationStartingClass === true
+            || options.starterClassGrant === true;
+
         // Check prerequisites - character needs ANY one of them
-        if (prerequisites.length > 0) {
+        if (prerequisites.length > 0 && !creationStartingClass) {
             const careerHistory = character.career_history || [];
             const hasAnyPrereq = prerequisites.some(prereqId => {
                 return character.class_id === prereqId ||
@@ -1701,13 +1705,18 @@ const API = {
                 return result;
             }
         }
+
+        if (creationStartingClass) {
+            result.xpCost = 0;
+            result.isFreeAdvance = true;
+        }
         
         const enforceStatMinimums = options.enforceStatMinimums !== undefined
             ? options.enforceStatMinimums
             : this.enforceClassStatMinimums(options.universe);
 
-        // Check minimum stat requirements
-        if (enforceStatMinimums && classData.stat_minimums) {
+        // Check minimum stat requirements (still apply unless starter grant)
+        if (!creationStartingClass && enforceStatMinimums && classData.stat_minimums) {
             const stats = this.getGameplayStatsForClassCheck(character, options);
             const missingStats = [];
             

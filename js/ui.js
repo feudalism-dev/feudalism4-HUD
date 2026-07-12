@@ -720,10 +720,13 @@ const UI = {
         const gameplayStats = (character && typeof window.getMergedCharacterStatsForPoints === 'function')
             ? window.getMergedCharacterStatsForPoints(character).stats
             : null;
+        const inCreation = typeof App !== 'undefined' && typeof App.isInCreationFlow === 'function'
+            && App.isInCreationFlow();
         const classChangeOptions = {
-            enforceStatMinimums: enforceStatMins,
+            enforceStatMinimums: inCreation ? false : enforceStatMins,
             universe: typeof App !== 'undefined' ? App.state?.currentUniverse : null,
-            gameplayStats: gameplayStats
+            gameplayStats: gameplayStats,
+            creationStartingClass: inCreation
         };
         
         return classes.map(cls => {
@@ -733,7 +736,7 @@ const UI = {
             
             const isCurrent = cls.id === currentClassId;
             let isLocked = false;
-            if (!isCurrent && character) {
+            if (!isCurrent && character && !inCreation) {
                 isLocked = !this.checkPrerequisites(cls, character);
                 if (!isLocked && enforceStatMins && typeof API !== 'undefined' && API.canChangeToClass) {
                     const changeCheck = API.canChangeToClass(character, cls, allClasses, classChangeOptions);

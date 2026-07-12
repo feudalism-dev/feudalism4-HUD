@@ -181,10 +181,13 @@ try {
         statsPending: false,  // AP / stat grid edits not yet pushed to HUD LSD/KVP
         econSessionActive: false,  // AP/XP edits this session override stale URL params
         creationStepHints: {
-            identity: 'Enter <strong>name</strong>, optional <strong>title</strong>, then pick <strong>gender</strong> and <strong>species</strong>. Confirming species sets starting XP and stats. Use <strong>Save Progress</strong> anytime, then <strong>Next »</strong> for Stats.',
-            stats: 'Buy XP and spend AP when you choose — click <strong>Save Stats</strong> to keep XP/AP and stat changes on your HUD. Unused AP is saved for later. Then <strong>Next »</strong> for Class.',
-            class: 'Click a <strong>class card</strong> to view details and select your starting class, then click <strong>Finish</strong>.'
-        }
+            universe: 'Choose a <strong>universe</strong> (and registration code if required), then continue.',
+            identity: 'Enter <strong>name</strong>, optional <strong>title</strong>, then pick <strong>gender</strong> and <strong>species</strong>. Confirm species for starting XP. Then continue to Stats.',
+            stats: 'Spend XP/AP if you want — or leave them. Use <strong>Reset to defaults</strong> to undo spends. Then continue to Class.',
+            class: 'Pick a <strong>starting class</strong>, then continue to Review.',
+            review: 'Confirm your character, then <strong>Finish</strong> to save it — or <strong>Cancel creation</strong> to discard.'
+        },
+        awaitingWelcomeChoice: false
     },
     
     // LSL integration state
@@ -937,6 +940,19 @@ try {
                 if (charsResult.data && charsResult.data.characters && charsResult.data.characters.length > 0) {
                     console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
                     let characters = charsResult.data.characters;
+                    characters = await this.cleanupIncompleteCharacters(characters);
+                    if (!characters.length) {
+                        this.state.character = null;
+                        this.state.selectedCharacterId = null;
+                        this.state.isNewCharacter = false;
+                        this.state.creationInProgress = false;
+                        this.state.creationStepId = null;
+                        this.state.awaitingWelcomeChoice = true;
+                        await this.loadCharacterSelector([]);
+                        this.updateStatusIndicator();
+                        this.updateStepGuide();
+                        console.log('[loadData] Only incomplete drafts existed — cleaned up; showing Welcome');
+                    } else {
                     if (preferredCharId && !characters.some(function (c) { return c.id === preferredCharId; })) {
                         try {
                             const orphanResult = await API.getCharacterById(preferredCharId);
@@ -1005,8 +1021,8 @@ try {
                             }
 
                             if (this.isCharacterSetupIncomplete(character)) {
-                                this.state.creationInProgress = true;
-                                this.state.isNewCharacter = true;
+                                // Hybrid: incompletes are deleted on roster load — do not reopen wizard
+                                console.warn('[loadData] Incomplete character slipped through cleanup:', character.id);
                             }
                             if (this.characterMissingUniverse(this.state.character)) {
                                 await this.promptUniverseRepairIfNeeded(this.state.character);
@@ -1066,24 +1082,20 @@ try {
                             };
                         }
                     }
+                    } // end: characters remaining after incomplete cleanup
                 } else {
-                    // No character found — auto-provision starter in default universe when possible
+                    // No finished characters — Welcome gate (no auto-mint)
                     console.log('[loadData] No characters found in result. charsResult.data:', charsResult.data);
-                    const provisioned = await this.ensureStarterCharacter();
-                    if (provisioned) {
-                        console.log('[loadData] Starter character provisioned — reloading roster');
-                        await this.loadData();
-                        return;
-                    }
                     this.state.character = null;
                     this.state.selectedCharacterId = null;
-                    
-                    // UX 2: Update UI indicators when no character
-                    await this.loadCharacterSelector([]); // Empty array to show "Create New" option
+                    this.state.isNewCharacter = false;
+                    this.state.creationInProgress = false;
+                    this.state.creationStepId = null;
+                    this.state.awaitingWelcomeChoice = true;
+                    await this.loadCharacterSelector([]);
                     this.updateStatusIndicator();
                     this.updateStepGuide();
-                    this.state.isNewCharacter = true;
-                    console.log('No existing character, ready for creation');
+                    console.log('[loadData] Empty roster — showing Welcome (Play as starter / Create my own)');
                 }
             } catch (error) {
                 // Error loading characters - log it but don't assume no character exists
@@ -1335,143 +1347,26 @@ try {
     },
     
     /**
-     * Show new character dialog with universe selection
+     * Show new character dialog — Hybrid: start local wizard (universe first).
      */
     async showNewCharacterDialog() {
         try {
-            // Load available universes
-            const result = await API.listAvailableUniverses();
-            if (!result.success) {
-                UI.showToast('Failed to load universes', 'error');
-                return;
-            }
-            
-            const universes = result.data.universes;
-            
-            // Build universe selection HTML
-            let universeOptions = '';
-            universes.forEach(universe => {
-                const requiresCode = universe.registrationCode && universe.registrationCode.trim() !== '';
-                universeOptions += `<option value="${universe.id}" data-requires-code="${requiresCode}">${universe.name}${requiresCode ? ' (Requires Code)' : ''}</option>`;
-            });
-            
-            // Show modal with universe selection
-            UI.showModal(`
-                <div class="modal-content">
-                    <h2 class="modal-title">Create New Character</h2>
-                    <p class="modal-text">Select a universe for your new character:</p>
-                    <div class="form-group" style="margin: var(--space-md) 0;">
-                        <label for="new-char-universe">Universe</label>
-                        <select id="new-char-universe" style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
-                            ${universeOptions}
-                        </select>
-                    </div>
-                    <div id="new-char-registration-group" class="form-group" style="display: none; margin: var(--space-md) 0;">
-                        <label for="new-char-registration-code">Registration Code</label>
-                        <input type="text" id="new-char-registration-code" placeholder="Enter registration code..." style="width: 100%; padding: var(--space-xs) var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
-                        <small style="color: var(--text-muted); display: block; margin-top: var(--space-xxs);">This universe requires a registration code</small>
-                    </div>
-                    <div class="modal-actions" style="display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-lg);">
-                        <button class="btn-secondary" onclick="UI.closeModal()">Cancel</button>
-                        <button class="btn-primary" id="btn-create-new-character">Create Character</button>
-                    </div>
-                </div>
-            `);
-            
-            // Handle universe selection change
-            const universeSelect = document.getElementById('new-char-universe');
-            const registrationGroup = document.getElementById('new-char-registration-group');
-            const registrationInput = document.getElementById('new-char-registration-code');
-            
-            universeSelect.onchange = () => {
-                const selectedOption = universeSelect.options[universeSelect.selectedIndex];
-                const requiresCode = selectedOption.dataset.requiresCode === 'true';
-                registrationGroup.style.display = requiresCode ? 'block' : 'none';
-                if (!requiresCode) {
-                    registrationInput.value = '';
-                }
-            };
-            
-            // Trigger initial check
-            universeSelect.onchange();
-            
-            // Handle create button
-            document.getElementById('btn-create-new-character').onclick = async () => {
-                const universeId = universeSelect.value;
-                const registrationCode = registrationInput.value.trim();
-                
-                // Validate registration code if required
-                if (registrationGroup.style.display !== 'none') {
-                    if (!registrationCode) {
-                        UI.showToast('Registration code is required', 'warning');
-                        return;
-                    }
-                    
-                    // Verify registration code
-                    const universeResult = await API.getUniverse(universeId);
-                    if (!universeResult.success) {
-                        UI.showToast('Failed to verify universe', 'error');
-                        return;
-                    }
-                    
-                    const universe = universeResult.data.universe;
-                    if (universe.registrationCode !== registrationCode) {
-                        UI.showToast('Invalid registration code', 'error');
-                        return;
-                    }
-                }
-                
-                // Check character limit
-                const limitCheck = await API.validateCharacterLimit(universeId, API.uuid);
-                if (!limitCheck.success || !limitCheck.data.allowed) {
-                    UI.showToast(`Character limit reached for this universe (${limitCheck.data.currentCount}/${limitCheck.data.limit})`, 'error');
+            if (this.state.dirty || this.state.statsPending) {
+                const shouldProceed = await this.showUnsavedChangesModal();
+                if (!shouldProceed) {
                     return;
                 }
-                
-                // Close modal and start character creation
-                UI.closeModal();
-                this.state.selectedCharacterId = null;
-                this.state.selectedUniverseId = universeId;
-                this.state.isNewCharacter = true;
-                this.state.creationInProgress = true;
-                this.state.creationStepId = 'identity';
-                this.state.creationMaxStepIndex = 0;
-                this.resetHudUrlForNewCharacterDraft();
-                this.state.character = this.createDefaultCharacter();
-                this.state.character.universe_id = universeId;
-                this.resetDraftEconOnCharacter(this.state.character);
-                this.captureStatsFloor(this.state.character);
-                
-                // Load universe data for mana checks
-                const universeResult = await API.getUniverse(universeId);
-                if (universeResult.success) {
-                    this.state.currentUniverse = universeResult.data.universe;
-                }
-
-                const pageRegistrationInput = document.getElementById('universe-registration-code');
-                if (pageRegistrationInput && registrationCode) {
-                    pageRegistrationInput.value = registrationCode;
-                }
-
-                await this.applyUniverseIdentityDefaults({ force: true });
-                
-                if (UI.populateIdentityForm) {
-                    UI.populateIdentityForm(this.state.character, registrationCode);
-                }
-                
-                // Update character selector with temp option
-                this.updateCharacterSelectorWithTemp();
-                
-                // Switch to Character tab and show universe selection
-                UI.switchTab('character');
-                await this.renderAll();
-                this.navigateToStep('identity');
-                this.updateCreationNavigation();
-                setTimeout(() => document.getElementById('char-name')?.focus(), 200);
-            };
+            }
+            await this.startLocalCreationWizard();
+            await this.loadAvailableUniverses();
+            const universeGroup = document.getElementById('universe-selection-group');
+            if (universeGroup) {
+                universeGroup.style.display = 'block';
+            }
+            this.navigateToStep('universe');
         } catch (error) {
-            console.error('Failed to show new character dialog:', error);
-            UI.showToast('Failed to load universe data', 'error');
+            console.error('Failed to start character creation:', error);
+            UI.showToast('Failed to start character creation', 'error');
         }
     },
     
@@ -1536,54 +1431,24 @@ try {
     },
 
     resumeCreationFlowIfNeeded(character) {
-        if (!character || !this.isCharacterSetupIncomplete(character)) {
-            return false;
+        // Hybrid: no durable incomplete resume — wizard is local-only until Finish
+        if (this.state.creationInProgress && this.state.character && !this.state.character.id) {
+            return true;
         }
-        this.state.creationInProgress = true;
-        this.state.isNewCharacter = true;
-        this.state.selectedCharacterId = character.id;
-        this.state.selectedUniverseId = character.universe_id || this.state.selectedUniverseId;
-        const remembered = this.readRememberedCreationStep(character.id);
-        const stepId = remembered || this.inferCreationStepFromCharacter(character);
-        this.state.creationStepId = stepId;
-        const steps = this.getCreationSteps();
-        const idx = steps.findIndex(function (s) { return s.id === stepId; });
-        this.state.creationMaxStepIndex = idx >= 0 ? idx : 0;
-        this.ensureCreationEconReady(character);
-        if (!character.id) {
-            this.resetHudUrlForNewCharacterDraft();
-            this.resetDraftEconOnCharacter(character);
-        } else if (this.urlStatsBelongToCharacter && !this.urlStatsBelongToCharacter(character.id)) {
-            try {
-                const url = new URL(window.location.href);
-                url.searchParams.delete('stats_csv');
-                url.searchParams.delete('stats_csv_ts');
-                url.searchParams.delete('stats_char_id');
-                url.searchParams.delete('xp_spent');
-                url.searchParams.delete('ap_balance');
-                url.searchParams.delete('xp_lifetime');
-                url.searchParams.delete('xp_total');
-                url.searchParams.delete('econ_sync');
-                url.searchParams.delete('econ_ts');
-                this.safeHistoryReplaceState(url.toString());
-            } catch (e) { /* ignore */ }
-        }
-        this.updateStatusIndicator();
-        this.updateStepGuide();
-        this.navigateToStep(stepId);
-        return true;
+        return false;
     },
 
     getCreationSteps() {
         const char = this.state.character;
-        const statsIndex = 1;
-        const statsStepReached = !this.isInCreationFlow() || (this.state.creationMaxStepIndex || 0) >= statsIndex;
+        const universeOk = !!(this.state.selectedUniverseId || (char && char.universe_id));
         const identityComplete = !!(char && char.name && char.name.trim() && char.gender && char.species_id);
-        const statsSavedForStep = !this.state.statsPending;
+        const classComplete = !!(char && char.class_id);
         return [
+            { id: 'universe', name: 'Universe', complete: universeOk },
             { id: 'identity', name: 'Character', complete: identityComplete },
-            { id: 'stats', name: 'Stats', complete: !!(char && statsStepReached && statsSavedForStep) },
-            { id: 'class', name: 'Class', complete: !!(char && char.class_id) }
+            { id: 'stats', name: 'Stats', complete: !!(char && identityComplete && this.hasCreationGameplayReady(char)) },
+            { id: 'class', name: 'Class', complete: classComplete },
+            { id: 'review', name: 'Review', complete: false }
         ];
     },
 
@@ -1666,6 +1531,22 @@ try {
             return { ok: false, message: 'Start by creating a new character.' };
         }
         switch (stepId) {
+            case 'universe': {
+                const uid = this.state.selectedUniverseId || char.universe_id;
+                if (!uid) {
+                    return { ok: false, message: 'Please select a universe.' };
+                }
+                const regGroup = document.getElementById('universe-registration-group');
+                if (regGroup && regGroup.style.display !== 'none') {
+                    const codeEl = document.getElementById('universe-registration-code');
+                    const code = codeEl ? codeEl.value.trim() : '';
+                    const expected = this.state.currentUniverse && this.state.currentUniverse.registrationCode;
+                    if (expected && expected.trim() && code !== expected.trim()) {
+                        return { ok: false, message: 'Enter a valid registration code for this universe.' };
+                    }
+                }
+                return { ok: true };
+            }
             case 'identity':
                 if (!char.name || !char.name.trim()) {
                     return { ok: false, message: 'Please enter a character name.' };
@@ -1686,11 +1567,9 @@ try {
                     return { ok: false, message: 'Select a species on the Character tab first.' };
                 }
                 if (!this.hasCreationGameplayReady(char)) {
-                    return { ok: false, message: 'Confirm your species choice to receive starting XP and stats.' };
+                    this.applyCalculatedStarterGameplay(char);
                 }
-                if (this.state.statsPending) {
-                    return { ok: false, message: 'Save your stat and AP changes with Save Stats before continuing (or abandon them).' };
-                }
+                // Local wizard: pending spends stay local until Finish — do not block Continue
                 return { ok: true };
             }
             case 'class':
@@ -1698,6 +1577,8 @@ try {
                 if (!char.class_id) {
                     return { ok: false, message: 'Please select a starting class.' };
                 }
+                return { ok: true };
+            case 'review':
                 return { ok: true };
             default:
                 return { ok: true };
@@ -1755,25 +1636,34 @@ try {
 
         if (nextBtn) {
             const nextStep = steps[currentIndex + 1];
-            if (currentIndex >= steps.length - 1 || steps.every(s => s.complete)) {
+            if (currentId === 'review' || currentIndex >= steps.length - 1) {
                 nextBtn.textContent = 'Finish ✓';
             } else if (nextStep) {
-                nextBtn.textContent = 'Next: ' + nextStep.name + ' »';
+                nextBtn.textContent = 'Continue: ' + nextStep.name + ' »';
             } else {
-                nextBtn.textContent = 'Next »';
+                nextBtn.textContent = 'Continue »';
             }
+        }
+
+        const cancelBtn = document.getElementById('btn-cancel-creation');
+        if (cancelBtn) {
+            cancelBtn.style.display = inCreation ? 'inline-block' : 'none';
+        }
+        const saveBtn = document.getElementById('btn-save-character');
+        if (saveBtn && inCreation) {
+            saveBtn.style.display = 'none';
+        } else if (saveBtn && !inCreation) {
+            saveBtn.style.display = '';
+        }
+        const resetStatsBtn = document.getElementById('btn-reset-creation-stats');
+        if (resetStatsBtn) {
+            resetStatsBtn.style.display = (inCreation && currentId === 'stats') ? 'inline-block' : 'none';
         }
     },
 
     async goToNextCreationStep() {
         const steps = this.getCreationSteps();
         const currentId = this.getCurrentCreationStepId(steps);
-        if (currentId === 'stats' && this.state.statsPending) {
-            const mayLeave = await this.resolveUnsavedStatsPrompt();
-            if (!mayLeave) {
-                return;
-            }
-        }
         const validation = this.validateCreationStep(currentId);
         if (!validation.ok) {
             UI.showToast(validation.message, 'warning');
@@ -1782,35 +1672,48 @@ try {
         }
 
         this.flushIdentityFromForm();
-        const saved = await this.saveCharacter({ draft: true, silent: true });
-        if (saved === false) {
-            return;
+
+        // Hybrid: keep everything local until Finish on Review — no draft mint
+        if (currentId === 'identity' && this.state.character && this.state.character.species_id
+            && !this.hasCreationGameplayReady(this.state.character)) {
+            this.applyCalculatedStarterGameplay(this.state.character);
+        }
+        if (currentId === 'universe') {
+            const uid = this.state.selectedUniverseId || (this.state.character && this.state.character.universe_id);
+            if (uid && this.state.character) {
+                this.state.character.universe_id = uid;
+                this.state.selectedUniverseId = uid;
+                const limitCheck = await API.validateCharacterLimit(uid, API.uuid);
+                if (!limitCheck.success || !limitCheck.data.allowed) {
+                    UI.showToast(
+                        'Character limit reached for this universe ('
+                        + limitCheck.data.currentCount + '/' + limitCheck.data.limit + ')',
+                        'error'
+                    );
+                    return;
+                }
+                await this.applyUniverseIdentityDefaults({ force: true });
+            }
         }
 
         const currentIndex = steps.findIndex(s => s.id === currentId);
 
-        if (currentIndex >= steps.length - 1) {
-            for (let i = 0; i < steps.length; i++) {
-                const stepCheck = this.validateCreationStep(steps[i].id);
-                if (!stepCheck.ok) {
-                    UI.showToast(stepCheck.message, 'warning');
-                    this.navigateToStep(steps[i].id);
-                    return;
-                }
-            }
-            await this.saveCharacter({ draft: false });
-            this.clearRememberedCreationStep(this.state.character && this.state.character.id);
-            this.state.creationStepId = null;
+        if (currentId === 'review' || currentIndex >= steps.length - 1) {
+            await this.finishLocalCreation();
             return;
         }
 
         const nextStep = steps[currentIndex + 1];
         if (nextStep) {
             this.state.creationStepId = nextStep.id;
+            this.state.creationMaxStepIndex = Math.max(this.state.creationMaxStepIndex || 0, currentIndex + 1);
             this.rememberCreationStep(nextStep.id);
         }
         this.navigateToStep(nextStep.id);
         this.updateStepGuide();
+        if (nextStep.id === 'review') {
+            this.renderCreationReview();
+        }
         UI.showToast('Now: ' + nextStep.name, 'info', 2000);
     },
 
@@ -1863,13 +1766,14 @@ try {
      */
     navigateToStep(stepId) {
         const char = this.state.character;
-        if (!char && stepId !== 'identity' && stepId !== 'name') {
+        if (!char && stepId !== 'identity' && stepId !== 'name' && stepId !== 'universe') {
             return;
         }
 
         const steps = this.getCreationSteps();
         const currentId = this.getCurrentCreationStepId(steps);
-        if (currentId === 'stats' && stepId !== 'stats' && this.state.statsPending) {
+        // Hybrid creation: stats edits are local — no save/abandon gate between steps
+        if (!this.isInCreationFlow() && currentId === 'stats' && stepId !== 'stats' && this.state.statsPending) {
             this.resolveUnsavedStatsPrompt().then((mayLeave) => {
                 if (mayLeave) {
                     this.navigateToStepImmediate(stepId);
@@ -1882,7 +1786,7 @@ try {
 
     navigateToStepImmediate(stepId) {
         const char = this.state.character;
-        if (!char && stepId !== 'identity' && stepId !== 'name') {
+        if (!char && stepId !== 'identity' && stepId !== 'name' && stepId !== 'universe') {
             return;
         }
 
@@ -1892,6 +1796,9 @@ try {
         const steps = this.getCreationSteps();
         
         switch(normalizedStep) {
+            case 'universe':
+                UI.switchTab('character');
+                break;
             case 'identity':
                 UI.switchTab('character');
                 if (stepId === 'name') {
@@ -1912,6 +1819,24 @@ try {
             case 'class':
                 UI.switchTab('career');
                 break;
+            case 'review':
+                UI.switchTab('character');
+                this.renderCreationReview();
+                break;
+        }
+        const identitySection = document.getElementById('character-identity-section');
+        const universeGroup = document.getElementById('universe-selection-group');
+        const reviewPanel = document.getElementById('creation-review-panel');
+        if (this.isInCreationFlow()) {
+            if (universeGroup) {
+                universeGroup.style.display = (normalizedStep === 'universe') ? 'block' : 'none';
+            }
+            if (identitySection) {
+                identitySection.style.display = (normalizedStep === 'identity') ? 'block' : 'none';
+            }
+            if (reviewPanel) {
+                reviewPanel.style.display = (normalizedStep === 'review') ? 'block' : 'none';
+            }
         }
         if (this.isInCreationFlow()) {
             this.state.creationStepId = normalizedStep;
@@ -1940,21 +1865,19 @@ try {
             statusBadge.style.background = 'rgba(107, 114, 128, 0.3)';
             statusBadge.style.color = '#9ca3af';
             if (saveBtn) {
+                saveBtn.style.display = '';
                 saveBtn.disabled = true;
                 saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
                 saveBtn.textContent = '💾 Save Character';
             }
         } else if (inCreation) {
-            statusText.textContent = this.state.character.id ? 'Draft Saved' : 'Creating Character';
+            statusText.textContent = 'Creating Character';
             statusBadge.style.background = 'rgba(59, 130, 246, 0.35)';
             statusBadge.style.color = '#93c5fd';
             statusBadge.style.border = '1px solid rgba(59, 130, 246, 0.5)';
             if (saveBtn) {
-                saveBtn.disabled = false;
-                saveBtn.style.opacity = '1';
-                saveBtn.style.cursor = 'pointer';
-                saveBtn.textContent = '💾 Save Progress';
+                saveBtn.style.display = 'none';
             }
         } else if (this.state.dirty) {
             statusText.textContent = 'Unsaved Changes';
@@ -1962,6 +1885,7 @@ try {
             statusBadge.style.color = '#fca5a5';
             statusBadge.style.border = '1px solid rgba(239, 68, 68, 0.5)';
             if (saveBtn) {
+                saveBtn.style.display = '';
                 saveBtn.disabled = false;
                 saveBtn.style.opacity = '1';
                 saveBtn.style.cursor = 'pointer';
@@ -1973,6 +1897,7 @@ try {
             statusBadge.style.color = '#fdba74';
             statusBadge.style.border = '1px solid rgba(251, 146, 60, 0.45)';
             if (saveBtn) {
+                saveBtn.style.display = '';
                 saveBtn.disabled = true;
                 saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
@@ -1986,6 +1911,7 @@ try {
             statusBadge.style.color = '#6ee7b7';
             statusBadge.style.border = 'none';
             if (saveBtn) {
+                saveBtn.style.display = '';
                 saveBtn.disabled = true;
                 saveBtn.style.opacity = '0.5';
                 saveBtn.style.cursor = 'not-allowed';
@@ -1998,7 +1924,7 @@ try {
 
         const abandonCharBtn = document.getElementById('btn-abandon-character');
         if (abandonCharBtn) {
-            const showCharAbandon = !!this.state.dirty && !!this.state.character;
+            const showCharAbandon = !!this.state.dirty && !!this.state.character && !inCreation;
             abandonCharBtn.style.display = showCharAbandon ? '' : 'none';
             abandonCharBtn.disabled = !showCharAbandon;
         }
@@ -2049,17 +1975,28 @@ try {
         const btn = document.getElementById('btn-save-stats');
         const abandonBtn = document.getElementById('btn-abandon-stats');
         const pending = !!this.state.statsPending;
+        const inCreation = this.isInCreationFlow();
         if (btn) {
-            btn.disabled = !pending;
-            btn.title = pending
-                ? 'Apply AP, XP spent, and stat changes to your HUD'
-                : 'No stat or AP changes to save';
+            if (inCreation) {
+                btn.style.display = 'none';
+            } else {
+                btn.style.display = '';
+                btn.disabled = !pending;
+                btn.title = pending
+                    ? 'Apply AP, XP spent, and stat changes to your HUD'
+                    : 'No stat or AP changes to save';
+            }
         }
         if (abandonBtn) {
-            abandonBtn.disabled = !pending;
-            abandonBtn.title = pending
-                ? 'Revert stat and AP changes since last Save Stats'
-                : 'No stat or AP changes to abandon';
+            if (inCreation) {
+                abandonBtn.style.display = 'none';
+            } else {
+                abandonBtn.style.display = '';
+                abandonBtn.disabled = !pending;
+                abandonBtn.title = pending
+                    ? 'Revert stat and AP changes since last Save Stats'
+                    : 'No stat or AP changes to abandon';
+            }
         }
     },
 
@@ -2093,13 +2030,14 @@ try {
         if (typeof this.persistMoapSessionDraft === 'function') {
             this.persistMoapSessionDraft(true);
         }
-        if (this.isInCreationFlow() && (!char.id || this.state.dirty)) {
-            const draftOk = await this.saveCharacter({ draft: true, silent: true });
-            char = this.state.character;
-            if (!draftOk || !char || !char.id) {
-                UI.showToast('Confirm species and save progress first, then Save Stats', 'warning', 4500);
-                return false;
-            }
+        if (this.isInCreationFlow()) {
+            // Hybrid: stats stay local until Finish — treat as acknowledged
+            this.state.statsPending = false;
+            this.captureAbandonBaseline(char);
+            this.updateSaveStatsButton();
+            this.updateStatusIndicator();
+            UI.showToast('Stats kept for creation — they save when you Finish', 'info', 2500);
+            return true;
         }
         UI.showToast('Saving stats...', 'info', 2000);
         const savedAp = window.getApBalance(char);
@@ -2634,18 +2572,91 @@ try {
     },
     
     /**
-     * Auto-create a playable starter character for first-time players (default universe).
-     * Returns true when a new Firestore character was created and synced to the HUD.
+     * Delete leftover incomplete drafts (setup_complete false / no class).
+     * Hybrid creation never persists incompletes — clean up legacy Save Progress orphans.
+     * @returns {Promise<Array>} remaining finished characters
      */
-    async ensureStarterCharacter() {
+    async cleanupIncompleteCharacters(characters) {
+        const list = Array.isArray(characters) ? characters.slice() : [];
+        const keep = [];
+        const toDelete = [];
+        let i;
+        for (i = 0; i < list.length; i++) {
+            const c = list[i];
+            if (this.isCharacterSetupIncomplete(c)) {
+                toDelete.push(c);
+            } else {
+                keep.push(c);
+            }
+        }
+        if (!toDelete.length) {
+            return keep;
+        }
+        console.warn('[Hybrid] Deleting', toDelete.length, 'incomplete character draft(s)');
+        for (i = 0; i < toDelete.length; i++) {
+            const doomed = toDelete[i];
+            try {
+                if (doomed && doomed.id && API.deleteCharacter) {
+                    await API.deleteCharacter(doomed.id);
+                }
+            } catch (delErr) {
+                console.error('[Hybrid] Failed to delete incomplete', doomed && doomed.id, delErr);
+            }
+        }
+        if (typeof UI !== 'undefined' && UI.showToast) {
+            UI.showToast(
+                'Removed ' + toDelete.length + ' unfinished character draft(s). Create a complete character to play.',
+                'info',
+                4500
+            );
+        }
+        try {
+            sessionStorage.removeItem('f4_roster_' + (API.uuid || ''));
+        } catch (e) { /* ignore */ }
+        if (API._listCharactersCache) {
+            API._listCharactersCache = keep.slice();
+        }
+        return keep;
+    },
+
+    /**
+     * Welcome gate when roster is empty — Play as starter or Create my own.
+     */
+    updateWelcomeEmptyRosterUI() {
+        const welcome = document.getElementById('welcome-empty-roster');
+        const noCharHero = document.getElementById('no-character-hero');
+        const noCharMessage = document.getElementById('no-character-message');
+        const stepGuidePanel = document.querySelector('.step-guide-panel');
+        const reviewPanel = document.getElementById('creation-review-panel');
+        const showWelcome = !!(this.state.awaitingWelcomeChoice && !this.state.character && !this.state.creationInProgress);
+        if (welcome) {
+            welcome.style.display = showWelcome ? 'block' : 'none';
+        }
+        if (noCharHero) {
+            noCharHero.style.display = 'none';
+        }
+        if (noCharMessage) {
+            noCharMessage.style.display = showWelcome ? 'block' : 'none';
+            if (showWelcome) {
+                noCharMessage.innerHTML = '<strong>In order to play you must create a character.</strong> Choose an option below.';
+            }
+        }
+        if (stepGuidePanel) {
+            stepGuidePanel.style.display = (this.state.character || this.state.creationInProgress) ? 'block' : 'none';
+        }
+        if (reviewPanel && !this.isInCreationFlow()) {
+            reviewPanel.style.display = 'none';
+        }
+    },
+
+    /**
+     * Mint a complete starter character (setup_complete=1, Adventurer). Explicit Welcome CTA only.
+     */
+    async playAsStarterCharacter() {
         if (this._starterProvisionPromise) {
             return this._starterProvisionPromise;
         }
-        if (this._starterProvisionAttempted) {
-            return false;
-        }
-
-        this._starterProvisionPromise = this._ensureStarterCharacterInternal();
+        this._starterProvisionPromise = this._playAsStarterCharacterInternal();
         try {
             return await this._starterProvisionPromise;
         } finally {
@@ -2653,60 +2664,61 @@ try {
         }
     },
 
-    async _ensureStarterCharacterInternal() {
-        this._starterProvisionAttempted = true;
-
+    async _playAsStarterCharacterInternal() {
         if (!API.uuid || API.uuid.trim() === '') {
+            UI.showToast('Waiting for HUD identity — try again in a moment', 'warning');
             return false;
         }
 
         const universeId = 'default';
-        this.state.selectedUniverseId = universeId;
-
         try {
             const universeResult = await API.getUniverse(universeId);
             if (!universeResult.success || !universeResult.data || !universeResult.data.universe) {
-                console.warn('[Starter] Default universe unavailable — manual creation required');
+                UI.showToast('Default universe unavailable — create your own character instead', 'warning');
+                await this.startLocalCreationWizard();
                 return false;
             }
             const universe = universeResult.data.universe;
             if (universe.registrationCode && universe.registrationCode.trim() !== '') {
-                console.warn('[Starter] Default universe requires registration code — skipping auto-provision');
+                UI.showToast('Default universe requires a code — create your own character instead', 'info');
+                await this.startLocalCreationWizard();
                 return false;
             }
 
             const limitCheck = await API.validateCharacterLimit(universeId, API.uuid);
             if (!limitCheck.success || !limitCheck.data || !limitCheck.data.allowed) {
-                console.warn('[Starter] Character limit reached — manual creation required');
+                UI.showToast('Character limit reached — create your own in another universe if available', 'warning');
+                await this.startLocalCreationWizard();
                 return false;
             }
 
-            const template = this.createDefaultCharacter();
             let starterName = (API.displayName || this.lsl.displayName || '').trim();
             if (!starterName) {
-                starterName = 'Traveler';
+                starterName = 'My First Character';
             }
 
-            const species = this.state.species.find(function (s) { return s.id === 'human'; }) || {
+            const speciesId = 'human';
+            const classId = 'adventurer';
+            const stats = this.getNewCharacterStats();
+            const grant = this.getStartingXpGrant(speciesId);
+            const species = this.state.species.find(function (s) { return s.id === speciesId; }) || {
                 health_factor: 25,
                 stamina_factor: 25,
-                mana_factor: 25,
-                mana_chance: 10
+                mana_factor: 25
             };
-            const stats = template.stats || this.getDefaultStats();
             const hasMana = false;
             const baseHealth = this.calculateHealth(stats, species);
             const baseStamina = this.calculateStamina(stats, species);
             const baseMana = this.calculateMana(stats, species, hasMana);
 
-            console.log('[Starter] Auto-provisioning character for', API.uuid, 'name:', starterName);
+            UI.showToast('Creating your starter character…', 'info', 2000);
 
             const result = await API.createCharacter({
                 name: starterName,
                 title: '',
                 gender: 'other',
-                species_id: 'human',
-                class_id: null,
+                species_id: speciesId,
+                class_id: classId,
                 universe_id: universeId,
                 has_mana: hasMana,
                 health: { current: baseHealth, base: baseHealth, max: baseHealth },
@@ -2714,30 +2726,36 @@ try {
                 mana: { current: baseMana, base: baseMana, max: baseMana },
                 stats: stats,
                 mode: 'roleplay',
-                provisional: true
+                setup_complete: true,
+                xp_lifetime: grant,
+                xp_spent: 0,
+                ap_balance: 0
             });
 
             if (!result || !result.success || !result.data || !result.data.character) {
-                console.error('[Starter] createCharacter failed:', result && result.error);
+                UI.showToast('Could not create starter: ' + ((result && result.error) || 'unknown'), 'error');
                 return false;
             }
 
             const character = result.data.character;
+            character.setup_complete = true;
+            character.class_id = character.class_id || classId;
+            character.xp_lifetime = grant;
+            character.xp_spent = 0;
+            character.ap_balance = 0;
+            character.stats = stats;
             this.state.character = character;
             this.state.selectedCharacterId = character.id;
             this.state.isNewCharacter = false;
             this.state.creationInProgress = false;
+            this.state.creationStepId = null;
+            this.state.awaitingWelcomeChoice = false;
             this.state.currentUniverse = universe;
-            // New chars: all stats at 1 (already in template), 0 AP, 20000 + species bonus XP.
-            character.ap_balance = 0;
-            character.xp_spent = Math.max(0, parseInt(character.xp_spent, 10) || 0);
-            const starterGrant = this.getStartingXpGrant(character.species_id || 'human');
-            character.xp_lifetime = Math.max(parseInt(character.xp_lifetime, 10) || 0, starterGrant);
             if (typeof App.state.econ === 'undefined' || !App.state.econ) {
                 App.state.econ = {};
             }
-            App.state.econ.xp_lifetime = character.xp_lifetime;
-            App.state.econ.xp_spent = character.xp_spent;
+            App.state.econ.xp_lifetime = grant;
+            App.state.econ.xp_spent = 0;
             App.state.econ.ap_balance = 0;
             App.state.econSessionActive = true;
             this.recalculateResourcePools();
@@ -2745,36 +2763,238 @@ try {
             if (API.setActiveCharacter) {
                 await API.setActiveCharacter(character.id);
             }
-
             this._pendingAutoHideSetup = true;
             if (this.isBridgeHudMode()) {
-                await this.seedHudKvpGameplay(character, {
-                    allowStarterSeed: true,
+                await this.finishCreationGameplayToKvp(character, {
                     silent: true,
-                    forceWrite: true
+                    forceSlotSync: true
                 });
             } else {
                 await this.pushCharacterToPlayersHUD(character.id);
             }
-            this.scheduleBroadcastToPlayersHUD(character);
-            if (!this.isBridgeHudMode()) {
-                this.grantStartingXpToHud(character, { forceNavigate: true });
-            }
-
-            if (typeof UI !== 'undefined' && UI.showToast) {
-                UI.showToast(
-                    'Welcome! A starter character was created so you can play right away. Open Setup anytime to change name, species, and class.',
-                    'success',
-                    10000
-                );
-            }
-
-            console.log('[Starter] Provisioned character', character.id);
+            await this.rememberSelectedCharacter(character.id);
+            UI.showToast('Welcome! Your starter character is ready. Customize anytime in Setup.', 'success', 4000);
+            await this.loadData({ forceRefresh: true });
             return true;
         } catch (error) {
-            console.error('[Starter] ensureStarterCharacter error:', error);
+            console.error('[Hybrid] playAsStarterCharacter error:', error);
+            UI.showToast('Starter create failed: ' + (error.message || error), 'error');
             return false;
         }
+    },
+
+    /**
+     * Begin local-only creation wizard (no KVP until Finish).
+     */
+    async startLocalCreationWizard(options) {
+        if (options === undefined) {
+            options = {};
+        }
+        this.state.awaitingWelcomeChoice = false;
+        this.state.priorActiveBeforeCreation = this.state.selectedCharacterId || (this.state.character && this.state.character.id) || null;
+        this.state.selectedCharacterId = null;
+        this.state.isNewCharacter = true;
+        this.state.creationInProgress = true;
+        this.state.creationStepId = 'universe';
+        this.state.creationMaxStepIndex = 0;
+        this.resetHudUrlForNewCharacterDraft();
+        this.state.character = this.createDefaultCharacter();
+        this.state.character.setup_complete = false;
+        this.resetDraftEconOnCharacter(this.state.character);
+        this.captureStatsFloor(this.state.character);
+        if (options.universeId) {
+            this.state.selectedUniverseId = options.universeId;
+            this.state.character.universe_id = options.universeId;
+            const universeResult = await API.getUniverse(options.universeId);
+            if (universeResult.success) {
+                this.state.currentUniverse = universeResult.data.universe;
+            }
+            await this.applyUniverseIdentityDefaults({ force: true });
+            this.state.creationStepId = 'identity';
+            this.state.creationMaxStepIndex = 1;
+        } else {
+            this.state.selectedUniverseId = null;
+            this.state.character.universe_id = '';
+        }
+        this.updateCharacterSelectorWithTemp();
+        UI.switchTab('character');
+        await this.renderAll();
+        this.navigateToStep(this.state.creationStepId);
+        this.updateCreationNavigation();
+        if (this.state.creationStepId === 'identity') {
+            setTimeout(function () {
+                const el = document.getElementById('char-name');
+                if (el) {
+                    el.focus();
+                }
+            }, 200);
+        }
+    },
+
+    /**
+     * Cancel local creation — wipe draft; never leaves an incomplete KVP char.
+     */
+    async cancelCreationWizard() {
+        const hadId = !!(this.state.character && this.state.character.id);
+        if (hadId && API.deleteCharacter) {
+            try {
+                await API.deleteCharacter(this.state.character.id);
+            } catch (e) {
+                console.warn('[Hybrid] cancel delete failed', e);
+            }
+        }
+        this.clearRememberedCreationStep(this.state.character && this.state.character.id);
+        this.state.character = null;
+        this.state.isNewCharacter = false;
+        this.state.creationInProgress = false;
+        this.state.creationStepId = null;
+        this.state.creationMaxStepIndex = 0;
+        this.state.dirty = false;
+        this.state.statsPending = false;
+        this.state.pendingChanges = {};
+        this.resetHudUrlForNewCharacterDraft();
+
+        const roster = (API._listCharactersCache || []).filter(function (c) {
+            return c && c.setup_complete !== false && c.class_id;
+        });
+        if (roster.length) {
+            this.state.awaitingWelcomeChoice = false;
+            const restoreId = this.state.priorActiveBeforeCreation || roster[0].id;
+            this.state.priorActiveBeforeCreation = null;
+            await this.rememberSelectedCharacter(restoreId);
+            await this.loadData({ forceRefresh: true });
+            UI.showToast('Character creation cancelled', 'info', 2500);
+            return;
+        }
+        this.state.awaitingWelcomeChoice = true;
+        this.state.selectedCharacterId = null;
+        this.state.priorActiveBeforeCreation = null;
+        await this.loadCharacterSelector([]);
+        await this.renderAll();
+        UI.showToast('Character creation cancelled', 'info', 2500);
+    },
+
+    /**
+     * Stats page: reset XP / spent / AP / stats to species seed. Stay on Stats.
+     */
+    resetCreationStatsToDefaults() {
+        const char = this.state.character;
+        if (!char || !this.isInCreationFlow()) {
+            return;
+        }
+        if (!char.species_id) {
+            UI.showToast('Confirm a species on the Character step first', 'warning');
+            return;
+        }
+        this.applyCalculatedStarterGameplay(char);
+        this.captureAbandonBaseline(char);
+        this.state.statsPending = false;
+        this.state.dirty = true;
+        this.refreshStatsTabFromCharacter();
+        this.updateSaveStatsButton();
+        this.updateStatusIndicator();
+        UI.showToast('Stats reset to starting values', 'info', 2000);
+    },
+
+    /**
+     * Finish local wizard — single complete mint.
+     */
+    async finishLocalCreation() {
+        const char = this.state.character;
+        if (!char) {
+            return false;
+        }
+        const steps = this.getCreationSteps();
+        let si;
+        for (si = 0; si < steps.length; si++) {
+            if (steps[si].id === 'review') {
+                continue;
+            }
+            const check = this.validateCreationStep(steps[si].id);
+            if (!check.ok) {
+                UI.showToast(check.message, 'warning');
+                this.navigateToStep(steps[si].id);
+                return false;
+            }
+        }
+        if (!char.class_id) {
+            UI.showToast('Please select a starting class', 'warning');
+            this.navigateToStep('class');
+            return false;
+        }
+        this.flushIdentityFromForm();
+        this.recalculateResourcePools();
+        if (!this.hasCreationGameplayReady(char)) {
+            this.applyCalculatedStarterGameplay(char);
+        }
+        const saved = await this.saveCharacter({ draft: false, silent: false, completeMint: true });
+        if (saved === false) {
+            return false;
+        }
+        this.state.awaitingWelcomeChoice = false;
+        this.state.creationInProgress = false;
+        this.state.isNewCharacter = false;
+        this.state.creationStepId = null;
+        this._pendingAutoHideSetup = true;
+        return true;
+    },
+
+    renderCreationReview() {
+        const panel = document.getElementById('creation-review-panel');
+        const body = document.getElementById('creation-review-body');
+        if (!panel || !body) {
+            return;
+        }
+        const char = this.state.character;
+        if (!char || !this.isInCreationFlow() || this.state.creationStepId !== 'review') {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = 'block';
+        const gender = (this.state.genders || []).find(function (g) { return g.id === char.gender; });
+        const species = (this.state.species || []).find(function (s) { return s.id === char.species_id; });
+        const cls = (this.state.classes || []).find(function (c) { return c.id === char.class_id; });
+        const life = Math.max(0, parseInt(char.xp_lifetime, 10) || 0);
+        const spent = Math.max(0, parseInt(char.xp_spent, 10) || 0);
+        const ap = Math.max(0, parseInt(char.ap_balance, 10) || 0);
+        const unused = Math.max(0, life - spent);
+        const stats = char.stats || {};
+        const statKeys = Object.keys(stats);
+        let statsHtml = '';
+        let si;
+        for (si = 0; si < statKeys.length; si++) {
+            const key = statKeys[si];
+            statsHtml += '<div class="review-stat"><span>' + key.replace(/_/g, ' ') + '</span><strong>' + stats[key] + '</strong></div>';
+        }
+        function imgBlock(label, obj, fallback) {
+            const src = obj && (obj.image || obj.image_url || obj.portrait);
+            const name = (obj && obj.name) || fallback || '—';
+            if (src) {
+                return '<div class="review-portrait"><img src="' + src + '" alt="' + name + '"><div>' + label + ': <strong>' + name + '</strong></div></div>';
+            }
+            return '<div class="review-portrait"><div class="review-portrait-fallback">' + label + ': <strong>' + name + '</strong></div></div>';
+        }
+        body.innerHTML =
+            '<p class="review-lead">Click <strong>Finish</strong> to keep this character, or <strong>Cancel creation</strong> to discard it.</p>'
+            + '<div class="review-portraits">'
+            + imgBlock('Gender', gender, char.gender)
+            + imgBlock('Species', species, char.species_id)
+            + imgBlock('Class', cls, char.class_id)
+            + '</div>'
+            + '<div class="review-identity"><strong>' + (char.name || 'Unnamed') + '</strong>'
+            + (char.title ? ' <span class="review-title">— ' + char.title + '</span>' : '')
+            + (char.has_mana ? ' · Magically gifted' : '')
+            + '</div>'
+            + '<div class="review-econ">Earned XP: <strong>' + life + '</strong> · Unused: <strong>' + unused
+            + '</strong> · AP: <strong>' + ap + '</strong></div>'
+            + '<div class="review-stats-grid">' + statsHtml + '</div>';
+    },
+
+    /**
+     * Legacy no-op — auto-mint on wear removed. Use playAsStarterCharacter.
+     */
+    async ensureStarterCharacter() {
+        return false;
     },
 
     /**
@@ -3162,49 +3382,66 @@ try {
         // UX 2: Update status indicator and step guide
         this.updateStatusIndicator();
         this.updateStepGuide();
-        
+        this.updateWelcomeEmptyRosterUI();
+        this.updateCreationNavigation();
+
         // UX 2: Show/hide no character message, hero panel, and step guide panel
         const noCharMessage = document.getElementById('no-character-message');
         const noCharHero = document.getElementById('no-character-hero');
         const stepGuidePanel = document.querySelector('.step-guide-panel');
-        
-        if (char) {
-            // Has character (new or existing) - show step guide, hide "no character" message and hero
-            if (noCharMessage) noCharMessage.style.display = 'none';
+        const inCreation = this.isInCreationFlow();
+        const stepId = this.state.creationStepId;
+
+        if (char && !this.state.awaitingWelcomeChoice) {
+            if (noCharMessage && !this.state.awaitingWelcomeChoice) {
+                noCharMessage.style.display = 'none';
+            }
             if (noCharHero) noCharHero.style.display = 'none';
             if (stepGuidePanel) stepGuidePanel.style.display = 'block';
-        } else {
-            // No character - show "no character" message and hero, hide step guide
+        } else if (!this.state.awaitingWelcomeChoice) {
             if (noCharMessage) noCharMessage.style.display = 'block';
-            if (noCharHero) noCharHero.style.display = 'block';
+            if (noCharHero) noCharHero.style.display = 'none';
             if (stepGuidePanel) stepGuidePanel.style.display = 'none';
         }
         
         // Show/hide new character banner
         const newCharBanner = document.getElementById('new-character-banner');
         if (newCharBanner) {
-            // Show banner if no character exists in Firestore (isNewCharacter is true)
-            // This means the character hasn't been saved yet
-            const shouldShow = this.state.isNewCharacter;
-            newCharBanner.style.display = shouldShow ? 'block' : 'none';
+            newCharBanner.style.display = 'none';
         }
         
-        // Show/hide universe selection (only for new unsaved characters)
+        // Universe / identity / review visibility during Hybrid creation
         const universeGroup = document.getElementById('universe-selection-group');
         const identitySection = document.getElementById('character-identity-section');
+        const reviewPanel = document.getElementById('creation-review-panel');
         const identityReady = !!char;
-        const identityGateMessage =
-            'Click Create New Character and choose a universe to begin identity selection.';
 
-        if (identitySection) {
-            identitySection.style.display = identityReady ? 'block' : 'none';
-        }
-
-        if (universeGroup) {
-            const showUniverse = identityReady && this.state.isNewCharacter && !char?.id;
-            universeGroup.style.display = showUniverse ? 'block' : 'none';
-            if (showUniverse) {
-                await this.loadAvailableUniverses();
+        if (inCreation) {
+            if (universeGroup) {
+                const showUniverse = stepId === 'universe' || (!stepId && !char.universe_id);
+                universeGroup.style.display = showUniverse ? 'block' : 'none';
+                if (showUniverse) {
+                    await this.loadAvailableUniverses();
+                }
+            }
+            if (identitySection) {
+                identitySection.style.display = (stepId === 'identity') ? 'block' : 'none';
+            }
+            if (reviewPanel) {
+                reviewPanel.style.display = (stepId === 'review') ? 'block' : 'none';
+                if (stepId === 'review') {
+                    this.renderCreationReview();
+                }
+            }
+        } else {
+            if (identitySection) {
+                identitySection.style.display = identityReady ? 'block' : 'none';
+            }
+            if (universeGroup) {
+                universeGroup.style.display = 'none';
+            }
+            if (reviewPanel) {
+                reviewPanel.style.display = 'none';
             }
         }
         
@@ -3723,9 +3960,29 @@ try {
             this.showNewCharacterDialog();
         });
         
-        // Hero callout "Create New Character" button
+        // Welcome / hero CTAs
+        document.getElementById('btn-play-as-starter')?.addEventListener('click', () => {
+            this.playAsStarterCharacter();
+        });
+        document.getElementById('btn-create-my-own')?.addEventListener('click', () => {
+            this.startLocalCreationWizard();
+        });
         document.getElementById('btn-create-new-hero')?.addEventListener('click', () => {
-            this.showNewCharacterDialog();
+            this.startLocalCreationWizard();
+        });
+        document.getElementById('btn-cancel-creation')?.addEventListener('click', async () => {
+            const ok = await UI.showConfirmDialog({
+                title: 'Cancel character creation?',
+                message: 'This discards your draft. Nothing is saved until you Finish.',
+                confirmLabel: 'Cancel creation',
+                cancelLabel: 'Keep creating'
+            });
+            if (ok) {
+                await this.cancelCreationWizard();
+            }
+        });
+        document.getElementById('btn-reset-creation-stats')?.addEventListener('click', () => {
+            this.resetCreationStatsToDefaults();
         });
         
         // New Character link in banner
@@ -4446,7 +4703,7 @@ try {
                 const ready = this.hasCreationGameplayReady(char);
                 UI.setStatsHudBanner(
                     ready
-                        ? 'Starter values from species — use Save Progress to store on your HUD.'
+                        ? 'Starter values from species — Continue when ready. Nothing is saved until Finish.'
                         : 'Select and confirm a species to receive starting XP and stats.',
                     ready ? 'info' : 'warning'
                 );
@@ -6602,14 +6859,26 @@ try {
                     title: char.title || '',
                     gender: saveGender,
                     species_id: saveSpeciesId,
-                    universe_id: this.state.selectedUniverseId,
+                    universe_id: this.state.selectedUniverseId || char.universe_id || 'default',
                     has_mana: hasMana,
                     mana: manaPool,
+                    health: char.health,
+                    stamina: char.stamina,
                     stats: this.statsCsvFromChar(char) || char.stats,
-                    setup_complete: false
+                    setup_complete: !draft,
+                    xp_lifetime: char.xp_lifetime != null ? char.xp_lifetime : this.getStartingXpGrant(saveSpeciesId),
+                    xp_spent: char.xp_spent != null ? char.xp_spent : 0,
+                    ap_balance: char.ap_balance != null ? char.ap_balance : 0
                 };
                 if (char.class_id) {
                     createPayload.class_id = char.class_id;
+                }
+                // Hybrid: never mint incomplete drafts from the wizard
+                if (draft && !char.id) {
+                    if (!silent) {
+                        UI.showToast('Continue through Review, then Finish to create your character', 'info', 3500);
+                    }
+                    return true;
                 }
 
                 const preservedStarter = draft ? {
@@ -11854,9 +12123,10 @@ window.onClassSelected = async function(classId, isFreeAdvance = false) {
         ? App.state.filteredClasses
         : (App.state.classes || []);
     const classOptions = {
-        enforceStatMinimums: App.state.enforceClassStatMinimums !== false,
+        enforceStatMinimums: App.isInCreationFlow() ? false : (App.state.enforceClassStatMinimums !== false),
         universe: App.state.currentUniverse,
-        gameplayStats: gameplayStats
+        gameplayStats: gameplayStats,
+        creationStartingClass: App.isInCreationFlow()
     };
     const canChange = API.canChangeToClass(App.state.character, classTemplate, allClasses, classOptions);
     if (!canChange.canChange) {

@@ -262,10 +262,45 @@
                 var si;
                 for (si = 0; si < order.length; si++) {
                     var sv = charData.stats[order[si]];
-                    parts.push(sv != null ? String(sv) : "2");
+                    parts.push(sv != null ? String(sv) : "1");
                 }
                 extra.stats = parts.join(",");
             }
+        }
+        if (charData.state && typeof charData.state === "string" && charData.state !== "") {
+            extra.state = charData.state;
+        } else if (charData.xp_lifetime != null || charData.xp_spent != null || charData.ap_balance != null) {
+            var life = parseInt(charData.xp_lifetime, 10);
+            if (isNaN(life) || life < 0) {
+                life = 20000;
+            }
+            var spent = parseInt(charData.xp_spent, 10);
+            if (isNaN(spent) || spent < 0) {
+                spent = 0;
+            }
+            var ap = parseInt(charData.ap_balance, 10);
+            if (isNaN(ap) || ap < 0) {
+                ap = 0;
+            }
+            var healthPipe = "100|100|100";
+            var staminaPipe = "100|100|100";
+            var manaPipe = "0|0|0";
+            if (charData.health && charData.health.base != null) {
+                healthPipe = String(charData.health.current != null ? charData.health.current : charData.health.base)
+                    + "|" + String(charData.health.base)
+                    + "|" + String(charData.health.max != null ? charData.health.max : charData.health.base);
+            }
+            if (charData.stamina && charData.stamina.base != null) {
+                staminaPipe = String(charData.stamina.current != null ? charData.stamina.current : charData.stamina.base)
+                    + "|" + String(charData.stamina.base)
+                    + "|" + String(charData.stamina.max != null ? charData.stamina.max : charData.stamina.base);
+            }
+            if (charData.mana && charData.mana.base != null) {
+                manaPipe = String(charData.mana.current != null ? charData.mana.current : charData.mana.base)
+                    + "|" + String(charData.mana.base)
+                    + "|" + String(charData.mana.max != null ? charData.mana.max : charData.mana.base);
+            }
+            extra.state = life + "," + spent + "," + ap + "," + healthPipe + "," + staminaPipe + "," + manaPipe;
         }
         return jsonp(apiBase, apiParams(extra), 30000);
     }
