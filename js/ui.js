@@ -1603,6 +1603,10 @@ const UI = {
                     <span class="summary-label">Available Points:</span>
                     <span class="summary-value">${typeof window.getApBalance === 'function' ? window.getApBalance(character) : 0}</span>
                 </div>
+                <div class="summary-item" style="grid-column: 1 / -1; margin-top: var(--space-sm); padding-top: var(--space-sm); border-top: 1px solid rgba(148, 163, 184, 0.35);">
+                    <span class="summary-label">Character ID:</span>
+                    <span class="summary-value" style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all;">${character.id || character.characterId || character.character_id || '(none)'}</span>
+                </div>
             </div>
         `;
     },

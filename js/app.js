@@ -2660,6 +2660,8 @@ try {
             recovered.push(char);
         };
 
+        // Never invent a character from HUD LSD alone — that resurrects deleted chars.
+        // Session / f4active_ may only supply a preferred id to verify against roster/KVP.
         if (this.isBridgeHudMode()) {
             try {
                 if (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.waitForBridgeReady) {
@@ -2674,19 +2676,7 @@ try {
                 if (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.fetchSession) {
                     const session = await F4BridgeHud.fetchSession();
                     if (session && session.ok && session.characterId) {
-                        pushChar({
-                            id: session.characterId,
-                            name: session.name || 'Character',
-                            title: session.title || '',
-                            gender: session.gender || '',
-                            species_id: session.species_id || 'human',
-                            class_id: session.class_id || '',
-                            universe_id: session.universe_id || 'default',
-                            owner_uuid: API.uuid,
-                            setup_complete: true,
-                            has_mana: false,
-                            mode: 'roleplay'
-                        });
+                        preferredCharId = preferredCharId || session.characterId;
                     }
                 }
             } catch (bridgeErr) {
