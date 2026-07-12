@@ -937,24 +937,31 @@ try {
                     return;
                 }
                 
-                if (charsResult.data && charsResult.data.characters && charsResult.data.characters.length > 0) {
-                    console.log('[loadData] Found', charsResult.data.characters.length, 'character(s)');
-                    let characters = charsResult.data.characters;
-                    // HOTFIX 4.3.2: never auto-delete roster rows. Legacy / migrated chars often
-                    // lack setup_complete=true; 4.3.1 cleanup wiped them. Keep every listed char.
-                    characters = await this.cleanupIncompleteCharacters(characters);
-                    if (!characters.length) {
-                        this.state.character = null;
-                        this.state.selectedCharacterId = null;
-                        this.state.isNewCharacter = false;
-                        this.state.creationInProgress = false;
-                        this.state.creationStepId = null;
-                        this.state.awaitingWelcomeChoice = true;
-                        await this.loadCharacterSelector([]);
-                        this.updateStatusIndicator();
-                        this.updateStepGuide();
-                        console.log('[loadData] Empty roster after sanitize — showing Welcome');
-                    } else {
+                let characters = (charsResult.data && charsResult.data.characters)
+                    ? charsResult.data.characters.slice()
+                    : [];
+                console.log('[loadData] Found', characters.length, 'character(s) in roster');
+                // HOTFIX 4.3.2+: never auto-delete roster rows. Keep every listed char.
+                characters = await this.cleanupIncompleteCharacters(characters);
+                if (!characters.length) {
+                    const recovered = await this.recoverExistingCharactersWhenRosterEmpty(preferredCharId);
+                    if (recovered && recovered.length) {
+                        characters = recovered;
+                        console.log('[loadData] Recovered', characters.length, 'existing character(s) — skipping Welcome');
+                    }
+                }
+                if (!characters.length) {
+                    this.state.character = null;
+                    this.state.selectedCharacterId = null;
+                    this.state.isNewCharacter = false;
+                    this.state.creationInProgress = false;
+                    this.state.creationStepId = null;
+                    this.state.awaitingWelcomeChoice = true;
+                    await this.loadCharacterSelector([]);
+                    this.updateStatusIndicator();
+                    this.updateStepGuide();
+                    console.log('[loadData] No existing characters — showing Welcome');
+                } else {
                     this.state.awaitingWelcomeChoice = false;
                     if (preferredCharId && !characters.some(function (c) { return c.id === preferredCharId; })) {
                         try {
@@ -1085,21 +1092,7 @@ try {
                             };
                         }
                     }
-                    } // end: characters remaining after incomplete cleanup
-                } else {
-                    // No finished characters — Welcome gate (no auto-mint)
-                    console.log('[loadData] No characters found in result. charsResult.data:', charsResult.data);
-                    this.state.character = null;
-                    this.state.selectedCharacterId = null;
-                    this.state.isNewCharacter = false;
-                    this.state.creationInProgress = false;
-                    this.state.creationStepId = null;
-                    this.state.awaitingWelcomeChoice = true;
-                    await this.loadCharacterSelector([]);
-                    this.updateStatusIndicator();
-                    this.updateStepGuide();
-                    console.log('[loadData] Empty roster — showing Welcome (Play as starter / Create my own)');
-                }
+                    } // end: existing characters loaded
             } catch (error) {
                 // Error loading characters - log it but don't assume no character exists
                 console.error('[loadData] Error loading characters:', error);
@@ -2597,6 +2590,100 @@ try {
     },
 
     /**
+     * When f4roster_ is empty, still try to continue an existing character from HUD/session/active.
+     * Never push Welcome if we can recover one.
+     * @returns {Promise<Array|null>}
+     */
+    async recoverExistingCharactersWhenRosterEmpty(preferredCharId) {
+        const recovered = [];
+        const seen = {};
+        const pushChar = function (char) {
+            if (!char || !char.id || seen[char.id]) {
+                return;
+            }
+            seen[char.id] = true;
+            if (!char.owner_uuid && API.uuid) {
+                char.owner_uuid = API.uuid;
+            }
+            recovered.push(char);
+        };
+
+        if (this.isBridgeHudMode()) {
+            try {
+                if (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.waitForBridgeReady) {
+                    await F4BridgeHud.waitForBridgeReady(10000);
+                }
+                if (typeof F4Bridge !== 'undefined' && F4Bridge.getActiveCharacter) {
+                    const activeRes = await F4Bridge.getActiveCharacter();
+                    if (activeRes && activeRes.ok && activeRes.characterId) {
+                        preferredCharId = preferredCharId || activeRes.characterId;
+                    }
+                }
+                if (typeof F4BridgeHud !== 'undefined' && F4BridgeHud.fetchSession) {
+                    const session = await F4BridgeHud.fetchSession();
+                    if (session && session.ok && session.characterId) {
+                        pushChar({
+                            id: session.characterId,
+                            name: session.name || 'Character',
+                            title: session.title || '',
+                            gender: session.gender || '',
+                            species_id: session.species_id || 'human',
+                            class_id: session.class_id || '',
+                            universe_id: session.universe_id || 'default',
+                            owner_uuid: API.uuid,
+                            setup_complete: true,
+                            has_mana: false,
+                            mode: 'roleplay'
+                        });
+                    }
+                }
+            } catch (bridgeErr) {
+                console.warn('[loadData] Bridge recover failed:', bridgeErr);
+            }
+        }
+
+        const tryIds = [];
+        if (preferredCharId) {
+            tryIds.push(preferredCharId);
+        }
+        let ti;
+        for (ti = 0; ti < tryIds.length; ti++) {
+            const tryId = tryIds[ti];
+            if (seen[tryId]) {
+                continue;
+            }
+            try {
+                const byId = await API.getCharacterById(tryId);
+                if (byId.success && byId.data && byId.data.character) {
+                    pushChar(byId.data.character);
+                }
+            } catch (idErr) {
+                console.warn('[loadData] getCharacterById recover failed:', tryId, idErr);
+            }
+        }
+
+        if (!recovered.length && !this.isBridgeHudMode()) {
+            try {
+                const legacy = await API.getCharacter();
+                if (legacy.success && legacy.data && legacy.data.character) {
+                    pushChar(legacy.data.character);
+                }
+            } catch (legacyErr) {
+                console.warn('[loadData] Firestore getCharacter recover failed:', legacyErr);
+            }
+        }
+
+        if (!recovered.length) {
+            return null;
+        }
+        let ri;
+        for (ri = 0; ri < recovered.length; ri++) {
+            this.upsertCharacterInRosterCache(recovered[ri]);
+        }
+        return recovered;
+    },
+
+    /**
      * Welcome gate when roster is empty — Play as starter or Create my own.
      */
     updateWelcomeEmptyRosterUI() {
@@ -2605,7 +2692,12 @@ try {
         const noCharMessage = document.getElementById('no-character-message');
         const stepGuidePanel = document.querySelector('.step-guide-panel');
         const reviewPanel = document.getElementById('creation-review-panel');
-        const showWelcome = !!(this.state.awaitingWelcomeChoice && !this.state.character && !this.state.creationInProgress);
+        const rosterLen = (API._listCharactersCache && API._listCharactersCache.length) || 0;
+        // Never show Welcome if any character is loaded or listed — existing players must not recreate.
+        const showWelcome = !!(this.state.awaitingWelcomeChoice
+            && !this.state.character
+            && !this.state.creationInProgress
+            && rosterLen === 0);
         if (welcome) {
             welcome.style.display = showWelcome ? 'block' : 'none';
         }
@@ -2644,6 +2736,21 @@ try {
     async _playAsStarterCharacterInternal() {
         if (!API.uuid || API.uuid.trim() === '') {
             UI.showToast('Waiting for HUD identity — try again in a moment', 'warning');
+            return false;
+        }
+
+        // Do not mint a starter over an existing character (roster / loaded / recovered).
+        const existingRoster = (API._listCharactersCache || []).filter(function (c) { return c && c.id; });
+        if (this.state.character && this.state.character.id) {
+            UI.showToast('You already have a character loaded. Use the character selector.', 'info', 4000);
+            this.state.awaitingWelcomeChoice = false;
+            this.updateWelcomeEmptyRosterUI();
+            return false;
+        }
+        if (existingRoster.length > 0) {
+            UI.showToast('You already have a character. Loading it instead of creating a starter.', 'info', 4000);
+            this.state.awaitingWelcomeChoice = false;
+            await this.loadData({ forceRefresh: true });
             return false;
         }
 
