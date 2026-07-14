@@ -2682,14 +2682,15 @@
 
 <h1 id="mulberry-silkery">Mulberry Silkery<a class="headerlink" href="#mulberry-silkery" title="Permanent link">&para;</a></h1>
 <p>A <strong>silkery</strong> is a closed mulberry + silkworm colony — closer to a <a href="../beekeeping/">beehive</a> than a
-gatherable bush. You attract moths, keep the bush alive with <strong>water</strong> and <strong>fertilizer</strong>, and harvest
-<strong>silk cocoons</strong>. Leaves and worms stay inside the object.</p>
+gatherable bush. You keep the bush alive with <strong>water</strong> and <strong>fertilizer</strong>, attract moths only when it is
+healthy, and harvest <strong>silk cocoons</strong>. Leaves and worms stay inside the object.</p>
 <h2 id="player-steps">Player steps<a class="headerlink" href="#player-steps" title="Permanent link">&para;</a></h2>
 <div class="admonition quote">
 <p class="admonition-title">How to run a silkery</p>
 <ol>
 <li>Rez the silkery — it starts <strong>pre-watered and fertilized</strong>. Watch the meters; they drain over time.</li>
-<li>Keep <strong>water</strong>, <strong>fertilizer</strong>, and <strong>health</strong> up (health must stay around <strong>60+</strong>).</li>
+<li>Keep <strong>water</strong>, <strong>fertilizer</strong>, and <strong>health</strong> up (health must stay around <strong>60+</strong> for Attract).</li>
+<li>If health hits <strong>0</strong>, the bush <strong>dies</strong> → <strong>Dormant</strong> → fresh bush when the timer ends.</li>
 <li>When the bush is healthy, <strong>Attract moth</strong> (about 5 real minutes). Moths skip a sick bush.</li>
 <li>After moths settle, eggs → worms → cocoons → moths continue while you top up supplies.</li>
 <li><strong>Harvest</strong> cocoons as <code>silk cocoon</code>. Leave some so moths can renew.</li>
@@ -2706,7 +2707,7 @@ gatherable bush. You attract moths, keep the bush alive with <strong>water</stro
 <tbody>
 <tr>
 <td><strong>Water / Fert</strong></td>
-<td>Player supplies. Both drain slowly while active.</td>
+<td>Player supplies. Both drain slowly while the bush is alive.</td>
 </tr>
 <tr>
 <td><strong>Leaves</strong></td>
@@ -2714,7 +2715,7 @@ gatherable bush. You attract moths, keep the bush alive with <strong>water</stro
 </tr>
 <tr>
 <td><strong>Health</strong></td>
-<td>Bush condition. Hits 0 → colony dies.</td>
+<td>Hits <strong>0</strong> (any time — before or after moths) → die → <strong>Dormant</strong> → new bush.</td>
 </tr>
 <tr>
 <td><strong>W / C / M / E</strong></td>
@@ -2722,8 +2723,6 @@ gatherable bush. You attract moths, keep the bush alive with <strong>water</stro
 </tr>
 </tbody>
 </table>
-<p>If the bush dies (neglect, overpopulation stress), the silkery goes <strong>Dormant</strong> for a while, then returns to
-<strong>Ready</strong> so you can Attract moth again.</p>
 <h2 id="tips">Tips<a class="headerlink" href="#tips" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Wear your <strong>HUD</strong> and <strong>pouch</strong>; water usually needs a <strong>bucket</strong> (slot 9). Fertilizer comes from
