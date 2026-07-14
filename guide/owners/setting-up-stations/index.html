@@ -1380,6 +1380,8 @@
       
         
       
+        
+      
     
     
     
@@ -1589,6 +1591,34 @@
     
   
     Beekeeping & Honey
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gathering/silkery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mulberry Silkery
   
 
     
@@ -2293,6 +2323,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mulberry-silkery-silkworm-colony" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mulberry Silkery (silkworm colony)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#renewable-harvest-livestock" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2887,6 +2928,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mulberry-silkery-silkworm-colony" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mulberry Silkery (silkworm colony)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#renewable-harvest-livestock" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3098,39 +3150,70 @@ Do not use legacy <strong>Oven Script</strong> on new stations. See <a href="../
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>fertilizer,all
 </code></pre></div>
 <p>Accepts: <code>stover</code>, <code>scraps</code>, <code>straw</code>, <code>manure</code>, <code>slop</code>, <code>eggshells</code>. Range: <strong>5 m</strong>.</p>
+<h2 id="mulberry-silkery-silkworm-colony">Mulberry Silkery (silkworm colony)<a class="headerlink" href="#mulberry-silkery-silkworm-colony" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>&lt;security&gt;[,dormantSeconds][,debug]
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>owner
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>group,900
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>all,1800,debug
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>security</td>
+<td><code>owner</code>, <code>group</code>, or <code>all</code></td>
+</tr>
+<tr>
+<td>dormantSeconds</td>
+<td>After bush death, lockout before Attract again (60–7200; default <strong>900</strong>)</td>
+</tr>
+<tr>
+<td>debug</td>
+<td>Faster attract / dormant / ticks</td>
+</tr>
+</tbody>
+</table>
+<p>Touch menus: <strong>Attract moth</strong>, <strong>Add water 5</strong>, <strong>Add fert 5</strong>, <strong>Harvest</strong>, <strong>Reset</strong>. Harvest gives
+<code>silk cocoon</code>. Range: <strong>10 m</strong>. Rez clears colony; region restart resumes from Linkset Data.</p>
 <h2 id="renewable-harvest-livestock">Renewable harvest / livestock<a class="headerlink" href="#renewable-harvest-livestock" title="Permanent link">&para;</a></h2>
 <p>Renewable harvest:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;itemId&gt;,&lt;maxAmount&gt;,&lt;unitsPerTick&gt;,&lt;tickSeconds&gt;[,security][,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;itemId&gt;,&lt;maxAmount&gt;,&lt;unitsPerTick&gt;,&lt;tickSeconds&gt;[,security][,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>sheep,shear,shearing,wool,20,1,120,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>sheep,shear,shearing,wool,20,1,120,all
 </code></pre></div>
 <p>Livestock (huntable + harvestable) adds combat fields:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>sheep,80,60,2,wool,20,1,120,shear,shearing,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>sheep,80,60,2,wool,20,1,120,shear,shearing,all
 </code></pre></div>
 <h2 id="refillable-container-barrel-keg-milk-pail">Refillable container (barrel, keg, milk pail)<a class="headerlink" href="#refillable-container-barrel-keg-milk-pail" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>&lt;itemName&gt;,&lt;security&gt;[,maxQty][,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>&lt;itemName&gt;,&lt;security&gt;[,maxQty][,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>milk,all
-<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>wine,all,100
-<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>wine*,all,500
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>milk,all
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>wine,all,100
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>wine*,all,500
 </code></pre></div>
 <p>Liquids use the <code>*</code> suffix and a drink skin.</p>
 <h2 id="storage-chest">Storage chest<a class="headerlink" href="#storage-chest" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>&lt;security&gt;[,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>&lt;security&gt;[,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>owner
-<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>group
-<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>all,debug
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>owner
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>group
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>all,debug
 </code></pre></div>
 <h2 id="sharpening-wheel">Sharpening wheel<a class="headerlink" href="#sharpening-wheel" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>sharpening wheel,sharpen,sharpening,&lt;security&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>sharpening wheel,sharpen,sharpening,&lt;security&gt;
 </code></pre></div>
 <h2 id="smith-skinning-multi-output-workstation">Smith / skinning / multi-output workstation<a class="headerlink" href="#smith-skinning-multi-output-workstation" title="Permanent link">&para;</a></h2>
 <p>Object description (touch mode):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;parts-word&gt;,&lt;recipe-word&gt;[,security][,&lt;craftSeconds&gt;]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;parts-word&gt;,&lt;recipe-word&gt;[,security][,&lt;craftSeconds&gt;]
 </code></pre></div>
 <p>Example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>skinning station,skin,skinning,parts,recipes,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>skinning station,skin,skinning,parts,recipes,all
 </code></pre></div>
 <p><strong>Scripts (four per object):</strong> <code>F4 Crafting - MultiItem - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>.<br />
 Recipes: <code>recipes</code> notecard — see <a href="../recipe-reference/">Recipe Reference</a> (multi-output section).</p>
@@ -3145,14 +3228,14 @@ Recipes: <code>recipes</code> notecard — see <a href="../recipe-reference/">Re
 <p>Full setup: <strong><a href="../dropbox-and-delivery/">DropBox &amp; physical delivery</a></strong>.</p>
 <h2 id="archery-target-dummy">Archery target / dummy<a class="headerlink" href="#archery-target-dummy" title="Permanent link">&para;</a></h2>
 <p>Practice target:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>&lt;name&gt;,&lt;baseCR&gt;,&lt;ringCount&gt;,&lt;marginPerRing&gt;,&lt;security&gt;,&lt;roleplay|arcade&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>&lt;name&gt;,&lt;baseCR&gt;,&lt;ringCount&gt;,&lt;marginPerRing&gt;,&lt;security&gt;,&lt;roleplay|arcade&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>Practice Butt,3,5,10,all,roleplay
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>Practice Butt,3,5,10,all,roleplay
 </code></pre></div>
 <p>Practice dummy:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>&lt;name&gt;,&lt;health&gt;,&lt;resetDelay&gt;,&lt;meleeCR&gt;,&lt;security&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>&lt;name&gt;,&lt;health&gt;,&lt;resetDelay&gt;,&lt;meleeCR&gt;,&lt;security&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>Practice Dummy,100,60,4,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>Practice Dummy,100,60,4,all
 </code></pre></div>
 <p>Managed ranges use a controller plus numbered firing pads — see your range builder guide.</p>
 <div class="admonition warning">
