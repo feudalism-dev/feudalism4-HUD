@@ -3105,34 +3105,41 @@ The trail starts at the first field that is a number whose <strong>next</strong>
 <li><strong>Spawn points (owner):</strong> long-touch (~0.8 s) at up to 40 locations.</li>
 </ul>
 <h2 id="oven-cauldron-fermenter">Oven / cauldron / fermenter<a class="headerlink" href="#oven-cauldron-fermenter" title="Permanent link">&para;</a></h2>
-<p>Touch mode:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;ingredient-word&gt;,&lt;recipe-word&gt;[,security][,fire]
+<p>Touch mode (Gen 3 — security on the object description; nouns/verbs come from Recipe Manager <code>@cfg</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>all
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>group
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>owner
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>oven,cook,cooking,ingredients,recipe,all
+<p>Sit / AVsitter mode — keep AVsitter on the object and add the optional companion script
+<code>F4 Crafting - AVsitter.lsl</code>. Description examples:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>all,pose:Churn
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>sit,Churn,group
 </code></pre></div>
-<p>Sit mode — prefix with <code>sit,</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sit,oven,cook,cooking,ingredients,recipe,all
-</code></pre></div>
-<p>Add <code>fire</code> to require a lit fire. Recipes go in a <code>recipes</code> notecard.</p>
-<p><strong>Scripts (four per object):</strong> <code>F4 Crafting - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>.<br />
+<p><code>pose:Name</code> (preferred) or <code>sit,&lt;PoseName&gt;,...</code> must match an AVsitter pose/button. Without the companion,
+Gen 3 is touch-only.</p>
+<p>Add <code>fire</code> in <code>@cfg</code> (Recipe Manager) to require a lit fire. Recipes go in a <code>recipes</code> notecard / KVP library.</p>
+<p><strong>Scripts (single-item Gen 3):</strong> <code>F4 Crafting - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>, <code>Loop</code>, plus <code>XPDB Access</code>.<br />
+<strong>Optional:</strong> <code>F4 Crafting - AVsitter</code> on sit stations (ovens, churns, vats).<br />
 Do not use legacy <strong>Oven Script</strong> on new stations. See <a href="../dropbox-and-delivery/">DropBox &amp; physical delivery</a> for central physical inventory.</p>
 <h2 id="food-plate">Food plate<a class="headerlink" href="#food-plate" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>&lt;itemId&gt;,&lt;displayName&gt;,&lt;healthMod&gt;,&lt;staminaMod&gt;,&lt;maxServings&gt;,&lt;security&gt;[,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>&lt;itemId&gt;,&lt;displayName&gt;,&lt;healthMod&gt;,&lt;staminaMod&gt;,&lt;maxServings&gt;,&lt;security&gt;[,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>stew,Hearty Stew,5,3,12,all
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>bread,2,2,8,group
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>stew,Hearty Stew,5,3,12,all
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>bread,2,2,8,group
 </code></pre></div>
 <p>(The short form omits the display name.) Range: <strong>5 m</strong>.</p>
 <h2 id="producer-press-churn-malting-tub">Producer (press, churn, malting tub)<a class="headerlink" href="#producer-press-churn-malting-tub" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>&lt;mode&gt;,&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;[,security][,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>&lt;mode&gt;,&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;[,security][,debug]
 </code></pre></div>
 <ul>
 <li><code>mode</code> = <code>static</code> (touch) or <code>animated</code> (AVsitter sit).</li>
-<li>Recipes go in a <code>recipes</code> notecard (producer format).</li>
+<li>Recipes go in a <code>recipes</code> notecard (producer format) — <strong>one input → one output, no dice roll</strong>.</li>
 </ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>static,press,press,pressing,all
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>animated,churn,churn,churning,group
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>static,press,press,pressing,all
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>animated,churn,churn,churning,group
 </code></pre></div>
+<p>For a churn (or similar) that needs <strong>multi-ingredient recipes and Crafting dice</strong>, use <strong>Gen 3 single-item
+crafting</strong> plus optional <code>F4 Crafting - AVsitter.lsl</code> (<code>all,pose:Churn</code>) instead of Producer.</p>
 <h2 id="farm-field-herb-pot-grape-vine">Farm field / herb pot / grape vine<a class="headerlink" href="#farm-field-herb-pot-grape-vine" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Description:</strong> <code>&lt;DisplayName&gt;,&lt;security&gt;</code> — e.g. <code>Corn,all</code> or <code>Parsley,all</code>.</li>
@@ -3145,17 +3152,17 @@ Do not use legacy <strong>Oven Script</strong> on new stations. See <a href="../
 <li><strong>Notecard</strong> named <code>config</code>.</li>
 </ul>
 <h2 id="compost-bin">Compost bin<a class="headerlink" href="#compost-bin" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>&lt;outputItem&gt;,&lt;security&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>&lt;outputItem&gt;,&lt;security&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>fertilizer,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>fertilizer,all
 </code></pre></div>
 <p>Accepts: <code>stover</code>, <code>scraps</code>, <code>straw</code>, <code>manure</code>, <code>slop</code>, <code>eggshells</code>. Range: <strong>5 m</strong>.</p>
 <h2 id="mulberry-silkery-silkworm-colony">Mulberry Silkery (silkworm colony)<a class="headerlink" href="#mulberry-silkery-silkworm-colony" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>&lt;security&gt;[,dormantSeconds][,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>&lt;security&gt;[,dormantSeconds][,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>owner
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>group,900
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>all,1800,debug
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>owner
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>group,900
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>all,1800,debug
 </code></pre></div>
 <table>
 <thead>
@@ -3184,37 +3191,37 @@ On rez the bush starts pre-watered/fertilized and begins attracting moths — ke
 Harvest gives <code>silk cocoon</code>. Range: <strong>10 m</strong>. Region restart resumes from Linkset Data.</p>
 <h2 id="renewable-harvest-livestock">Renewable harvest / livestock<a class="headerlink" href="#renewable-harvest-livestock" title="Permanent link">&para;</a></h2>
 <p>Renewable harvest:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;itemId&gt;,&lt;maxAmount&gt;,&lt;unitsPerTick&gt;,&lt;tickSeconds&gt;[,security][,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;itemId&gt;,&lt;maxAmount&gt;,&lt;unitsPerTick&gt;,&lt;tickSeconds&gt;[,security][,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>sheep,shear,shearing,wool,20,1,120,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>sheep,shear,shearing,wool,20,1,120,all
 </code></pre></div>
 <p>Livestock (huntable + harvestable) adds combat fields:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>sheep,80,60,2,wool,20,1,120,shear,shearing,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>sheep,80,60,2,wool,20,1,120,shear,shearing,all
 </code></pre></div>
 <h2 id="refillable-container-barrel-keg-milk-pail">Refillable container (barrel, keg, milk pail)<a class="headerlink" href="#refillable-container-barrel-keg-milk-pail" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>&lt;itemName&gt;,&lt;security&gt;[,maxQty][,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>&lt;itemName&gt;,&lt;security&gt;[,maxQty][,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>milk,all
-<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>wine,all,100
-<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>wine*,all,500
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>milk,all
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>wine,all,100
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>wine*,all,500
 </code></pre></div>
 <p>Liquids use the <code>*</code> suffix and a drink skin.</p>
 <h2 id="storage-chest">Storage chest<a class="headerlink" href="#storage-chest" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>&lt;security&gt;[,debug]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>&lt;security&gt;[,debug]
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>owner
-<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>group
-<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>all,debug
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>owner
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>group
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>all,debug
 </code></pre></div>
 <h2 id="sharpening-wheel">Sharpening wheel<a class="headerlink" href="#sharpening-wheel" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>sharpening wheel,sharpen,sharpening,&lt;security&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>sharpening wheel,sharpen,sharpening,&lt;security&gt;
 </code></pre></div>
 <h2 id="smith-skinning-multi-output-workstation">Smith / skinning / multi-output workstation<a class="headerlink" href="#smith-skinning-multi-output-workstation" title="Permanent link">&para;</a></h2>
 <p>Object description (touch mode):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;parts-word&gt;,&lt;recipe-word&gt;[,security][,&lt;craftSeconds&gt;]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>&lt;noun&gt;,&lt;verb&gt;,&lt;verb-ing&gt;,&lt;parts-word&gt;,&lt;recipe-word&gt;[,security][,&lt;craftSeconds&gt;]
 </code></pre></div>
 <p>Example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>skinning station,skin,skinning,parts,recipes,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>skinning station,skin,skinning,parts,recipes,all
 </code></pre></div>
 <p><strong>Scripts (four per object):</strong> <code>F4 Crafting - MultiItem - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code>.<br />
 Recipes: <code>recipes</code> notecard — see <a href="../recipe-reference/">Recipe Reference</a> (multi-output section).</p>
@@ -3229,14 +3236,14 @@ Recipes: <code>recipes</code> notecard — see <a href="../recipe-reference/">Re
 <p>Full setup: <strong><a href="../dropbox-and-delivery/">DropBox &amp; physical delivery</a></strong>.</p>
 <h2 id="archery-target-dummy">Archery target / dummy<a class="headerlink" href="#archery-target-dummy" title="Permanent link">&para;</a></h2>
 <p>Practice target:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>&lt;name&gt;,&lt;baseCR&gt;,&lt;ringCount&gt;,&lt;marginPerRing&gt;,&lt;security&gt;,&lt;roleplay|arcade&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>&lt;name&gt;,&lt;baseCR&gt;,&lt;ringCount&gt;,&lt;marginPerRing&gt;,&lt;security&gt;,&lt;roleplay|arcade&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>Practice Butt,3,5,10,all,roleplay
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>Practice Butt,3,5,10,all,roleplay
 </code></pre></div>
 <p>Practice dummy:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>&lt;name&gt;,&lt;health&gt;,&lt;resetDelay&gt;,&lt;meleeCR&gt;,&lt;security&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>&lt;name&gt;,&lt;health&gt;,&lt;resetDelay&gt;,&lt;meleeCR&gt;,&lt;security&gt;
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>Practice Dummy,100,60,4,all
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>Practice Dummy,100,60,4,all
 </code></pre></div>
 <p>Managed ranges use a controller plus numbered firing pads — see your range builder guide.</p>
 <div class="admonition warning">
