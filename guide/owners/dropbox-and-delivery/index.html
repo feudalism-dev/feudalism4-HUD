@@ -2784,7 +2784,7 @@
   B --&gt; F</code></pre>
 <ol>
 <li>You keep master copies of physical items in a <strong>DropBox</strong> on your land.</li>
-<li>The DropBox <strong>registers</strong> those item names when it starts (and when inventory changes).</li>
+<li>The DropBox <strong>registers</strong> those item names when it starts (and when inventory changes). About every <strong>30 minutes</strong> (configurable) it also <strong>refreshes its Linden HTTP-IN URL</strong> and re-registers routes, so delivery does not go stale after a long idle.</li>
 <li>A crafting station whose recipe names that object — but <strong>does not</strong> hold it locally — asks the crafter's <strong>HUD</strong> to deliver from the DropBox after a successful craft.</li>
 <li>If the same object <strong>is</strong> in the station inventory, the station gives it <strong>locally</strong> and ignores the DropBox.</li>
 </ol>
@@ -2800,12 +2800,13 @@
 </ol>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>heartbeat_minutes,30
 </code></pre></div>
+<p>(<code>heartbeat_minutes</code> controls how often the box requests a <strong>fresh</strong> HTTP-IN URL and updates Experience KVP. Minimum 5.)</p>
 <ol>
 <li><strong>Reset</strong> the object.</li>
 <li>Accept <strong>Experience</strong> permissions.</li>
 <li>Confirm your parcel allows <strong>incoming HTTP</strong> (Linden URLs) for scripted objects.</li>
 </ol>
-<p>Touch as owner to open the <strong>admin menu</strong> — use it to verify items registered and to test connectivity.</p>
+<p>Touch as owner to open the <strong>admin menu</strong> — use <strong>Register</strong> / <strong>Ping</strong> to verify items and connectivity. <strong>Register</strong> also refreshes the HTTP-IN URL.</p>
 <hr />
 <h2 id="crafting-stations-that-use-dropbox">Crafting stations that use DropBox<a class="headerlink" href="#crafting-stations-that-use-dropbox" title="Permanent link">&para;</a></h2>
 <table>
@@ -2888,6 +2889,10 @@
 <tr>
 <td>Delivery timeout</td>
 <td>Crafter HUD outdated; Experience not accepted; re-wear HUD</td>
+</tr>
+<tr>
+<td>Worked earlier, fails after idle / region restart</td>
+<td>Update <strong>F4 DropBox.lsl</strong> (URL refresh on heartbeat); owner menu → <strong>Register</strong> or reset the box</td>
 </tr>
 <tr>
 <td>Works for you, not visitors</td>
