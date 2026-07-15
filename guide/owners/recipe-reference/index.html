@@ -2848,7 +2848,7 @@ the <code>*</code> in menus.</p>
 <h2 id="oven-cauldron-fermenter-notecard-recipes">Oven / cauldron / fermenter — notecard <code>recipes</code><a class="headerlink" href="#oven-cauldron-fermenter-notecard-recipes" title="Permanent link">&para;</a></h2>
 <p><strong>Scripts:</strong> <code>F4 Crafting - Main</code>, <code>Recipes</code>, <code>Menu</code>, <code>Delivery</code> (four scripts, same object).</p>
 <p><strong>Format</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>RecipeName,Category,Output,CR,ingredient1,qty1,ingredient2,qty2,...[,outputQty]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>RecipeName,Category,Output,CR[,FAIL:item[,qty]][,ANIMATE],ingredient1,qty1,ingredient2,qty2,...[,outputQty]
 </code></pre></div>
 <table>
 <thead>
@@ -2875,6 +2875,14 @@ the <code>*</code> in menus.</p>
 <td>Challenge Rating (≥ 0). Cook time = <strong>(CR + 1) × 20 s</strong>.</td>
 </tr>
 <tr>
+<td><code>FAIL:item[,qty]</code> <em>(optional)</em></td>
+<td>Fail craft output (default <code>slop</code>).</td>
+</tr>
+<tr>
+<td><code>ANIMATE</code> <em>(optional)</em></td>
+<td>With optional <strong>F4 Crafting - Anim</strong>, play the station's <strong>sole</strong> inventory animation while crafting.</td>
+</tr>
+<tr>
 <td><code>ingredient,qty</code> pairs</td>
 <td>What's consumed.</td>
 </tr>
@@ -2886,11 +2894,11 @@ the <code>*</code> in menus.</p>
 </table>
 <p><strong>Examples</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>stew,Soups,pouch,2,carrot,2,potato,1,onion,1,water,1
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bread,Bakery,pouch,1,flour,2,yeast,1,water,1
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bread,Bakery,pouch,1,ANIMATE,flour,2,yeast,1,water,1
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>Hearty Stew,Soups,Hearty Stew Plate v4.0,2,carrot,2,potato,2,water,1
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>must*,Wine,pouch,2,grapes,10
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>red wine,Wine,pouch,4,must*,1,water*,1,yeast,1
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>new red wine,Wine,pouch,2,must*,10,yeast,1,water,10,sugar,1,3
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>new red wine,Wine,pouch,2,FAIL:vinegar,20,must,10,yeast,1,water,10,sugar,1,20
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>mash*,Mash,pouch,3,barley,4,water*,2,yeast,1
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>ale,Ale,pouch,3,mash*,1,hops,2,water*,1
 <a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>mead,Mead,pouch,1,honey,3,yeast,1,water,2
@@ -2907,7 +2915,7 @@ the <code>*</code> in menus.</p>
 <hr />
 <h2 id="smith-workstation-single-output-notecard-recipes">Smith workstation (single output) — notecard <code>recipes</code><a class="headerlink" href="#smith-workstation-single-output-notecard-recipes" title="Permanent link">&para;</a></h2>
 <p>Uses the <strong>same CSV</strong> as the oven. Install the <strong>F4 Crafting</strong> four-script stack (not legacy Smith Workstation scripts).</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>RecipeName,Category,Output,CR,ing1,qty1,...[,outputQty]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>RecipeName,Category,Output,CR[,FAIL:item[,qty]][,ANIMATE],ing1,qty1,...[,outputQty]
 </code></pre></div>
 <p><strong>Examples</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>crushed cragsalt,ProcessedMineral,pouch,1,cragsalt,2
