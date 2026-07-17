@@ -1121,6 +1121,7 @@ try {
                             if (typeof API !== 'undefined' && API.discardFirestoreGameplayFields) {
                                 API.discardFirestoreGameplayFields(this.state.character);
                             }
+                            this.applyUrlHasManaToCharacter(this.state.character);
                             if (!this.state.creationInProgress) {
                                 this.state.isNewCharacter = false;
                             }
@@ -3499,7 +3500,7 @@ try {
             'sorcerer', 'spellmonger', 'spellsinger', 'thaumaturge', 'warlock', 'warmage',
             'witch', 'wizard'
         ];
-        const hasMana = character?.has_mana === true;
+        const hasMana = this.coerceHasMana(character?.has_mana);
         const enforceStatMins = this.state.enforceClassStatMinimums !== false;
         const allClasses = classes;
         const classOptions = {
@@ -3526,6 +3527,32 @@ try {
     },
 
     /**
+     * Normalize has_mana from any wire format (boolean / 1 / "1" / "true").
+     */
+    coerceHasMana(value) {
+        return value === true || value === 1 || value === '1' || value === 'true';
+    },
+
+    /**
+     * Prefer HUD URL has_mana when present (Players HUD LSD / KVP sync).
+     */
+    applyUrlHasManaToCharacter(char) {
+        if (!char) {
+            return;
+        }
+        try {
+            const params = new URLSearchParams(window.location.search);
+            if (!params.has('has_mana')) {
+                char.has_mana = this.coerceHasMana(char.has_mana);
+                return;
+            }
+            char.has_mana = this.coerceHasMana(params.get('has_mana'));
+        } catch (e) {
+            char.has_mana = this.coerceHasMana(char.has_mana);
+        }
+    },
+
+    /**
      * Apply species-derived fields after species change.
      */
     applySpeciesToCharacter(char, species) {
@@ -3536,8 +3563,9 @@ try {
         const speciesCanUseMagic = manaEnabled && ((species.mana || 0) > 0 || (species.mana_chance || 0) > 0);
         if (!speciesCanUseMagic) {
             char.has_mana = false;
-        } else if (char.has_mana !== true) {
-            char.has_mana = false;
+        } else {
+            // Preserve existing opt-in; do not wipe "1"/true from HUD/KVP.
+            char.has_mana = this.coerceHasMana(char.has_mana);
         }
         char.species_factors = {
             health_factor: species.health_factor || 25,
@@ -3572,6 +3600,11 @@ try {
         }
 
         let changed = false;
+
+        if (char.species_id === 'fae') {
+            char.species_id = 'fairy';
+            changed = true;
+        }
 
         if (genders.length > 0 && char.gender && (force || !genders.some(g => g.id === char.gender))) {
             char.gender = genders[0].id;
@@ -4413,7 +4446,7 @@ try {
             return;
         }
         panel.style.display = '';
-        checkbox.checked = char.has_mana === true;
+        checkbox.checked = this.coerceHasMana(char.has_mana);
         if (hint) {
             const universeBlocks = this.state.currentUniverse?.manaEnabled === false;
             hint.textContent = universeBlocks
@@ -4457,6 +4490,12 @@ try {
         this.updateStatusIndicator();
         UI.renderResourceBars(this.state.character);
         this.sendToLSL('UPDATE_HAS_MANA', { has_mana: enabled ? '1' : '0' });
+        // Setup class gates read Firestore — persist immediately so mage unlocks without a full Save.
+        if (this.state.character.id && typeof API !== 'undefined' && API.updateCharacter) {
+            API.updateCharacter({ has_mana: enabled }, this.state.character.id).catch(function (err) {
+                console.warn('[has_mana] Firestore sync failed:', err);
+            });
+        }
         try {
             const currentUrl = new URL(window.location.href);
             currentUrl.searchParams.set('has_mana', enabled ? '1' : '0');
@@ -4477,7 +4516,7 @@ try {
         const healthFactor = this.state.character.species_factors?.health_factor || species?.health_factor || 25;
         const staminaFactor = this.state.character.species_factors?.stamina_factor || species?.stamina_factor || 25;
         const manaFactor = this.state.character.species_factors?.mana_factor || species?.mana_factor || 25;
-        const hasMana = this.state.character.has_mana === true;
+        const hasMana = this.coerceHasMana(this.state.character.has_mana);
         
         // Create species object with factors for calculation
         const speciesForCalc = species ? {
@@ -6824,13 +6863,13 @@ try {
             data.stamina = staminaStr;
         }
         let manaStr = pool(char.mana);
-        if (char.has_mana === true && (!manaStr || manaStr === '0|0|0')) {
+        if (this.coerceHasMana(char.has_mana) && (!manaStr || manaStr === '0|0|0')) {
             if (typeof this.recalculateResourcePools === 'function') {
                 this.recalculateResourcePools();
             }
             manaStr = pool(char.mana);
         }
-        if (manaStr && (char.has_mana === true || manaStr !== '0|0|0')) {
+        if (manaStr && (this.coerceHasMana(char.has_mana) || manaStr !== '0|0|0')) {
             data.mana = manaStr;
         }
         if (this._pendingAutoHideSetup) {
@@ -7140,7 +7179,7 @@ try {
                 }
                 
                 const species = this.state.species.find(s => s.id === saveSpeciesId);
-                const hasMana = char.has_mana === true;
+                const hasMana = this.coerceHasMana(char.has_mana);
                 
                 // Calculate mana based on stats if has_mana is true
                 // Use character stats if available, otherwise use default stats (all 2s)

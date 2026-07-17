@@ -628,7 +628,10 @@ const UI = {
         ];
         
         // Check if character has mana
-        const hasMana = character?.has_mana === true;
+        const hasMana = (typeof App !== 'undefined' && App.coerceHasMana)
+            ? App.coerceHasMana(character?.has_mana)
+            : (character?.has_mana === true || character?.has_mana === 1
+                || character?.has_mana === '1' || character?.has_mana === 'true');
         
         // Separate classes into beginner and advanced, filtering mana-required classes
         const beginnerClasses = [];
@@ -710,7 +713,10 @@ const UI = {
             'witch', 'wizard'
         ];
         
-        const hasMana = character?.has_mana === true;
+        const hasMana = (typeof App !== 'undefined' && App.coerceHasMana)
+            ? App.coerceHasMana(character?.has_mana)
+            : (character?.has_mana === true || character?.has_mana === 1
+                || character?.has_mana === '1' || character?.has_mana === 'true');
         const enforceStatMins = typeof App !== 'undefined' && App.state
             ? App.state.enforceClassStatMinimums !== false
             : true;
@@ -1275,7 +1281,10 @@ const UI = {
         }
         
         // Update mana sphere (GREEN) — hidden unless character opted in to magic
-        const showMana = character.has_mana === true;
+        const showMana = (typeof App !== 'undefined' && App.coerceHasMana)
+            ? App.coerceHasMana(character.has_mana)
+            : (character.has_mana === true || character.has_mana === 1
+                || character.has_mana === '1' || character.has_mana === 'true');
         const manaBar = this.elements.resourceBars.querySelector('.mana-bar');
         if (manaBar) {
             manaBar.style.display = showMana ? '' : 'none';
@@ -1545,7 +1554,10 @@ const UI = {
         const manaMax = mana.max !== undefined ? mana.max : (mana.base !== undefined ? mana.base : 0);
         
         // Determine mana status — explicit opt-in only
-        const hasMana = character.has_mana === true;
+        const hasMana = (typeof App !== 'undefined' && App.coerceHasMana)
+            ? App.coerceHasMana(character.has_mana)
+            : (character.has_mana === true || character.has_mana === 1
+                || character.has_mana === '1' || character.has_mana === 'true');
         
         this.elements.charSummary.innerHTML = `
             <div class="summary-grid">
