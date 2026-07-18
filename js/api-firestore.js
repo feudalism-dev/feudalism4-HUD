@@ -1808,10 +1808,6 @@ const API = {
         // Setup class gates used === true and treated "1" as no mana.
         const hm = c.has_mana;
         c.has_mana = (hm === true || hm === 1 || hm === '1' || hm === 'true');
-        // Species slug aliases (gallery id is fairy, not fae).
-        if (c.species_id === 'fae') {
-            c.species_id = 'fairy';
-        }
         return c;
     },
 

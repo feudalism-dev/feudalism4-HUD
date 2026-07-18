@@ -3601,11 +3601,6 @@ try {
 
         let changed = false;
 
-        if (char.species_id === 'fae') {
-            char.species_id = 'fairy';
-            changed = true;
-        }
-
         if (genders.length > 0 && char.gender && (force || !genders.some(g => g.id === char.gender))) {
             char.gender = genders[0].id;
             changed = true;
