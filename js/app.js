@@ -3534,6 +3534,26 @@ try {
     },
 
     /**
+     * Full identity base for bridge updateIdent (rewrites whole f4char_).
+     * Partial patches must ride on current character fields or defaults wipe them.
+     */
+    identityFieldsFromState(patch) {
+        const char = this.state.character || {};
+        return Object.assign({
+            name: char.name,
+            title: char.title,
+            gender: char.gender,
+            species_id: char.species_id,
+            class_id: char.class_id,
+            universe_id: char.universe_id,
+            has_mana: char.has_mana,
+            mode: char.mode,
+            setup_complete: char.setup_complete,
+            currency: char.currency
+        }, patch || {});
+    },
+
+    /**
      * Prefer HUD URL has_mana when present (Players HUD LSD / KVP sync).
      */
     applyUrlHasManaToCharacter(char) {
@@ -4485,10 +4505,11 @@ try {
         this.updateStatusIndicator();
         UI.renderResourceBars(this.state.character);
         this.sendToLSL('UPDATE_HAS_MANA', { has_mana: enabled ? '1' : '0' });
-        // Setup class gates read Firestore — persist immediately so mage unlocks without a full Save.
+        // Setup class gates read identity store — persist immediately so mage unlocks without a full Save.
+        // Always send a full identity merge base; bridge updateIdent rewrites the whole f4char_ blob.
         if (this.state.character.id && typeof API !== 'undefined' && API.updateCharacter) {
-            API.updateCharacter({ has_mana: enabled }, this.state.character.id).catch(function (err) {
-                console.warn('[has_mana] Firestore sync failed:', err);
+            API.updateCharacter(this.identityFieldsFromState({ has_mana: enabled }), this.state.character.id).catch(function (err) {
+                console.warn('[has_mana] identity sync failed:', err);
             });
         }
         try {
@@ -4605,10 +4626,10 @@ try {
         
         UI.showToast(`Mode set to ${modeNames[mode] || mode}`, 'success');
         
-        // Save mode to Firestore immediately
+        // Save mode immediately (full identity merge — bridge rewrites whole f4char_)
         if (this.state.character && this.state.character.id) {
             try {
-                const result = await API.updateCharacter({ mode: mode }, this.state.character.id);
+                const result = await API.updateCharacter(this.identityFieldsFromState({ mode: mode }), this.state.character.id);
                 if (result.success) {
                     console.log('[Mode] Saved mode to Firestore:', mode);
                 } else {

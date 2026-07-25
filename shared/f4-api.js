@@ -315,6 +315,10 @@
         return jsonp(apiBase, apiParams({ action: "list_characters" }), 25000);
     }
 
+    function coerceManaFlag(value) {
+        return value === true || value === 1 || value === "1" || value === "true";
+    }
+
     function updateCharacter(charData, characterId) {
         if (!apiBase) {
             return Promise.resolve({ ok: false, error: "no_cap" });
@@ -323,18 +327,22 @@
             charData = {};
         }
         var id = characterId || charData.id || "";
+        // updateIdent replaces the whole f4char_ blob — callers must merge first.
+        // Keep last-resort defaults only when a field is still empty after merge.
+        var setupRaw = charData.setup_complete;
+        var setupDone = setupRaw === true || setupRaw === 1 || setupRaw === "1" || setupRaw === "true";
         var extra = {
             action: "update_character",
             character_id: id,
             name: charData.name || "Unnamed",
-            title: charData.title || "",
+            title: charData.title != null ? String(charData.title) : "",
             gender: charData.gender || "other",
             species_id: charData.species_id || "human",
-            class_id: charData.class_id || "",
+            class_id: charData.class_id != null ? String(charData.class_id) : "",
             universe_id: charData.universe_id || "default",
-            has_mana: charData.has_mana ? "1" : "0",
+            has_mana: coerceManaFlag(charData.has_mana) ? "1" : "0",
             mode: charData.mode || "roleplay",
-            setup_complete: charData.setup_complete ? "1" : "0",
+            setup_complete: setupDone ? "1" : "0",
             currency: charData.currency != null ? String(charData.currency) : "50"
         };
         return jsonp(apiBase, apiParams(extra), 25000);

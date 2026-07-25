@@ -1365,6 +1365,52 @@ const API = {
      * @param {object} charData - Fields to update
      * @param {string} [characterId] - Firestore character doc id (falls back to charData.id)
      */
+    /**
+     * Bridge updateIdent rewrites the whole f4char_ blob. Partial patches
+     * (has_mana / mode / class only) must merge onto the cached character or
+     * F4Bridge fills missing fields with Unnamed/other/human and wipes identity.
+     */
+    findCachedCharacter(characterId) {
+        if (!characterId) {
+            return null;
+        }
+        let i;
+        let list = this._listCharactersCache;
+        if (list) {
+            for (i = 0; i < list.length; i++) {
+                if (list[i].id === characterId) {
+                    return list[i];
+                }
+            }
+        }
+        if (this.uuid) {
+            try {
+                const raw = sessionStorage.getItem('f4_roster_' + this.uuid);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    list = parsed && parsed.characters;
+                    if (list && list.length) {
+                        for (i = 0; i < list.length; i++) {
+                            if (list[i].id === characterId) {
+                                return list[i];
+                            }
+                        }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }
+        return null;
+    },
+
+    mergeCharacterForBridgeUpdate(existing, patch, targetId) {
+        const base = existing ? Object.assign({}, existing) : {};
+        const merged = Object.assign({}, base, patch || {}, { id: targetId });
+        if (merged.owner_uuid == null && this.uuid) {
+            merged.owner_uuid = this.uuid;
+        }
+        return merged;
+    },
+
     async updateCharacter(charData, characterId) {
         if (!this.uuid) {
             return { success: false, error: 'No UUID' };
@@ -1378,18 +1424,22 @@ const API = {
         if (this.shouldDiscardFirestoreGameplay()) {
             try {
                 await F4BridgeHud.waitForBridgeReady(10000);
-                const payload = Object.assign({}, charData, { id: targetId });
+                const existing = this.findCachedCharacter(targetId);
+                const payload = this.mergeCharacterForBridgeUpdate(existing, charData, targetId);
                 const res = await F4Bridge.updateCharacter(payload, targetId);
                 if (!res || !res.ok || !res.character) {
                     return { success: false, error: (res && res.error) || 'update_failed' };
                 }
+                // Prefer merged payload over wire reply for fields the bridge may omit.
                 const updatedCharacter = this.sanitizeRosterCharacter(
-                    Object.assign({ owner_uuid: this.uuid }, res.character)
+                    Object.assign({ owner_uuid: this.uuid }, payload, res.character, { id: targetId })
                 );
                 if (this._listCharactersCache) {
                     this._listCharactersCache = this._listCharactersCache.map(function (c) {
                         return c.id === targetId ? updatedCharacter : c;
                     });
+                } else {
+                    this._listCharactersCache = [updatedCharacter];
                 }
                 if (this.uuid) {
                     try {
@@ -1415,16 +1465,7 @@ const API = {
         
         try {
             const docRef = db.collection('characters').doc(targetId);
-            let existing = null;
-
-            if (this._listCharactersCache) {
-                for (let i = 0; i < this._listCharactersCache.length; i++) {
-                    if (this._listCharactersCache[i].id === targetId) {
-                        existing = this._listCharactersCache[i];
-                        break;
-                    }
-                }
-            }
+            let existing = this.findCachedCharacter(targetId);
 
             if (!existing) {
                 const doc = await docRef.get();
