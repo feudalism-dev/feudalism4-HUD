@@ -7711,7 +7711,7 @@ try {
     },
     
     /**
-     * Show user management panel
+     * Show user management panel (search by SL name / username / UUID)
      */
     async showUserManagement() {
         const adminContent = UI.elements.adminContent;
@@ -7719,104 +7719,182 @@ try {
         
         try {
             const result = await API.listUsers();
-            const users = result.data.users || [];
+            if (!result.success) {
+                UI.showError(adminContent, result.error || 'Failed to load users');
+                return;
+            }
+            const users = (result.data.users || []).slice().sort((a, b) => {
+                const na = (a.display_name || a.username || a.uuid || '').toLowerCase();
+                const nb = (b.display_name || b.username || b.uuid || '').toLowerCase();
+                return na.localeCompare(nb);
+            });
+            this._adminUsersCache = users;
             
             const isSuperAdmin = API.uuid === API.SUPER_ADMIN_UUID;
             
             adminContent.innerHTML = `
-                <div class="admin-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
-                    <h3>User Management (${users.length} users)</h3>
+                <div class="admin-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); flex-wrap: wrap; gap: var(--space-sm);">
+                    <h3 style="margin: 0;">User Management (<span id="user-mgmt-count">${users.length}</span> of ${users.length})</h3>
                     ${isSuperAdmin ? '<span style="color: var(--gold); font-weight: bold;">👑 Super Admin</span>' : ''}
                 </div>
-                <div class="user-list" style="max-height: 500px; overflow-y: auto;">
-                    ${users.map(u => {
-                        const isCurrentUser = u.uuid === API.uuid;
-                        const isSuperAdminUser = u.uuid === API.SUPER_ADMIN_UUID;
-                        const canPromoteToSysAdmin = isSuperAdmin && !isCurrentUser;
-                        
-                        return `
-                        <div class="user-row" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-md); border-bottom: 1px solid var(--border-color);">
-                            <div>
-                                <strong style="color: var(--gold-light);">${u.display_name || u.username || u.uuid}</strong>
-                                ${isSuperAdminUser ? ' 👑' : ''}
-                                <div style="font-size: 0.85rem; color: var(--text-secondary);">
-                                    ${u.username ? `${u.username} • ` : ''}${u.role || 'player'}${u.banned ? ' <span style="color: var(--error);">[BANNED]</span>' : ''}
-                                </div>
-                            </div>
-                            <div style="display: flex; gap: var(--space-sm); align-items: center;">
-                                ${isCurrentUser ? '<span style="color: var(--text-muted);">(You)</span>' : `
-                                    <select class="role-select" data-uuid="${u.uuid}" style="padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
-                                        <option value="player" ${u.role === 'player' ? 'selected' : ''}>Player</option>
-                                        <option value="sim_admin" ${u.role === 'sim_admin' ? 'selected' : ''}>Sim Admin</option>
-                                        <option value="universe_admin" ${u.role === 'universe_admin' ? 'selected' : ''}>Universe Admin</option>
-                                        ${canPromoteToSysAdmin ? `<option value="sys_admin" ${u.role === 'sys_admin' ? 'selected' : ''}>Sys Admin</option>` : ''}
-                                    </select>
-                                    ${!isSuperAdminUser ? `
-                                        <button class="ban-btn action-btn" data-uuid="${u.uuid}" data-banned="${!u.banned}" style="background: ${u.banned ? 'var(--success)' : 'var(--error)'};">
-                                            ${u.banned ? 'Unban' : 'Ban'}
-                                        </button>
-                                    ` : '<span style="color: var(--text-muted); font-size: 0.85rem;">Protected</span>'}
-                                `}
-                            </div>
-                        </div>
-                    `;
-                    }).join('')}
+                <div class="admin-search" style="margin-bottom: var(--space-md);">
+                    <input type="text" id="user-mgmt-search" autocomplete="off"
+                           placeholder="Search by SL name, username, or UUID..."
+                           style="width: 100%; padding: var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); box-sizing: border-box;">
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: var(--space-xs);">
+                        Tip: paste a full UUID for an exact match, or type part of a display name.
+                    </div>
+                </div>
+                <div class="user-list" id="user-mgmt-list" style="max-height: 500px; overflow-y: auto;">
+                    ${users.map(u => this.renderUserManagementRow(u, isSuperAdmin)).join('')}
+                    <p id="user-mgmt-empty" class="placeholder-text" style="display: none; padding: var(--space-md);">No users match your search.</p>
                 </div>
             `;
             
-            // Bind role change events
-            adminContent.querySelectorAll('.role-select').forEach(select => {
-                select.addEventListener('change', async (e) => {
-                    const targetUUID = e.target.dataset.uuid;
-                    const newRole = e.target.value;
-                    
-                    try {
-                        const result = await API.promoteUser(targetUUID, newRole);
-                        if (result.success) {
-                            UI.showToast('Role updated', 'success');
-                            this.showUserManagement(); // Refresh to show updated roles
-                        } else {
-                            UI.showToast(result.error || 'Failed to update role', 'error');
-                            // Reset dropdown to previous value
-                            const user = users.find(u => u.uuid === targetUUID);
-                            if (user) {
-                                e.target.value = user.role || 'player';
-                            }
-                        }
-                    } catch (error) {
-                        UI.showToast('Failed: ' + error.message, 'error');
-                        // Reset dropdown
+            this.bindUserManagementEvents(adminContent, users);
+            
+            const searchInput = document.getElementById('user-mgmt-search');
+            if (searchInput) {
+                searchInput.addEventListener('input', () => {
+                    this.filterUserManagementList(searchInput.value);
+                });
+                // MOAP: focus immediately for CEF usability when panel opens
+                try { searchInput.focus(); } catch (e) { /* ignore */ }
+            }
+            
+        } catch (error) {
+            UI.showError(adminContent, 'Failed to load users: ' + error.message);
+        }
+    },
+
+    /**
+     * One row in Admin → Users list
+     */
+    renderUserManagementRow(u, isSuperAdmin) {
+        const isCurrentUser = u.uuid === API.uuid;
+        const isSuperAdminUser = u.uuid === API.SUPER_ADMIN_UUID;
+        const canPromoteToSysAdmin = isSuperAdmin && !isCurrentUser;
+        const display = u.display_name || u.username || u.uuid;
+        const searchBlob = [
+            u.display_name || '',
+            u.username || '',
+            u.uuid || '',
+            u.role || ''
+        ].join(' ').toLowerCase();
+
+        return `
+        <div class="user-row" data-uuid="${u.uuid}" data-search="${this.escapeHtmlAttr(searchBlob)}"
+             style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-md); border-bottom: 1px solid var(--border-color); gap: var(--space-sm); flex-wrap: wrap;">
+            <div style="min-width: 0; flex: 1;">
+                <strong style="color: var(--gold-light);">${this.escapeHtml(display)}</strong>
+                ${isSuperAdminUser ? ' 👑' : ''}
+                <div style="font-size: 0.85rem; color: var(--text-secondary); word-break: break-all;">
+                    ${u.username ? `${this.escapeHtml(u.username)} • ` : ''}${this.escapeHtml(u.role || 'player')}${u.banned ? ' <span style="color: var(--error);">[BANNED]</span>' : ''}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); word-break: break-all;">${this.escapeHtml(u.uuid || '')}</div>
+            </div>
+            <div style="display: flex; gap: var(--space-sm); align-items: center; flex-shrink: 0;">
+                ${isCurrentUser ? '<span style="color: var(--text-muted);">(You)</span>' : `
+                    <select class="role-select" data-uuid="${u.uuid}" style="padding: var(--space-xs) var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                        <option value="player" ${u.role === 'player' ? 'selected' : ''}>Player</option>
+                        <option value="sim_admin" ${u.role === 'sim_admin' ? 'selected' : ''}>Sim Admin</option>
+                        <option value="universe_admin" ${u.role === 'universe_admin' ? 'selected' : ''}>Universe Admin</option>
+                        ${canPromoteToSysAdmin ? `<option value="sys_admin" ${u.role === 'sys_admin' ? 'selected' : ''}>Sys Admin</option>` : ''}
+                    </select>
+                    ${!isSuperAdminUser ? `
+                        <button class="ban-btn action-btn" data-uuid="${u.uuid}" data-banned="${!u.banned}" style="background: ${u.banned ? 'var(--success)' : 'var(--error)'};">
+                            ${u.banned ? 'Unban' : 'Ban'}
+                        </button>
+                    ` : '<span style="color: var(--text-muted); font-size: 0.85rem;">Protected</span>'}
+                `}
+            </div>
+        </div>`;
+    },
+
+    escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    escapeHtmlAttr(str) {
+        return this.escapeHtml(str).replace(/'/g, '&#39;');
+    },
+
+    /**
+     * Filter Admin → Users list by display name, username, or UUID (substring).
+     */
+    filterUserManagementList(rawQuery) {
+        const adminContent = UI.elements.adminContent;
+        if (!adminContent) return;
+        const query = String(rawQuery || '').trim().toLowerCase();
+        const rows = adminContent.querySelectorAll('.user-row');
+        let visible = 0;
+        rows.forEach(row => {
+            const blob = (row.getAttribute('data-search') || row.textContent || '').toLowerCase();
+            const show = !query || blob.indexOf(query) !== -1;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        const total = this._adminUsersCache ? this._adminUsersCache.length : rows.length;
+        const header = adminContent.querySelector('.admin-header h3');
+        if (header) {
+            header.innerHTML = 'User Management (<span id="user-mgmt-count">' + visible + '</span> of ' + total + ')';
+        }
+        const emptyEl = document.getElementById('user-mgmt-empty');
+        if (emptyEl) {
+            emptyEl.style.display = visible === 0 ? '' : 'none';
+        }
+    },
+
+    bindUserManagementEvents(adminContent, users) {
+        adminContent.querySelectorAll('.role-select').forEach(select => {
+            select.addEventListener('change', async (e) => {
+                const targetUUID = e.target.dataset.uuid;
+                const newRole = e.target.value;
+                
+                try {
+                    const result = await API.promoteUser(targetUUID, newRole);
+                    if (result.success) {
+                        UI.showToast('Role updated', 'success');
+                        this.showUserManagement();
+                    } else {
+                        UI.showToast(result.error || 'Failed to update role', 'error');
                         const user = users.find(u => u.uuid === targetUUID);
                         if (user) {
                             e.target.value = user.role || 'player';
                         }
                     }
-                });
-            });
-            
-            // Bind ban buttons
-            adminContent.querySelectorAll('.ban-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const targetUUID = e.target.dataset.uuid;
-                    const banned = e.target.dataset.banned === 'true';
-                    
-                    try {
-                        const result = await API.banUser(targetUUID, banned);
-                        if (result.success) {
-                            UI.showToast(`User ${banned ? 'banned' : 'unbanned'}`, 'success');
-                            this.showUserManagement(); // Refresh
-                        } else {
-                            UI.showToast(result.error || 'Failed to update user', 'error');
-                        }
-                    } catch (error) {
-                        UI.showToast('Failed: ' + error.message, 'error');
+                } catch (error) {
+                    UI.showToast('Failed: ' + error.message, 'error');
+                    const user = users.find(u => u.uuid === targetUUID);
+                    if (user) {
+                        e.target.value = user.role || 'player';
                     }
-                });
+                }
             });
-            
-        } catch (error) {
-            UI.showError(adminContent, 'Failed to load users: ' + error.message);
-        }
+        });
+        
+        adminContent.querySelectorAll('.ban-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const targetUUID = e.target.dataset.uuid;
+                const banned = e.target.dataset.banned === 'true';
+                
+                try {
+                    const result = await API.banUser(targetUUID, banned);
+                    if (result.success) {
+                        UI.showToast(`User ${banned ? 'banned' : 'unbanned'}`, 'success');
+                        this.showUserManagement();
+                    } else {
+                        UI.showToast(result.error || 'Failed to update user', 'error');
+                    }
+                } catch (error) {
+                    UI.showToast('Failed: ' + error.message, 'error');
+                }
+            });
+        });
     },
     
     /**
