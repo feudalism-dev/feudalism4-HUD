@@ -335,11 +335,16 @@ const UI = {
         }
         
         // Universe-scoped admins: universes only (allowlists per universe, not global template CRUD)
+        // Super-admin-only buttons stay hidden unless UUID matches SUPER_ADMIN_UUID
+        const isSuperAdmin = typeof API !== 'undefined' && API.uuid === API.SUPER_ADMIN_UUID;
         document.querySelectorAll('.admin-btn').forEach(btn => {
             const panel = btn.dataset.admin;
             let show = isSysLevelAdmin;
             if (isUniverseScopedAdmin && !isSysLevelAdmin) {
                 show = panel === 'universes';
+            }
+            if (btn.getAttribute('data-super-admin-only') === '1') {
+                show = isSuperAdmin;
             }
             btn.classList.toggle('hidden', !show);
             btn.classList.toggle('active', false);

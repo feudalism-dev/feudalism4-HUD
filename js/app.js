@@ -7705,6 +7705,9 @@ try {
             case 'giveitem':
                 this.showGiveItemAdmin();
                 break;
+            case 'migrate-universe':
+                this.showUniverseMigrateAdmin();
+                break;
             default:
                 adminContent.innerHTML = '<p class="placeholder-text">Select an admin function...</p>';
         }
@@ -7895,6 +7898,307 @@ try {
                 }
             });
         });
+    },
+
+    /**
+     * Super Admin only — emergency move of a character to another universe.
+     * Rematch gender/species/class only when incompatible with destination allowlists.
+     */
+    async showUniverseMigrateAdmin() {
+        const adminContent = UI.elements.adminContent;
+        if (!adminContent) return;
+        if (!API.isSuperAdminUser || !API.isSuperAdminUser()) {
+            UI.showError(adminContent, 'Super Admin only.');
+            return;
+        }
+
+        UI.showLoading(adminContent, 'Loading universes...');
+        try {
+            const uniResult = await API.listUniversesForAdmin();
+            if (!uniResult.success) {
+                UI.showError(adminContent, uniResult.error || 'Failed to load universes');
+                return;
+            }
+            const universes = (uniResult.data.universes || []).slice().sort((a, b) => {
+                return String(a.name || a.id).localeCompare(String(b.name || b.id));
+            });
+            this._migrateUniversesCache = universes;
+            this._migratePlan = null;
+            this._migrateCharacter = null;
+
+            adminContent.innerHTML = `
+                <div class="admin-header" style="margin-bottom: var(--space-md);">
+                    <h3 style="margin: 0;">Move Character Universe</h3>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin: var(--space-xs) 0 0;">
+                        Super Admin emergency tool. Rematches gender / species / class only when the
+                        destination universe does not allow the current values. Writes Firestore, then
+                        you must paste the KVP line into Character Admin (Experience is authoritative).
+                    </p>
+                </div>
+                <div class="panel" style="padding: var(--space-md); margin-bottom: var(--space-md);">
+                    <div class="form-group">
+                        <label for="migrate-owner-uuid">Owner avatar UUID</label>
+                        <input type="text" id="migrate-owner-uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                               style="width: 100%; padding: var(--space-sm); box-sizing: border-box; background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                    </div>
+                    <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md);">
+                        <button type="button" class="btn btn-primary" id="btn-migrate-load-owner">Load characters</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="migrate-char-id">Or character document ID</label>
+                        <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+                            <input type="text" id="migrate-char-id" placeholder="Firestore character id"
+                                   style="flex: 1; min-width: 180px; padding: var(--space-sm); box-sizing: border-box; background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                            <button type="button" class="btn btn-secondary" id="btn-migrate-load-char">Load by ID</button>
+                        </div>
+                    </div>
+                    <div id="migrate-char-list" style="margin-top: var(--space-sm);"></div>
+                </div>
+                <div id="migrate-workspace" style="display: none;"></div>
+            `;
+
+            document.getElementById('btn-migrate-load-owner')?.addEventListener('click', () => {
+                this.migrateLoadByOwner();
+            });
+            document.getElementById('btn-migrate-load-char')?.addEventListener('click', () => {
+                this.migrateLoadByCharId();
+            });
+        } catch (error) {
+            UI.showError(adminContent, 'Failed: ' + error.message);
+        }
+    },
+
+    async migrateLoadByOwner() {
+        const owner = (document.getElementById('migrate-owner-uuid')?.value || '').trim();
+        const listEl = document.getElementById('migrate-char-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<p style="color: var(--text-muted);">Loading…</p>';
+        const result = await API.adminListCharactersByOwner(owner);
+        if (!result.success) {
+            listEl.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(result.error) + '</p>';
+            return;
+        }
+        const chars = result.data.characters || [];
+        if (!chars.length) {
+            listEl.innerHTML = '<p style="color: var(--warning);">No Firestore character docs for that owner. Use Character Admin for KVP-only characters, or enter a character ID.</p>';
+            return;
+        }
+        listEl.innerHTML = chars.map(c => `
+            <button type="button" class="btn btn-secondary migrate-pick-char" data-id="${this.escapeHtmlAttr(c.id)}"
+                    style="display: block; width: 100%; text-align: left; margin-bottom: var(--space-xs);">
+                <strong>${this.escapeHtml(c.name || '(unnamed)')}</strong>
+                <span style="color: var(--text-muted); font-size: 0.85rem;"> — ${this.escapeHtml(c.universe_id || '?')} · ${this.escapeHtml(c.id)}</span>
+            </button>
+        `).join('');
+        listEl.querySelectorAll('.migrate-pick-char').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idEl = document.getElementById('migrate-char-id');
+                if (idEl) idEl.value = btn.dataset.id || '';
+                this.migrateSelectCharacter(btn.dataset.id);
+            });
+        });
+    },
+
+    async migrateLoadByCharId() {
+        const id = (document.getElementById('migrate-char-id')?.value || '').trim();
+        await this.migrateSelectCharacter(id);
+    },
+
+    async migrateSelectCharacter(characterId) {
+        const workspace = document.getElementById('migrate-workspace');
+        if (!workspace) return;
+        if (!characterId) {
+            UI.showToast('Enter or pick a character ID', 'warning');
+            return;
+        }
+        workspace.style.display = 'block';
+        workspace.innerHTML = '<p style="color: var(--text-muted);">Loading character…</p>';
+        const got = await API.adminGetCharacterById(characterId);
+        if (!got.success) {
+            workspace.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(got.error) + '</p>';
+            return;
+        }
+        this._migrateCharacter = got.data.character;
+        const universes = this._migrateUniversesCache || [];
+        const curUni = this._migrateCharacter.universe_id || '';
+        workspace.innerHTML = `
+            <div class="panel" style="padding: var(--space-md);">
+                <h4 style="margin-top: 0;">${this.escapeHtml(this._migrateCharacter.name || '(unnamed)')}</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); word-break: break-all;">
+                    ID: ${this.escapeHtml(this._migrateCharacter.id)}<br>
+                    Owner: ${this.escapeHtml(this._migrateCharacter.owner_uuid || '')}<br>
+                    Current universe: <strong>${this.escapeHtml(curUni || '(none)')}</strong><br>
+                    Gender: <strong>${this.escapeHtml(this._migrateCharacter.gender || '')}</strong> ·
+                    Species: <strong>${this.escapeHtml(this._migrateCharacter.species_id || '')}</strong> ·
+                    Class: <strong>${this.escapeHtml(this._migrateCharacter.class_id || '')}</strong>
+                </p>
+                <div class="form-group">
+                    <label for="migrate-dest-universe">Destination universe</label>
+                    <select id="migrate-dest-universe" style="width: 100%; padding: var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                        <option value="">Select…</option>
+                        ${universes.map(u => `<option value="${this.escapeHtmlAttr(u.id)}" ${u.id === curUni ? 'disabled' : ''}>${this.escapeHtml(u.name || u.id)}${u.id === curUni ? ' (current)' : ''}</option>`).join('')}
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary" id="btn-migrate-check">Check compatibility</button>
+                <div id="migrate-rematch" style="margin-top: var(--space-md);"></div>
+            </div>
+        `;
+        document.getElementById('btn-migrate-check')?.addEventListener('click', () => {
+            this.migrateRunCompatibilityCheck();
+        });
+    },
+
+    async migrateRunCompatibilityCheck() {
+        const rematchEl = document.getElementById('migrate-rematch');
+        const dest = (document.getElementById('migrate-dest-universe')?.value || '').trim();
+        if (!rematchEl || !this._migrateCharacter) return;
+        if (!dest) {
+            UI.showToast('Select a destination universe', 'warning');
+            return;
+        }
+        rematchEl.innerHTML = '<p style="color: var(--text-muted);">Checking…</p>';
+        const plan = await API.adminPlanUniverseMigrate(this._migrateCharacter.id, dest);
+        if (!plan.success) {
+            rematchEl.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(plan.error) + '</p>';
+            return;
+        }
+        this._migratePlan = plan.data;
+        const needs = plan.data.needs || {};
+        const options = plan.data.options || {};
+        const current = plan.data.current || {};
+        const limit = plan.data.limit;
+
+        const optHtml = (items, selectedId) => (items || []).map(item => {
+            const id = item.id || '';
+            const label = item.name || id;
+            const sel = id === selectedId ? ' selected' : '';
+            return `<option value="${this.escapeHtmlAttr(id)}"${sel}>${this.escapeHtml(label)} (${this.escapeHtml(id)})</option>`;
+        }).join('');
+
+        let html = '';
+        if (limit && limit.limit > 0 && !limit.allowed) {
+            html += `<p style="color: var(--warning);">Warning: owner already has ${limit.currentCount}/${limit.limit} characters in this universe (excluding this one). Super Admin can still proceed.</p>`;
+        }
+        if (!plan.data.manaEnabled && this._migrateCharacter.has_mana) {
+            html += `<p style="color: var(--warning);">Destination has mana disabled; character still has has_mana set. Review after move.</p>`;
+        }
+
+        html += '<div style="display: grid; gap: var(--space-md);">';
+
+        if (needs.gender) {
+            html += `<div class="form-group"><label>Gender rematch (current: <code>${this.escapeHtml(current.gender || '')}</code> — not allowed)</label>
+                <select id="migrate-pick-gender" style="width: 100%; padding: var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                    <option value="">Select allowed gender…</option>
+                    ${optHtml(options.genders, '')}
+                </select></div>`;
+        } else {
+            html += `<p>Gender <strong>${this.escapeHtml(current.gender || '(none)')}</strong> — OK in destination</p>`;
+        }
+
+        if (needs.species) {
+            html += `<div class="form-group"><label>Species rematch (current: <code>${this.escapeHtml(current.species_id || '')}</code> — not allowed)</label>
+                <select id="migrate-pick-species" style="width: 100%; padding: var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                    <option value="">Select allowed species…</option>
+                    ${optHtml(options.species, '')}
+                </select></div>`;
+        } else {
+            html += `<p>Species <strong>${this.escapeHtml(current.species_id || '(none)')}</strong> — OK in destination</p>`;
+        }
+
+        if (needs.class) {
+            html += `<div class="form-group"><label>Class rematch (current: <code>${this.escapeHtml(current.class_id || '')}</code> — not allowed)</label>
+                <select id="migrate-pick-class" style="width: 100%; padding: var(--space-sm); background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                    <option value="">Select allowed class…</option>
+                    ${optHtml(options.classes, '')}
+                </select></div>`;
+        } else {
+            html += `<p>Class <strong>${this.escapeHtml(current.class_id || '(none)')}</strong> — OK in destination</p>`;
+        }
+
+        html += `</div>
+            <div style="margin-top: var(--space-md); display: flex; gap: var(--space-sm); flex-wrap: wrap;">
+                <button type="button" class="btn btn-primary" id="btn-migrate-apply">Apply migrate</button>
+            </div>
+            <div id="migrate-result" style="margin-top: var(--space-md);"></div>`;
+
+        rematchEl.innerHTML = html;
+        document.getElementById('btn-migrate-apply')?.addEventListener('click', () => {
+            this.migrateApply();
+        });
+    },
+
+    async migrateApply() {
+        if (!this._migrateCharacter || !this._migratePlan) {
+            UI.showToast('Run compatibility check first', 'warning');
+            return;
+        }
+        const dest = (document.getElementById('migrate-dest-universe')?.value || '').trim();
+        const needs = this._migratePlan.needs || {};
+        const patch = { universe_id: dest };
+        if (needs.gender) {
+            patch.gender = (document.getElementById('migrate-pick-gender')?.value || '').trim();
+            if (!patch.gender) {
+                UI.showToast('Select a gender', 'warning');
+                return;
+            }
+        }
+        if (needs.species) {
+            patch.species_id = (document.getElementById('migrate-pick-species')?.value || '').trim();
+            if (!patch.species_id) {
+                UI.showToast('Select a species', 'warning');
+                return;
+            }
+        }
+        if (needs.class) {
+            patch.class_id = (document.getElementById('migrate-pick-class')?.value || '').trim();
+            if (!patch.class_id) {
+                UI.showToast('Select a class', 'warning');
+                return;
+            }
+        }
+
+        const confirmed = await UI.showConfirmDialog({
+            title: 'Confirm universe migrate?',
+            message: 'Move "' + (this._migrateCharacter.name || this._migrateCharacter.id)
+                + '" to universe "' + dest + '"? This is an emergency admin action.',
+            confirmLabel: 'Migrate',
+            danger: true
+        });
+        if (!confirmed) return;
+
+        const resultDiv = document.getElementById('migrate-result');
+        if (resultDiv) resultDiv.innerHTML = '<p style="color: var(--text-muted);">Saving…</p>';
+
+        const result = await API.adminMigrateCharacterUniverse(this._migrateCharacter.id, patch);
+        if (!result.success) {
+            if (resultDiv) {
+                resultDiv.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(result.error) + '</p>';
+            }
+            UI.showToast(result.error || 'Migrate failed', 'error');
+            return;
+        }
+
+        const paste = result.data.kvpPaste || '';
+        if (resultDiv) {
+            resultDiv.innerHTML = `
+                <div style="background: var(--bg-dark); padding: var(--space-md); border-radius: 4px; border: 1px solid var(--success);">
+                    <p style="color: var(--success); margin-top: 0;"><strong>Firestore updated.</strong></p>
+                    <p style="font-size: 0.9rem;">Experience KVP is authoritative. In the <strong>Character Admin Tool</strong>, load this owner, open the character, then <strong>KVP Identity → Paste Migrate</strong> and paste:</p>
+                    <code id="migrate-kvp-paste" style="display: block; word-break: break-all; padding: var(--space-sm); background: var(--bg-medium);">${this.escapeHtml(paste)}</code>
+                    <button type="button" class="btn btn-secondary" id="btn-copy-migrate-paste" style="margin-top: var(--space-sm);">Copy paste line</button>
+                    <p style="font-size: 0.8rem; color: var(--text-muted);">Player should rewear HUD / reopen Setup after KVP apply.</p>
+                </div>`;
+            document.getElementById('btn-copy-migrate-paste')?.addEventListener('click', () => {
+                const text = paste;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(() => UI.showToast('Copied', 'success'))
+                        .catch(() => UI.showToast('Copy failed — select the line manually', 'warning'));
+                } else {
+                    UI.showToast('Select and copy the line manually', 'warning');
+                }
+            });
+        }
+        UI.showToast('Firestore migrate saved', 'success');
     },
     
     /**

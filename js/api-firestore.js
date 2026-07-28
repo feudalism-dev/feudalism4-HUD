@@ -3365,6 +3365,281 @@ const API = {
             return { success: false, error: error.message };
         }
     },
+
+    /**
+     * Super Admin only — emergency character universe migrate helpers.
+     */
+    isSuperAdminUser() {
+        return this.uuid === this.SUPER_ADMIN_UUID;
+    },
+
+    /**
+     * List Firestore character docs for an owner (Super Admin).
+     * Note: KVP is gameplay authority; this uses Firestore checkpoints for admin tooling.
+     */
+    async adminListCharactersByOwner(ownerUuid) {
+        try {
+            if (!this.isSuperAdminUser()) {
+                return { success: false, error: 'Unauthorized: Super Admin only' };
+            }
+            ownerUuid = String(ownerUuid || '').trim().toLowerCase();
+            if (!ownerUuid || ownerUuid.length !== 36) {
+                return { success: false, error: 'Enter a valid owner avatar UUID' };
+            }
+            const snapshot = await db.collection('characters')
+                .where('owner_uuid', '==', ownerUuid)
+                .get();
+            const characters = [];
+            snapshot.forEach(doc => {
+                characters.push(Object.assign({ id: doc.id }, doc.data()));
+            });
+            characters.sort((a, b) => {
+                const na = (a.name || a.id || '').toLowerCase();
+                const nb = (b.name || b.id || '').toLowerCase();
+                return na.localeCompare(nb);
+            });
+            return { success: true, data: { characters, ownerUuid } };
+        } catch (error) {
+            console.error('adminListCharactersByOwner error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    /**
+     * Load any character doc by id (Super Admin).
+     */
+    async adminGetCharacterById(characterId) {
+        try {
+            if (!this.isSuperAdminUser()) {
+                return { success: false, error: 'Unauthorized: Super Admin only' };
+            }
+            characterId = String(characterId || '').trim();
+            if (!characterId) {
+                return { success: false, error: 'Character ID required' };
+            }
+            const doc = await db.collection('characters').doc(characterId).get();
+            if (!doc.exists) {
+                return { success: false, error: 'Character not found in Firestore (KVP-only chars need Character Admin Tool)' };
+            }
+            return { success: true, data: { character: Object.assign({ id: doc.id }, doc.data()) } };
+        } catch (error) {
+            console.error('adminGetCharacterById error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    /**
+     * Build rematch plan for moving a character into a destination universe.
+     */
+    async adminPlanUniverseMigrate(characterId, newUniverseId) {
+        try {
+            if (!this.isSuperAdminUser()) {
+                return { success: false, error: 'Unauthorized: Super Admin only' };
+            }
+            const charResult = await this.adminGetCharacterById(characterId);
+            if (!charResult.success) {
+                return charResult;
+            }
+            const character = charResult.data.character;
+            newUniverseId = String(newUniverseId || '').trim();
+            if (!newUniverseId) {
+                return { success: false, error: 'Destination universe required' };
+            }
+            const filtered = await this.getFilteredIdentityOptions(newUniverseId);
+            if (!filtered.success) {
+                return filtered;
+            }
+            const universeDoc = await db.collection('universes').doc(newUniverseId).get();
+            if (!universeDoc.exists) {
+                return { success: false, error: 'Universe not found' };
+            }
+            const universe = Object.assign({ id: universeDoc.id }, universeDoc.data());
+            const genderId = character.gender || '';
+            const speciesId = character.species_id || '';
+            const classId = character.class_id || '';
+
+            const genderOk = !genderId || this._idAllowedInUniverseList(
+                genderId, universe.allowedGenders, filtered.data.genders
+            );
+            const speciesOk = !speciesId || this._idAllowedInUniverseList(
+                speciesId, universe.allowedSpecies, filtered.data.species
+            );
+            let classOk = true;
+            if (classId) {
+                classOk = this._idAllowedInUniverseList(
+                    classId, universe.allowedClasses, filtered.data.classes
+                );
+                if (classOk) {
+                    const cfg = await this.getUniverseClassConfiguration(newUniverseId);
+                    if (cfg.success) {
+                        const eff = (cfg.data.classes || []).find(c => c.id === classId);
+                        classOk = !!(eff && eff.enabled !== false);
+                    }
+                }
+            }
+
+            let limit = null;
+            try {
+                const destUniverse = universe;
+                const lim = parseInt(String(destUniverse.characterLimit != null ? destUniverse.characterLimit : 0), 10) || 0;
+                if (lim > 0 && character.owner_uuid) {
+                    const sameUni = await db.collection('characters')
+                        .where('owner_uuid', '==', character.owner_uuid)
+                        .where('universe_id', '==', newUniverseId)
+                        .get();
+                    let count = 0;
+                    sameUni.forEach(function (doc) {
+                        if (doc.id !== character.id) {
+                            count++;
+                        }
+                    });
+                    limit = {
+                        allowed: count < lim,
+                        currentCount: count,
+                        limit: lim
+                    };
+                }
+            } catch (limitErr) {
+                console.warn('adminPlanUniverseMigrate limit check:', limitErr);
+            }
+
+            return {
+                success: true,
+                data: {
+                    character,
+                    universe,
+                    current: {
+                        universe_id: character.universe_id || '',
+                        gender: genderId,
+                        species_id: speciesId,
+                        class_id: classId
+                    },
+                    needs: {
+                        gender: !genderOk,
+                        species: !speciesOk,
+                        class: !classOk
+                    },
+                    options: {
+                        genders: filtered.data.genders || [],
+                        species: filtered.data.species || [],
+                        classes: filtered.data.classes || []
+                    },
+                    limit: limit,
+                    manaEnabled: universe.manaEnabled !== false
+                }
+            };
+        } catch (error) {
+            console.error('adminPlanUniverseMigrate error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    _idAllowedInUniverseList(id, allowlist, filteredItems) {
+        if (!id) {
+            return true;
+        }
+        if (allowlist && allowlist.length > 0 && allowlist.indexOf(id) === -1) {
+            return false;
+        }
+        if (filteredItems && filteredItems.length > 0) {
+            return filteredItems.some(function (item) {
+                return item && item.id === id && item.enabled !== false;
+            });
+        }
+        return true;
+    },
+
+    /**
+     * Apply emergency universe migrate (Super Admin). Writes Firestore checkpoint.
+     * Returns kvpPaste line for Character Admin Tool Experience sync.
+     */
+    async adminMigrateCharacterUniverse(characterId, patch) {
+        try {
+            if (!this.isSuperAdminUser()) {
+                return { success: false, error: 'Unauthorized: Super Admin only' };
+            }
+            characterId = String(characterId || '').trim();
+            patch = patch || {};
+            const newUniverseId = String(patch.universe_id || '').trim();
+            if (!characterId || !newUniverseId) {
+                return { success: false, error: 'Character ID and destination universe are required' };
+            }
+
+            const plan = await this.adminPlanUniverseMigrate(characterId, newUniverseId);
+            if (!plan.success) {
+                return plan;
+            }
+            const character = plan.data.character;
+            let gender = patch.gender != null ? String(patch.gender).trim() : (character.gender || '');
+            let speciesId = patch.species_id != null
+                ? String(patch.species_id).trim()
+                : (character.species_id || '');
+            let classId = patch.class_id != null
+                ? String(patch.class_id).trim()
+                : (character.class_id || '');
+
+            if (plan.data.needs.gender && !patch.gender) {
+                return { success: false, error: 'Pick a gender allowed in the destination universe' };
+            }
+            if (plan.data.needs.species && !patch.species_id) {
+                return { success: false, error: 'Pick a species allowed in the destination universe' };
+            }
+            if (plan.data.needs.class && !patch.class_id) {
+                return { success: false, error: 'Pick a class allowed in the destination universe' };
+            }
+
+            const identityCheck = await this.validateIdentityOptions(
+                newUniverseId, gender || 'other', speciesId || 'human', classId || undefined
+            );
+            if (!identityCheck.success || !identityCheck.data.valid) {
+                return {
+                    success: false,
+                    error: 'Identity not allowed in destination: '
+                        + ((identityCheck.data && identityCheck.data.errors)
+                            ? identityCheck.data.errors.join('; ')
+                            : (identityCheck.error || 'invalid'))
+                };
+            }
+
+            const updateData = {
+                universe_id: newUniverseId,
+                gender: gender,
+                species_id: speciesId,
+                class_id: classId || character.class_id || '',
+                updated_at: firebase.firestore.FieldValue.serverTimestamp(),
+                admin_universe_migrate: {
+                    by: this.uuid,
+                    at: firebase.firestore.FieldValue.serverTimestamp(),
+                    from: character.universe_id || '',
+                    to: newUniverseId
+                }
+            };
+
+            await db.collection('characters').doc(characterId).update(updateData);
+
+            const kvpPaste = [
+                newUniverseId,
+                gender || '',
+                speciesId || '',
+                classId || ''
+            ].join('|');
+
+            return {
+                success: true,
+                data: {
+                    characterId,
+                    owner_uuid: character.owner_uuid || '',
+                    name: character.name || '',
+                    updated: updateData,
+                    kvpPaste,
+                    message: 'Firestore character updated. Apply the same values in Character Admin → KVP Identity → Paste Migrate (Experience KVP is authoritative).'
+                }
+            };
+        } catch (error) {
+            console.error('adminMigrateCharacterUniverse error:', error);
+            return { success: false, error: error.message };
+        }
+    },
     
     /**
      * Get filtered identity options for a universe
