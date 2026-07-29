@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Feudalism 4 - Setup HUD</title>
-    <link rel="stylesheet" href="css/styles.css?v=24">
+    <link rel="stylesheet" href="css/styles.css?v=25">
     <link rel="stylesheet" href="css/moap-dialogs.css?v=3">
 </head>
 <body>
@@ -71,6 +71,7 @@
             <button class="tab-btn" data-tab="options">Options</button>
             <button class="tab-btn" data-tab="help">Help</button>
             <button class="tab-btn hidden" data-tab="admin" id="admin-tab">Admin</button>
+            <button type="button" id="btn-open-in-browser" class="nav-open-browser-btn" title="Open Setup HUD in an external web browser">🌐 OPEN IN BROWSER</button>
         </nav>
 
         <!-- Main Content Area -->
@@ -615,7 +616,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.3.15';
+            window.HUD_BUILD_LABEL = '4.3.16';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');

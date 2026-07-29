@@ -262,6 +262,28 @@ body {
     display: none;
 }
 
+.nav-open-browser-btn {
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-left: auto;
+    margin-right: var(--space-sm);
+    padding: 6px 12px;
+    align-self: center;
+    white-space: nowrap;
+    cursor: pointer;
+    color: #10b981;
+    background: transparent;
+    border: 1px solid #10b981;
+    border-radius: 4px;
+    transition: background var(--transition-normal), color var(--transition-normal);
+}
+
+.nav-open-browser-btn:hover {
+    color: #042f2e;
+    background: #10b981;
+}
+
 /* EXIT Button - Prominent Red Button on Right */
 .tab-btn.new-character-btn {
     margin-left: auto;

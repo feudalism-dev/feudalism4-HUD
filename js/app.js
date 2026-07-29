@@ -650,6 +650,124 @@ try {
             playerName.title = `UUID: ${this.lsl.uuid}\nChannel: ${this.lsl.channel}`;
         }
     },
+
+    /**
+     * Build a browser-usable Setup HUD URL (uuid + session params). No window.open.
+     */
+    buildBrowserSetupUrl() {
+        if (!API.uuid || String(API.uuid).trim() === '') {
+            return '';
+        }
+        const baseUrl = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        const current = new URLSearchParams(window.location.search);
+        params.set('uuid', API.uuid);
+        if (API.username) {
+            params.set('username', API.username);
+        }
+        if (API.displayName) {
+            params.set('displayname', API.displayName);
+        }
+        if (API.hudChannel) {
+            params.set('channel', String(API.hudChannel));
+        }
+        const carryKeys = [
+            'active_char', 'xp_lifetime', 'xp_total', 'xp_spent', 'ap_balance',
+            'health_pipe', 'stamina_pipe', 'mana_pipe', 'moap_tab'
+        ];
+        carryKeys.forEach((key) => {
+            const v = current.get(key);
+            if (v) {
+                params.set(key, v);
+            }
+        });
+        if (!params.has('active_char')) {
+            const charId = this.state.selectedCharacterId
+                || (this.state.character && this.state.character.id)
+                || current.get('active_char');
+            if (charId) {
+                params.set('active_char', charId);
+            }
+        }
+        return baseUrl + '?' + params.toString();
+    },
+
+    /**
+     * MOAP-safe clipboard copy (CEF often blocks navigator.clipboard).
+     */
+    copyTextMoapSafe(text) {
+        const tryExecCommand = () => {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                ta.style.top = '0';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                return !!ok;
+            } catch (e) {
+                return false;
+            }
+        };
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            return navigator.clipboard.writeText(text).then(() => true).catch(() => tryExecCommand());
+        }
+        return Promise.resolve(tryExecCommand());
+    },
+
+    /**
+     * Modal instructions + COPY URL (never window.open — broken in SL MOAP).
+     */
+    showOpenInBrowserModal() {
+        const url = this.buildBrowserSetupUrl();
+        if (!url) {
+            UI.showToast('Not ready yet — wait for login, then try again.', 'warning');
+            return;
+        }
+        UI.showModal(`
+            <div class="modal-content">
+                <h2 class="modal-title" style="margin-top: 0;">Open Setup in a Web Browser</h2>
+                <p style="line-height: 1.5; color: var(--text-secondary);">
+                    You may access the setup HUD via a web browser, but you
+                    <strong>MUST</strong> keep the setup HUD open in Second Life while you do so.
+                    If not, changes you make will not be saved. Click
+                    <strong>COPY URL to Clipboard</strong>, then open a web browser and
+                    <strong>PASTE</strong> the URL in the address bar.
+                </p>
+                <div class="form-group" style="margin: var(--space-md) 0;">
+                    <label for="open-browser-url-field">URL</label>
+                    <input type="text" id="open-browser-url-field" readonly value="${this.escapeHtmlAttr(url)}"
+                           style="width: 100%; box-sizing: border-box; padding: var(--space-sm); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
+                </div>
+                <div class="modal-actions" style="display: flex; gap: var(--space-sm); flex-wrap: wrap; justify-content: flex-end;">
+                    <button type="button" class="btn-secondary" id="btn-open-browser-close">Close</button>
+                    <button type="button" class="btn-primary" id="btn-copy-setup-url">COPY URL to Clipboard</button>
+                </div>
+            </div>
+        `);
+        document.getElementById('btn-open-browser-close')?.addEventListener('click', () => {
+            UI.closeModal();
+        });
+        document.getElementById('btn-copy-setup-url')?.addEventListener('click', () => {
+            this.copyTextMoapSafe(url).then((ok) => {
+                if (ok) {
+                    UI.showToast('URL copied — paste it in your browser address bar.', 'success', 4000);
+                } else {
+                    const field = document.getElementById('open-browser-url-field');
+                    if (field) {
+                        field.focus();
+                        field.select();
+                    }
+                    UI.showToast('Copy failed — select the URL above and copy it manually.', 'warning', 5000);
+                }
+            });
+        });
+    },
     
     /**
      * Load species/classes/vocations/genders once per session (seed + sessionStorage; 0 Firestore reads).
@@ -4131,6 +4249,12 @@ try {
             return;
         }
         this._eventHandlersBound = true;
+
+        document.getElementById('btn-open-in-browser')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showOpenInBrowserModal();
+        });
+
         // Character name/title — do not call renderAll() on each keystroke (breaks MOAP text input)
         UI.elements.charName?.addEventListener('input', (e) => {
             this.onCharacterTextFieldInput('name', e.target.value);
