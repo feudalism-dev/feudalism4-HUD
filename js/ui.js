@@ -335,8 +335,11 @@ const UI = {
         }
         
         // Universe-scoped admins: universes only (allowlists per universe, not global template CRUD)
-        // Super-admin-only buttons stay hidden unless UUID matches SUPER_ADMIN_UUID
+        // Super-admin-only: UUID match. Sys-admin-only: sys_admin role or Super Admin UUID.
+        // (Sim Admin does not get sys-admin-only panels.)
         const isSuperAdmin = typeof API !== 'undefined' && API.uuid === API.SUPER_ADMIN_UUID;
+        const isSysAdmin = typeof API !== 'undefined'
+            && (API.role === 'sys_admin' || isSuperAdmin);
         document.querySelectorAll('.admin-btn').forEach(btn => {
             const panel = btn.dataset.admin;
             let show = isSysLevelAdmin;
@@ -345,6 +348,9 @@ const UI = {
             }
             if (btn.getAttribute('data-super-admin-only') === '1') {
                 show = isSuperAdmin;
+            }
+            if (btn.getAttribute('data-sys-admin-only') === '1') {
+                show = isSysAdmin;
             }
             btn.classList.toggle('hidden', !show);
             btn.classList.toggle('active', false);

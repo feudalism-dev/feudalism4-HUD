@@ -7901,14 +7901,14 @@ try {
     },
 
     /**
-     * Super Admin only — emergency move of a character to another universe.
+     * Sys Admin / Super Admin — emergency move of a character to another universe.
      * Rematch gender/species/class only when incompatible with destination allowlists.
      */
     async showUniverseMigrateAdmin() {
         const adminContent = UI.elements.adminContent;
         if (!adminContent) return;
-        if (!API.isSuperAdminUser || !API.isSuperAdminUser()) {
-            UI.showError(adminContent, 'Super Admin only.');
+        if (!API.canMigrateCharacterUniverse || !API.canMigrateCharacterUniverse()) {
+            UI.showError(adminContent, 'Sys Admin or Super Admin only.');
             return;
         }
 
@@ -7930,7 +7930,7 @@ try {
                 <div class="admin-header" style="margin-bottom: var(--space-md);">
                     <h3 style="margin: 0;">Move Character Universe</h3>
                     <p style="color: var(--text-muted); font-size: 0.9rem; margin: var(--space-xs) 0 0;">
-                        Super Admin emergency tool. Rematches gender / species / class only when the
+                        Sys Admin emergency tool. Rematches gender / species / class only when the
                         destination universe does not allow the current values. Writes Firestore, then
                         you must paste the KVP line into Character Admin (Experience is authoritative).
                     </p>
@@ -8077,7 +8077,7 @@ try {
 
         let html = '';
         if (limit && limit.limit > 0 && !limit.allowed) {
-            html += `<p style="color: var(--warning);">Warning: owner already has ${limit.currentCount}/${limit.limit} characters in this universe (excluding this one). Super Admin can still proceed.</p>`;
+            html += `<p style="color: var(--warning);">Warning: owner already has ${limit.currentCount}/${limit.limit} characters in this universe (excluding this one). Sys Admin can still proceed.</p>`;
         }
         if (!plan.data.manaEnabled && this._migrateCharacter.has_mana) {
             html += `<p style="color: var(--warning);">Destination has mana disabled; character still has has_mana set. Review after move.</p>`;

@@ -3367,20 +3367,25 @@ const API = {
     },
 
     /**
-     * Super Admin only — emergency character universe migrate helpers.
+     * Emergency character universe migrate helpers.
+     * Super Admin UUID or Sys Admin role.
      */
     isSuperAdminUser() {
         return this.uuid === this.SUPER_ADMIN_UUID;
     },
 
+    canMigrateCharacterUniverse() {
+        return this.isSuperAdminUser() || this.role === 'sys_admin';
+    },
+
     /**
-     * List Firestore character docs for an owner (Super Admin).
+     * List Firestore character docs for an owner (Sys Admin / Super Admin).
      * Note: KVP is gameplay authority; this uses Firestore checkpoints for admin tooling.
      */
     async adminListCharactersByOwner(ownerUuid) {
         try {
-            if (!this.isSuperAdminUser()) {
-                return { success: false, error: 'Unauthorized: Super Admin only' };
+            if (!this.canMigrateCharacterUniverse()) {
+                return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
             ownerUuid = String(ownerUuid || '').trim().toLowerCase();
             if (!ownerUuid || ownerUuid.length !== 36) {
@@ -3406,12 +3411,12 @@ const API = {
     },
 
     /**
-     * Load any character doc by id (Super Admin).
+     * Load any character doc by id (Sys Admin / Super Admin).
      */
     async adminGetCharacterById(characterId) {
         try {
-            if (!this.isSuperAdminUser()) {
-                return { success: false, error: 'Unauthorized: Super Admin only' };
+            if (!this.canMigrateCharacterUniverse()) {
+                return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
             characterId = String(characterId || '').trim();
             if (!characterId) {
@@ -3433,8 +3438,8 @@ const API = {
      */
     async adminPlanUniverseMigrate(characterId, newUniverseId) {
         try {
-            if (!this.isSuperAdminUser()) {
-                return { success: false, error: 'Unauthorized: Super Admin only' };
+            if (!this.canMigrateCharacterUniverse()) {
+                return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
             const charResult = await this.adminGetCharacterById(characterId);
             if (!charResult.success) {
@@ -3555,8 +3560,8 @@ const API = {
      */
     async adminMigrateCharacterUniverse(characterId, patch) {
         try {
-            if (!this.isSuperAdminUser()) {
-                return { success: false, error: 'Unauthorized: Super Admin only' };
+            if (!this.canMigrateCharacterUniverse()) {
+                return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
             characterId = String(characterId || '').trim();
             patch = patch || {};
