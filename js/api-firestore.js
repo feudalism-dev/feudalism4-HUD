@@ -2747,6 +2747,10 @@ const API = {
                 
                 characterLimit: universeData.characterLimit !== undefined ? universeData.characterLimit : 0,
                 manaEnabled: universeData.manaEnabled !== undefined ? universeData.manaEnabled : true,
+                magic: universeData.magic || {
+                    enabled: universeData.manaEnabled !== undefined ? !!universeData.manaEnabled : true,
+                    domainAliases: {}
+                },
                 
                 allowedGenders: universeData.allowedGenders || [],
                 allowedSpecies: universeData.allowedSpecies || [],
@@ -4124,6 +4128,882 @@ const API = {
                 console.error('[subscribeToActiveBuffs] Error:', error);
                 callback({ success: false, error: error.message });
             });
+    },
+
+    // ========================================================================
+    // Magic CMS (P1) — feud4/magic/{domains|kinds|runes|visualEffects|damageTypes|spells}
+    // Contract: Concepts & Documents/Magic CMS Firestore Schema.md
+    // LSD runtime cache keys (for later bridge): magic_spell_{id}, _ver, _ts; magic_cache_ttl
+    // ========================================================================
+
+    MAGIC_CATALOGS: ['domains', 'kinds', 'damageTypes', 'visualEffects', 'runes', 'spells'],
+
+    MAGIC_DELIVERY_TIMINGS: ['instant', 'delayed', 'channeled'],
+    MAGIC_TRIGGER_MODES: ['none', 'proximity', 'touch', 'collision', 'timer', 'manual'],
+    MAGIC_TARGET_MODES: ['self', 'targeted', 'targeted_aoe', 'caster_aoe', 'projectile_aoe', 'touch', 'object'],
+    MAGIC_TARGET_ORIGINS: ['caster', 'target', 'impact', 'object'],
+    MAGIC_EFFECT_TYPES: ['damage', 'heal', 'resource', 'animation', 'rez', 'buff', 'debuff', 'state_flag', 'reveal'],
+    MAGIC_RESOURCES: ['HP', 'STAMINA', 'MANA'],
+    MAGIC_PROTECTION_RESPONSES: ['block', 'reduce_50', 'reduce_25', 'ignore'],
+    MAGIC_VFX_EMITTERS: ['effect_prim', 'projectile', 'world', 'moap'],
+
+    _magicRoot() {
+        return db.collection('feud4').doc('magic');
+    },
+
+    _magicCol(collectionName) {
+        return this._magicRoot().collection(collectionName);
+    },
+
+    normalizeMagicSlug(raw) {
+        let s = String(raw || '').trim().toLowerCase().replace(/\s+/g, '_');
+        s = s.replace(/[^a-z0-9_]/g, '');
+        while (s.indexOf('__') !== -1) {
+            s = s.split('__').join('_');
+        }
+        if (s.charAt(0) === '_') s = s.substring(1);
+        if (s && s.charAt(s.length - 1) === '_') s = s.substring(0, s.length - 1);
+        return s;
+    },
+
+    async ensureMagicParent() {
+        const ref = this._magicRoot();
+        const snap = await ref.get();
+        if (!snap.exists) {
+            await ref.set({
+                schemaVersion: 1,
+                notes: 'Feudalism magic CMS registry',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        return { success: true };
+    },
+
+    resolveUniverseMagic(universe) {
+        const u = universe || {};
+        let enabled;
+        if (u.magic && typeof u.magic.enabled === 'boolean') {
+            enabled = u.magic.enabled;
+        } else {
+            enabled = u.manaEnabled !== false;
+        }
+        let allowedDomains = null;
+        if (u.magic && Array.isArray(u.magic.allowedDomains)) {
+            allowedDomains = u.magic.allowedDomains.slice();
+        }
+        const domainAliases = (u.magic && u.magic.domainAliases && typeof u.magic.domainAliases === 'object')
+            ? Object.assign({}, u.magic.domainAliases)
+            : {};
+        return {
+            enabled: !!enabled,
+            allowedDomains: allowedDomains,
+            domainAliases: domainAliases
+        };
+    },
+
+    async getUniverseMagic(universeId) {
+        try {
+            const result = await this.getUniverse(universeId);
+            if (!result.success) return result;
+            return {
+                success: true,
+                data: {
+                    magic: this.resolveUniverseMagic(result.data.universe),
+                    universe: result.data.universe
+                }
+            };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    },
+
+    async updateUniverseMagic(universeId, magic) {
+        try {
+            const enabled = !!(magic && magic.enabled);
+            const payload = {
+                enabled: enabled,
+                allowedDomains: Array.isArray(magic && magic.allowedDomains)
+                    ? magic.allowedDomains.map((d) => this.normalizeMagicSlug(d)).filter(Boolean)
+                    : [],
+                domainAliases: (magic && magic.domainAliases && typeof magic.domainAliases === 'object')
+                    ? magic.domainAliases
+                    : {}
+            };
+            return await this.updateUniverse(universeId, {
+                magic: payload,
+                manaEnabled: enabled
+            });
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    },
+
+    normalizeMagicCatalogDoc(collectionName, id, data) {
+        const d = data || {};
+        const base = {
+            id: id,
+            name: d.name || id,
+            description: d.description || '',
+            disabled: !!d.disabled,
+            sortOrder: d.sortOrder != null ? Number(d.sortOrder) : 100,
+            createdAt: d.createdAt || null,
+            updatedAt: d.updatedAt || null
+        };
+        if (collectionName === 'domains') {
+            return Object.assign(base, {
+                aliases: Array.isArray(d.aliases) ? d.aliases : [],
+                color: d.color || '',
+                icon: d.icon || ''
+            });
+        }
+        if (collectionName === 'kinds') {
+            return Object.assign(base, {
+                menuGroup: d.menuGroup || ''
+            });
+        }
+        if (collectionName === 'runes') {
+            return Object.assign(base, {
+                meaning: d.meaning || '',
+                textureUuid: d.textureUuid || '',
+                tags: Array.isArray(d.tags) ? d.tags : [],
+                domainNotes: (d.domainNotes && typeof d.domainNotes === 'object') ? d.domainNotes : {}
+            });
+        }
+        if (collectionName === 'visualEffects') {
+            return Object.assign(base, {
+                emitter: d.emitter || 'effect_prim',
+                durationSec: d.durationSec != null ? Number(d.durationSec) : 0,
+                followAvatar: d.followAvatar !== false,
+                notes: d.notes || ''
+            });
+        }
+        if (collectionName === 'damageTypes') {
+            return Object.assign(base, {
+                resistedBy: Array.isArray(d.resistedBy) ? d.resistedBy : [],
+                dotDefaultVfxId: d.dotDefaultVfxId || d.dotDefaultVfx || ''
+            });
+        }
+        return base;
+    },
+
+    buildMagicCatalogDocument(collectionName, data, id) {
+        const slug = this.normalizeMagicSlug(id || data.id || data.name);
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+        const doc = {
+            id: slug,
+            name: (data.name || slug).trim(),
+            description: data.description || '',
+            disabled: !!data.disabled,
+            sortOrder: data.sortOrder != null ? Number(data.sortOrder) : 100,
+            updatedAt: now
+        };
+        if (!data._skipCreatedAt) {
+            doc.createdAt = data.createdAt || now;
+        }
+        if (collectionName === 'domains') {
+            doc.aliases = Array.isArray(data.aliases) ? data.aliases : [];
+            doc.color = data.color || '';
+            doc.icon = data.icon || '';
+        } else if (collectionName === 'kinds') {
+            doc.menuGroup = data.menuGroup || '';
+        } else if (collectionName === 'runes') {
+            doc.meaning = data.meaning || '';
+            doc.textureUuid = data.textureUuid || '';
+            doc.tags = Array.isArray(data.tags) ? data.tags : [];
+            doc.domainNotes = (data.domainNotes && typeof data.domainNotes === 'object')
+                ? data.domainNotes
+                : {};
+        } else if (collectionName === 'visualEffects') {
+            doc.emitter = data.emitter || 'effect_prim';
+            doc.durationSec = data.durationSec != null ? Number(data.durationSec) : 0;
+            doc.followAvatar = data.followAvatar !== false;
+            doc.notes = data.notes || '';
+        } else if (collectionName === 'damageTypes') {
+            doc.resistedBy = Array.isArray(data.resistedBy) ? data.resistedBy : [];
+            doc.dotDefaultVfxId = data.dotDefaultVfxId || '';
+        }
+        return doc;
+    },
+
+    defaultSpellDocument() {
+        return {
+            domainId: 'universal',
+            kindId: 'utility',
+            cr: 1,
+            isCantrip: false,
+            manaCost: 0,
+            staminaFatigue: 0,
+            componentsCast: [],
+            componentsBind: [],
+            tags: [],
+            disabled: false,
+            schemaVersion: 1,
+            contentVersion: 1,
+            delivery: {
+                timing: 'instant',
+                delaySec: 0,
+                trigger: { mode: 'none', proximityMeters: 0, armingDelaySec: 0 },
+                target: {
+                    mode: 'self',
+                    origin: 'caster',
+                    radiusMeters: 0,
+                    maxTargets: 1,
+                    includeCaster: true,
+                    requiresLos: false
+                },
+                projectile: { enabled: false, rezObject: '', speed: 0, arc: false }
+            },
+            effects: [],
+            presentation: {
+                castVfxId: '',
+                impactVfxId: '',
+                projectileVfxId: '',
+                audio: { castSound: '', impactSound: '', loopSound: '' },
+                runeIds: [],
+                runeDisplay: false
+            },
+            binding: {
+                wand: false,
+                staff: false,
+                scroll: true,
+                objectEnchant: false,
+                armor: false,
+                weapon: false
+            },
+            detection: { examine: '', magesight: '', assay: '' },
+            counters: {
+                dispellable: true,
+                dispelCr: 0,
+                dispelRisk: '',
+                protectionDefault: 'ignore',
+                protectionByWard: {}
+            },
+            compiledPayload: ''
+        };
+    },
+
+    normalizeSpellDocument(id, raw) {
+        const d = Object.assign({}, this.defaultSpellDocument(), raw || {});
+        const delivery = Object.assign({}, this.defaultSpellDocument().delivery, d.delivery || {});
+        delivery.trigger = Object.assign({}, this.defaultSpellDocument().delivery.trigger, (d.delivery && d.delivery.trigger) || {});
+        delivery.target = Object.assign({}, this.defaultSpellDocument().delivery.target, (d.delivery && d.delivery.target) || {});
+        delivery.projectile = Object.assign({}, this.defaultSpellDocument().delivery.projectile, (d.delivery && d.delivery.projectile) || {});
+        const presentation = Object.assign({}, this.defaultSpellDocument().presentation, d.presentation || {});
+        presentation.audio = Object.assign({}, this.defaultSpellDocument().presentation.audio, (d.presentation && d.presentation.audio) || {});
+        const binding = Object.assign({}, this.defaultSpellDocument().binding, d.binding || {});
+        const detection = Object.assign({}, this.defaultSpellDocument().detection, d.detection || {});
+        const counters = Object.assign({}, this.defaultSpellDocument().counters, d.counters || {});
+        if (d.counters && d.counters.protection && !d.counters.protectionDefault) {
+            counters.protectionDefault = d.counters.protection.default || counters.protectionDefault;
+            counters.protectionByWard = d.counters.protection.byWard || counters.protectionByWard || {};
+        }
+        return {
+            id: id,
+            name: d.name || id,
+            summary: d.summary || '',
+            description: d.description || '',
+            domainId: d.domainId || 'universal',
+            kindId: d.kindId || 'utility',
+            cr: d.cr != null ? Number(d.cr) : 1,
+            isCantrip: !!d.isCantrip,
+            tags: Array.isArray(d.tags) ? d.tags : [],
+            disabled: !!d.disabled,
+            schemaVersion: d.schemaVersion != null ? Number(d.schemaVersion) : 1,
+            contentVersion: d.contentVersion != null ? Number(d.contentVersion) : 1,
+            manaCost: d.manaCost != null ? Number(d.manaCost) : 0,
+            staminaFatigue: d.staminaFatigue != null ? Number(d.staminaFatigue) : 0,
+            componentsCast: Array.isArray(d.componentsCast) ? d.componentsCast : [],
+            componentsBind: Array.isArray(d.componentsBind) ? d.componentsBind : [],
+            delivery: delivery,
+            effects: Array.isArray(d.effects) ? d.effects : [],
+            presentation: presentation,
+            binding: binding,
+            detection: detection,
+            counters: counters,
+            compiledPayload: d.compiledPayload || '',
+            createdAt: d.createdAt || null,
+            updatedAt: d.updatedAt || null
+        };
+    },
+
+    buildSpellDocument(data, id) {
+        const slug = this.normalizeMagicSlug(id || data.id || data.name);
+        const normalized = this.normalizeSpellDocument(slug, data);
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+        const contentVersion = data.contentVersion != null
+            ? Number(data.contentVersion)
+            : (normalized.contentVersion || 1);
+        return {
+            id: slug,
+            name: normalized.name,
+            summary: normalized.summary,
+            description: normalized.description,
+            domainId: this.normalizeMagicSlug(normalized.domainId),
+            kindId: this.normalizeMagicSlug(normalized.kindId),
+            cr: Number(normalized.cr) || 1,
+            isCantrip: !!normalized.isCantrip,
+            tags: normalized.tags,
+            disabled: !!normalized.disabled,
+            schemaVersion: 1,
+            contentVersion: contentVersion,
+            manaCost: Number(normalized.manaCost) || 0,
+            staminaFatigue: Number(normalized.staminaFatigue) || 0,
+            componentsCast: normalized.componentsCast,
+            componentsBind: normalized.componentsBind,
+            delivery: normalized.delivery,
+            effects: normalized.effects,
+            presentation: normalized.presentation,
+            binding: normalized.binding,
+            detection: normalized.detection,
+            counters: normalized.counters,
+            compiledPayload: normalized.compiledPayload || '',
+            createdAt: data.createdAt || now,
+            updatedAt: now
+        };
+    },
+
+    async getMagicCatalog(collectionName) {
+        try {
+            if (this.MAGIC_CATALOGS.indexOf(collectionName) === -1) {
+                return { success: false, error: 'Unknown magic catalog: ' + collectionName };
+            }
+            const snapshot = await this._magicCol(collectionName).get();
+            const items = [];
+            snapshot.forEach((doc) => {
+                if (collectionName === 'spells') {
+                    items.push(this.normalizeSpellDocument(doc.id, doc.data()));
+                } else {
+                    items.push(this.normalizeMagicCatalogDoc(collectionName, doc.id, doc.data()));
+                }
+            });
+            items.sort((a, b) => {
+                const so = (a.sortOrder || 100) - (b.sortOrder || 100);
+                if (so !== 0) return so;
+                return String(a.name || a.id).localeCompare(String(b.name || b.id));
+            });
+            return { success: true, data: { items: items, collection: collectionName } };
+        } catch (error) {
+            console.error('[getMagicCatalog]', collectionName, error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    async getSpells() {
+        const result = await this.getMagicCatalog('spells');
+        if (!result.success) return result;
+        return { success: true, data: { spells: result.data.items } };
+    },
+
+    async getSpell(spellId) {
+        try {
+            const id = this.normalizeMagicSlug(spellId);
+            const snap = await this._magicCol('spells').doc(id).get();
+            if (!snap.exists) {
+                return { success: false, error: 'Spell not found' };
+            }
+            return { success: true, data: { spell: this.normalizeSpellDocument(snap.id, snap.data()) } };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    },
+
+    async createMagicDoc(collectionName, data) {
+        try {
+            if (this.MAGIC_CATALOGS.indexOf(collectionName) === -1) {
+                return { success: false, error: 'Unknown magic catalog: ' + collectionName };
+            }
+            await this.ensureMagicParent();
+            if (collectionName === 'spells') {
+                return await this.createSpell(data);
+            }
+            const slug = this.normalizeMagicSlug(data.id || data.slug || data.name);
+            if (!slug) {
+                return { success: false, error: 'Valid id/slug required' };
+            }
+            const existing = await this._magicCol(collectionName).doc(slug).get();
+            if (existing.exists) {
+                return { success: false, error: 'Document already exists: ' + slug };
+            }
+            const doc = this.buildMagicCatalogDocument(collectionName, data, slug);
+            await this._magicCol(collectionName).doc(slug).set(doc);
+            return { success: true, data: { id: slug, item: this.normalizeMagicCatalogDoc(collectionName, slug, doc) } };
+        } catch (error) {
+            console.error('[createMagicDoc]', collectionName, error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    async updateMagicDoc(collectionName, id, data) {
+        try {
+            if (this.MAGIC_CATALOGS.indexOf(collectionName) === -1) {
+                return { success: false, error: 'Unknown magic catalog: ' + collectionName };
+            }
+            if (collectionName === 'spells') {
+                return await this.updateSpell(id, data);
+            }
+            const slug = this.normalizeMagicSlug(id);
+            const updateData = Object.assign({}, this.buildMagicCatalogDocument(collectionName, Object.assign({}, data, { id: slug }), slug));
+            delete updateData.createdAt;
+            updateData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+            await this._magicCol(collectionName).doc(slug).set(updateData, { merge: true });
+            return { success: true };
+        } catch (error) {
+            console.error('[updateMagicDoc]', collectionName, error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    async deleteMagicDoc(collectionName, id) {
+        try {
+            const slug = this.normalizeMagicSlug(id);
+            await this._magicCol(collectionName).doc(slug).delete();
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    },
+
+    async setMagicDisabled(collectionName, id, disabled) {
+        return await this.updateMagicDoc(collectionName, id, { disabled: !!disabled });
+    },
+
+    async createSpell(spellData) {
+        try {
+            await this.ensureMagicParent();
+            const slug = this.normalizeMagicSlug(spellData.id || spellData.slug || spellData.name);
+            if (!slug) {
+                return { success: false, error: 'Valid spell id required' };
+            }
+            const existing = await this._magicCol('spells').doc(slug).get();
+            if (existing.exists) {
+                return { success: false, error: 'Spell already exists: ' + slug };
+            }
+            const doc = this.buildSpellDocument(Object.assign({}, spellData, { contentVersion: 1 }), slug);
+            await this._magicCol('spells').doc(slug).set(doc);
+            return { success: true, data: { id: slug, spell: this.normalizeSpellDocument(slug, doc) } };
+        } catch (error) {
+            console.error('[createSpell]', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    async updateSpell(spellId, spellData) {
+        try {
+            const slug = this.normalizeMagicSlug(spellId);
+            const current = await this._magicCol('spells').doc(slug).get();
+            if (!current.exists) {
+                return { success: false, error: 'Spell not found' };
+            }
+            const prev = current.data() || {};
+            const nextVersion = (prev.contentVersion != null ? Number(prev.contentVersion) : 1) + 1;
+            const merged = Object.assign({}, prev, spellData, {
+                id: slug,
+                contentVersion: nextVersion,
+                createdAt: prev.createdAt || firebase.firestore.FieldValue.serverTimestamp()
+            });
+            const doc = this.buildSpellDocument(merged, slug);
+            await this._magicCol('spells').doc(slug).set(doc);
+            return { success: true, data: { id: slug, spell: this.normalizeSpellDocument(slug, doc) } };
+        } catch (error) {
+            console.error('[updateSpell]', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    async deleteSpell(spellId) {
+        return await this.deleteMagicDoc('spells', spellId);
+    },
+
+    _magicSeedPayload() {
+        const domains = [
+            { id: 'universal', name: 'Universal', sortOrder: 0, description: 'Utilities and cantrips usable wherever magic is on.', color: '#8899aa' },
+            { id: 'elemental', name: 'Elemental', sortOrder: 10, description: 'Fire, water, air, earth expressions of power.', color: '#c45c26' },
+            { id: 'divine', name: 'Divine', sortOrder: 20, description: 'Faith, deities, or pure intent-as-action.', color: '#c9a227' },
+            { id: 'green', name: 'Green', sortOrder: 30, description: 'Growth, beasts, vitality.', color: '#3d8b4a' },
+            { id: 'shadow', name: 'Shadow', sortOrder: 40, description: 'Concealment, fear, umbral power.', color: '#4a3a5c' },
+            { id: 'enchantment', name: 'Enchantment', sortOrder: 50, description: 'Binding spells into objects and matrices.', color: '#6b5b95' },
+            { id: 'war', name: 'War', sortOrder: 60, description: 'Battlefield force, disruption, tactics.', color: '#8b2e2e' },
+            { id: 'mental', name: 'Mental', sortOrder: 70, description: 'Charm, confusion, telepathy-lite.', color: '#5b7c99' }
+        ];
+        const kinds = [
+            { id: 'utility', name: 'Utility', menuGroup: 'Utility', sortOrder: 10 },
+            { id: 'damage', name: 'Damage', menuGroup: 'Combat', sortOrder: 20 },
+            { id: 'healing', name: 'Healing', menuGroup: 'Support', sortOrder: 30 },
+            { id: 'augmentation', name: 'Augmentation', menuGroup: 'Support', sortOrder: 40 },
+            { id: 'curse', name: 'Curse', menuGroup: 'Combat', sortOrder: 50 },
+            { id: 'ward', name: 'Ward', menuGroup: 'Support', sortOrder: 60 },
+            { id: 'illusion', name: 'Illusion', menuGroup: 'Utility', sortOrder: 70 },
+            { id: 'augury', name: 'Augury', menuGroup: 'Utility', sortOrder: 80, description: 'Divination, detection, assay, foresight.' },
+            { id: 'enchantment', name: 'Enchantment', menuGroup: 'Craft', sortOrder: 90 },
+            { id: 'summoning', name: 'Summoning', menuGroup: 'Advanced', sortOrder: 100 },
+            { id: 'transmutation', name: 'Transmutation', menuGroup: 'Advanced', sortOrder: 110 }
+        ];
+        const damageTypes = [
+            { id: 'fire', name: 'Fire', resistedBy: ['ward_fire', 'ward_elemental'], dotDefaultVfxId: 'PARTICLE_FLAME_WRAP' },
+            { id: 'kinetic', name: 'Kinetic', resistedBy: ['ward_kinetic'], dotDefaultVfxId: '' },
+            { id: 'arcane', name: 'Arcane', resistedBy: ['ward_universal'], dotDefaultVfxId: '' },
+            { id: 'poison', name: 'Poison', resistedBy: ['ward_poison'], dotDefaultVfxId: 'PARTICLE_TOXIC_HAZE' },
+            { id: 'holy', name: 'Holy', resistedBy: ['ward_divine'], dotDefaultVfxId: '' },
+            { id: 'shadow', name: 'Shadow', resistedBy: ['ward_shadow'], dotDefaultVfxId: '' }
+        ];
+        const visualEffects = [
+            { id: 'PARTICLE_SHOCKWAVE', name: 'Shockwave Ring', emitter: 'effect_prim', durationSec: 2, notes: 'Concussive ring' },
+            { id: 'PARTICLE_SPARK_IMPACT', name: 'Spark Impact', emitter: 'effect_prim', durationSec: 1, notes: 'Kinetic spark burst' },
+            { id: 'PARTICLE_TOXIC_HAZE', name: 'Toxic Haze', emitter: 'effect_prim', durationSec: 4, notes: 'Nausea / poison haze' },
+            { id: 'PARTICLE_FLAME_WRAP', name: 'Flame Wrap', emitter: 'effect_prim', durationSec: 3, notes: 'Dense flame envelope' },
+            { id: 'PARTICLE_CASTER_FLAME_BURST', name: 'Caster Flame Burst', emitter: 'effect_prim', durationSec: 1.5, notes: 'Caster cast flourish' },
+            { id: 'PARTICLE_FIREBALL', name: 'Fireball Projectile', emitter: 'projectile', durationSec: 0, notes: 'Projectile trail' },
+            { id: 'PARTICLE_FIREBALL_DETONATE', name: 'Fireball Detonate', emitter: 'world', durationSec: 2, notes: 'Impact detonation' },
+            { id: 'PARTICLE_MAGE_LIGHT', name: 'Mage Light', emitter: 'world', durationSec: 0, notes: 'Hovering light object FX' }
+        ];
+        const runes = [
+            { id: 'eos', name: 'Eos', meaning: 'Light', tags: ['light', 'reveal'], domainNotes: { elemental: 'Photomantic focus', divine: 'Revelation' } },
+            { id: 'bela', name: 'Bela', meaning: 'Binding', tags: ['bind', 'enchant'], domainNotes: { enchantment: 'Matrix anchor' } },
+            { id: 'selan', name: 'Selan', meaning: 'Release', tags: ['release', 'dispel'], domainNotes: { universal: 'Unweave' } }
+        ];
+        const spells = [
+            {
+                id: 'mage_light',
+                name: 'Mage Light',
+                summary: 'Conjure a hovering light.',
+                description: 'A simple luminous construct that brightens the area around the caster.',
+                domainId: 'universal',
+                kindId: 'utility',
+                cr: 1,
+                isCantrip: true,
+                tags: ['light', 'utility'],
+                manaCost: 5,
+                effects: [{ type: 'rez', rezObject: 'F4 Spell - Mage Light', durationSec: 300 }],
+                presentation: {
+                    castVfxId: 'PARTICLE_MAGE_LIGHT',
+                    impactVfxId: '',
+                    projectileVfxId: '',
+                    audio: { castSound: '', impactSound: '', loopSound: '' },
+                    runeIds: ['eos'],
+                    runeDisplay: true
+                },
+                binding: { wand: true, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A minor light-working.',
+                    magesight: 'Simple luminous weave; utility, non-hostile.',
+                    assay: 'Mage Light — Universal utility; creates a light object.'
+                },
+                counters: { dispellable: true, dispelCr: 2, dispelRisk: '', protectionDefault: 'ignore', protectionByWard: {} }
+            },
+            {
+                id: 'concussive_blast',
+                name: 'Concussive Blast',
+                summary: 'A short-range kinetic shockwave.',
+                description: 'Force blooms outward from the caster in a brutal pulse.',
+                domainId: 'war',
+                kindId: 'damage',
+                cr: 4,
+                tags: ['kinetic', 'aoe'],
+                manaCost: 20,
+                delivery: {
+                    timing: 'instant',
+                    delaySec: 0,
+                    trigger: { mode: 'none', proximityMeters: 0, armingDelaySec: 0 },
+                    target: { mode: 'caster_aoe', origin: 'caster', radiusMeters: 5, maxTargets: 8, includeCaster: false, requiresLos: false },
+                    projectile: { enabled: false, rezObject: '', speed: 0, arc: false }
+                },
+                effects: [
+                    { type: 'damage', resource: 'HP', amount: 25, damageTypeId: 'kinetic', repeat: { enabled: false, ticks: 0, intervalSec: 0, amount: 0, vfxId: '', vfxScale: 1 } },
+                    { type: 'animation', anim: 'Fall Down', durationSec: 3 }
+                ],
+                presentation: {
+                    castVfxId: 'PARTICLE_SHOCKWAVE',
+                    impactVfxId: 'PARTICLE_SHOCKWAVE',
+                    projectileVfxId: '',
+                    audio: { castSound: '', impactSound: '', loopSound: '' },
+                    runeIds: [],
+                    runeDisplay: false
+                },
+                binding: { wand: true, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A spell of raw force.',
+                    magesight: 'Compressed kinetic weave; burst-pattern from caster.',
+                    assay: 'Concussive Blast — War damage; caster AoE; knocks prone.'
+                },
+                compiledPayload: 'CONCUSSIVE_BLAST|25|HP|Fall Down|PARTICLE_SHOCKWAVE'
+            },
+            {
+                id: 'kinetic_strike',
+                name: 'Kinetic Strike',
+                summary: 'A focused bolt of force.',
+                description: 'A tight spear of kinetic energy that impacts a single target.',
+                domainId: 'war',
+                kindId: 'damage',
+                cr: 3,
+                tags: ['kinetic', 'projectile'],
+                manaCost: 12,
+                delivery: {
+                    timing: 'instant',
+                    delaySec: 0,
+                    trigger: { mode: 'none', proximityMeters: 0, armingDelaySec: 0 },
+                    target: { mode: 'targeted', origin: 'target', radiusMeters: 0, maxTargets: 1, includeCaster: false, requiresLos: true },
+                    projectile: { enabled: true, rezObject: 'F4 Spell Projectile - Kinetic', speed: 20, arc: false }
+                },
+                effects: [
+                    { type: 'damage', resource: 'HP', amount: 15, damageTypeId: 'kinetic', repeat: { enabled: false, ticks: 0, intervalSec: 0, amount: 0, vfxId: '', vfxScale: 1 } }
+                ],
+                presentation: {
+                    castVfxId: '',
+                    impactVfxId: 'PARTICLE_SPARK_IMPACT',
+                    projectileVfxId: 'PARTICLE_SPARK_IMPACT',
+                    audio: { castSound: '', impactSound: '', loopSound: '' },
+                    runeIds: [],
+                    runeDisplay: false
+                },
+                binding: { wand: true, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A piercing force cantrip-like working.',
+                    magesight: 'Linear kinetic lance; single-target.',
+                    assay: 'Kinetic Strike — War damage; projectile; single target.'
+                },
+                compiledPayload: 'KINETIC_STRIKE|15|HP|NONE|PARTICLE_SPARK_IMPACT'
+            },
+            {
+                id: 'nausea_curse',
+                name: 'Nausea Curse',
+                summary: 'Sicken a target, draining stamina.',
+                description: 'A mental/corporeal curse that floods the target with nausea.',
+                domainId: 'mental',
+                kindId: 'curse',
+                cr: 5,
+                tags: ['curse', 'stamina'],
+                manaCost: 18,
+                delivery: {
+                    timing: 'instant',
+                    delaySec: 0,
+                    trigger: { mode: 'none', proximityMeters: 0, armingDelaySec: 0 },
+                    target: { mode: 'targeted', origin: 'target', radiusMeters: 0, maxTargets: 1, includeCaster: false, requiresLos: true },
+                    projectile: { enabled: false, rezObject: '', speed: 0, arc: false }
+                },
+                effects: [
+                    { type: 'resource', resource: 'STAMINA', amount: -40, damageTypeId: 'poison', repeat: { enabled: false, ticks: 0, intervalSec: 0, amount: 0, vfxId: '', vfxScale: 1 } },
+                    { type: 'animation', anim: 'Vomiting', durationSec: 4 }
+                ],
+                presentation: {
+                    castVfxId: '',
+                    impactVfxId: 'PARTICLE_TOXIC_HAZE',
+                    projectileVfxId: '',
+                    audio: { castSound: '', impactSound: '', loopSound: '' },
+                    runeIds: [],
+                    runeDisplay: false
+                },
+                binding: { wand: true, staff: false, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A spiteful sickness-working.',
+                    magesight: 'Twisted mental-corporeal weave; fatigue-oriented.',
+                    assay: 'Nausea Curse — Mental curse; drains stamina; vomiting.'
+                },
+                compiledPayload: 'NAUSEA_CURSE|40|STAMINA|Vomiting|PARTICLE_TOXIC_HAZE'
+            },
+            {
+                id: 'fire_engulf',
+                name: 'Fire Engulf',
+                summary: 'Wrap a target in clinging flame.',
+                description: 'Immediate burns followed by lingering fire damage.',
+                domainId: 'elemental',
+                kindId: 'damage',
+                cr: 6,
+                tags: ['fire', 'dot'],
+                manaCost: 28,
+                delivery: {
+                    timing: 'instant',
+                    delaySec: 0,
+                    trigger: { mode: 'none', proximityMeters: 0, armingDelaySec: 0 },
+                    target: { mode: 'targeted', origin: 'target', radiusMeters: 0, maxTargets: 1, includeCaster: false, requiresLos: true },
+                    projectile: { enabled: false, rezObject: '', speed: 0, arc: false }
+                },
+                effects: [
+                    {
+                        type: 'damage',
+                        resource: 'HP',
+                        amount: 30,
+                        damageTypeId: 'fire',
+                        repeat: { enabled: true, ticks: 3, intervalSec: 3, amount: 6, vfxId: 'PARTICLE_FLAME_WRAP', vfxScale: 0.4 }
+                    },
+                    { type: 'animation', anim: 'Burn_Agony', durationSec: 2 }
+                ],
+                presentation: {
+                    castVfxId: 'PARTICLE_CASTER_FLAME_BURST',
+                    impactVfxId: 'PARTICLE_FLAME_WRAP',
+                    projectileVfxId: '',
+                    audio: { castSound: '', impactSound: '', loopSound: '' },
+                    runeIds: ['eos'],
+                    runeDisplay: true
+                },
+                binding: { wand: true, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A spell of clinging flame.',
+                    magesight: 'Thermic weave designed to linger on flesh.',
+                    assay: 'Fire Engulf — Elemental damage; DoT flame wrap.'
+                },
+                counters: {
+                    dispellable: false,
+                    dispelCr: 0,
+                    dispelRisk: '',
+                    protectionDefault: 'reduce_50',
+                    protectionByWard: { ward_fire: 'block', ward_elemental: 'reduce_50' }
+                },
+                compiledPayload: 'FIRE_ENGULF|30|HP_DOT|Burn_Agony|PARTICLE_FLAME_WRAP'
+            },
+            {
+                id: 'magesight',
+                name: 'Magesight',
+                summary: 'Perceive magical weaves.',
+                description: 'Reveals the presence and general nature of magic on people and objects.',
+                domainId: 'universal',
+                kindId: 'augury',
+                cr: 2,
+                isCantrip: true,
+                tags: ['augury', 'detect'],
+                manaCost: 4,
+                effects: [{ type: 'reveal', revealTier: 'magesight' }],
+                binding: { wand: false, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A sensing cantrip.',
+                    magesight: 'Meta — this is the sight itself.',
+                    assay: 'Magesight — Universal augury; unlocks magesight detection tier.'
+                }
+            },
+            {
+                id: 'assay_spell',
+                name: 'Assay Spell',
+                summary: 'Analyze a magical weave in detail.',
+                description: 'Thaumaturgical analysis that identifies spell identity, domain, kind, and dispel notes.',
+                domainId: 'universal',
+                kindId: 'augury',
+                cr: 4,
+                tags: ['augury', 'assay'],
+                manaCost: 10,
+                effects: [{ type: 'reveal', revealTier: 'assay' }],
+                binding: { wand: false, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
+                detection: {
+                    examine: 'A scholarly analysis working.',
+                    magesight: 'Precision sensing lattice.',
+                    assay: 'Assay Spell — Universal augury; unlocks assay detection tier.'
+                }
+            },
+            {
+                id: 'fire_trap',
+                name: 'Fire Trap',
+                summary: 'Enchant an object to burn a toucher.',
+                description: 'A waiting thermic weave bound to a latch, lid, or surface. Triggers on touch.',
+                domainId: 'elemental',
+                kindId: 'enchantment',
+                cr: 7,
+                tags: ['trap', 'fire', 'object'],
+                manaCost: 0,
+                componentsBind: [{ itemSlug: 'sulfur_pinch', qty: 2 }, { itemSlug: 'fire_oil', qty: 1 }],
+                delivery: {
+                    timing: 'instant',
+                    delaySec: 0,
+                    trigger: { mode: 'touch', proximityMeters: 0, armingDelaySec: 2 },
+                    target: { mode: 'object', origin: 'object', radiusMeters: 1.5, maxTargets: 1, includeCaster: false, requiresLos: false },
+                    projectile: { enabled: false, rezObject: '', speed: 0, arc: false }
+                },
+                effects: [
+                    { type: 'damage', resource: 'HP', amount: 20, damageTypeId: 'fire', repeat: { enabled: true, ticks: 2, intervalSec: 2, amount: 5, vfxId: 'PARTICLE_FLAME_WRAP', vfxScale: 0.35 } }
+                ],
+                presentation: {
+                    castVfxId: '',
+                    impactVfxId: 'PARTICLE_FLAME_WRAP',
+                    projectileVfxId: '',
+                    audio: { castSound: '', impactSound: '', loopSound: '' },
+                    runeIds: ['bela', 'eos'],
+                    runeDisplay: true
+                },
+                binding: { wand: false, staff: false, scroll: false, objectEnchant: true, armor: false, weapon: false },
+                detection: {
+                    examine: 'The object looks ordinary, though the fittings are carefully made.',
+                    magesight: 'A taut weave of heat and intent clings to the contact surface — a waiting spell, aggressive in nature.',
+                    assay: 'Fire Trap — Elemental enchantment; trigger: touch; moderate potency; dispelling possible but risky.'
+                },
+                counters: {
+                    dispellable: true,
+                    dispelCr: 10,
+                    dispelRisk: 'backlash_half',
+                    protectionDefault: 'reduce_50',
+                    protectionByWard: { ward_fire: 'block' }
+                }
+            }
+        ];
+        return { domains: domains, kinds: kinds, damageTypes: damageTypes, visualEffects: visualEffects, runes: runes, spells: spells };
+    },
+
+    async seedMagicDefaults(options) {
+        const opts = options || {};
+        const overwrite = !!opts.overwrite;
+        try {
+            await this.ensureMagicParent();
+            await this._magicRoot().set({
+                schemaVersion: 1,
+                notes: 'Feudalism magic CMS registry',
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            const seed = this._magicSeedPayload();
+            const summary = { created: 0, skipped: 0, updated: 0, errors: [] };
+
+            async function writeFlat(self, collectionName, rows) {
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    const id = self.normalizeMagicSlug(row.id);
+                    const ref = self._magicCol(collectionName).doc(id);
+                    const snap = await ref.get();
+                    if (snap.exists && !overwrite) {
+                        summary.skipped++;
+                        continue;
+                    }
+                    const doc = self.buildMagicCatalogDocument(collectionName, Object.assign({}, row, { disabled: false }), id);
+                    if (snap.exists) {
+                        delete doc.createdAt;
+                        doc.createdAt = snap.data().createdAt || firebase.firestore.FieldValue.serverTimestamp();
+                        await ref.set(doc, { merge: true });
+                        summary.updated++;
+                    } else {
+                        await ref.set(doc);
+                        summary.created++;
+                    }
+                }
+            }
+
+            await writeFlat(this, 'domains', seed.domains);
+            await writeFlat(this, 'kinds', seed.kinds);
+            await writeFlat(this, 'damageTypes', seed.damageTypes);
+            await writeFlat(this, 'visualEffects', seed.visualEffects);
+            await writeFlat(this, 'runes', seed.runes);
+
+            for (let i = 0; i < seed.spells.length; i++) {
+                const row = seed.spells[i];
+                const id = this.normalizeMagicSlug(row.id);
+                const ref = this._magicCol('spells').doc(id);
+                const snap = await ref.get();
+                if (snap.exists && !overwrite) {
+                    summary.skipped++;
+                    continue;
+                }
+                const base = snap.exists ? Object.assign({}, snap.data(), row) : row;
+                if (snap.exists && overwrite) {
+                    base.contentVersion = (snap.data().contentVersion || 1) + 1;
+                    base.createdAt = snap.data().createdAt;
+                } else {
+                    base.contentVersion = 1;
+                }
+                const doc = this.buildSpellDocument(base, id);
+                await ref.set(doc);
+                if (snap.exists) summary.updated++;
+                else summary.created++;
+            }
+
+            return { success: true, data: summary };
+        } catch (error) {
+            console.error('[seedMagicDefaults]', error);
+            return { success: false, error: error.message };
+        }
     }
 };
 

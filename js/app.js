@@ -3697,8 +3697,10 @@ try {
         if (!char || !species) {
             return;
         }
-        const manaEnabled = this.state.currentUniverse?.manaEnabled !== false;
-        const speciesCanUseMagic = manaEnabled && ((species.mana || 0) > 0 || (species.mana_chance || 0) > 0);
+        const magic = (typeof API !== 'undefined' && API.resolveUniverseMagic)
+            ? API.resolveUniverseMagic(this.state.currentUniverse)
+            : { enabled: this.state.currentUniverse?.manaEnabled !== false };
+        const speciesCanUseMagic = magic.enabled && ((species.mana || 0) > 0 || (species.mana_chance || 0) > 0);
         if (!speciesCanUseMagic) {
             char.has_mana = false;
         } else {
@@ -3908,7 +3910,10 @@ try {
         let filteredGenders = [];
         let filteredSpecies = [];
         let filteredClasses = [];
-        const universeManaEnabled = this.state.currentUniverse?.manaEnabled !== false;
+        const universeMagic = (typeof API !== 'undefined' && API.resolveUniverseMagic)
+            ? API.resolveUniverseMagic(this.state.currentUniverse)
+            : { enabled: this.state.currentUniverse?.manaEnabled !== false };
+        const universeManaEnabled = !!universeMagic.enabled;
         const identityGateMessage = this.state.awaitingWelcomeChoice
             ? 'Choose Play as Starter or Create New Character to begin.'
             : 'Start character creation to choose identity options.';
@@ -4559,8 +4564,10 @@ try {
      */
     canOptInToMagic(species, universe) {
         const u = universe || this.state.currentUniverse;
-        const manaEnabled = u?.manaEnabled !== false;
-        if (!manaEnabled || !species) {
+        const magic = (typeof API !== 'undefined' && API.resolveUniverseMagic)
+            ? API.resolveUniverseMagic(u)
+            : { enabled: u?.manaEnabled !== false };
+        if (!magic.enabled || !species) {
             return false;
         }
         return (species.mana || 0) > 0 || (species.mana_chance || 0) > 0;
@@ -4587,8 +4594,10 @@ try {
         panel.style.display = '';
         checkbox.checked = this.coerceHasMana(char.has_mana);
         if (hint) {
-            const universeBlocks = this.state.currentUniverse?.manaEnabled === false;
-            hint.textContent = universeBlocks
+            const magic = (typeof API !== 'undefined' && API.resolveUniverseMagic)
+                ? API.resolveUniverseMagic(this.state.currentUniverse)
+                : { enabled: this.state.currentUniverse?.manaEnabled !== false };
+            hint.textContent = !magic.enabled
                 ? 'This universe does not support magic.'
                 : 'Opt in to arcane abilities for this character. Off by default until you enable it.';
         }
@@ -7820,6 +7829,13 @@ try {
             case 'consumables':
                 this.showConsumablesManagement();
                 break;
+            case 'magic':
+                if (typeof this.showMagicManagement === 'function') {
+                    this.showMagicManagement('spells');
+                } else {
+                    adminContent.innerHTML = '<p class="placeholder-text">Magic CMS module failed to load.</p>';
+                }
+                break;
             case 'xp':
                 this.showGiveItemAdmin();
                 break;
@@ -10159,9 +10175,43 @@ try {
     },
     
     /**
-     * Rules Tab - Limits and mana settings
+     * Rules Tab - Limits and mana/magic settings
      */
     async showUniverseRulesTab(container, universeId, universe, isEdit) {
+        const magic = (typeof API !== 'undefined' && API.resolveUniverseMagic)
+            ? API.resolveUniverseMagic(universe)
+            : { enabled: universe?.manaEnabled !== false, allowedDomains: null, domainAliases: {} };
+
+        let domainChecks = '<p style="color: var(--text-muted);">Loading domains…</p>';
+        try {
+            const domainsRes = await API.getMagicCatalog('domains');
+            if (domainsRes.success) {
+                const domains = domainsRes.data.items || [];
+                const allowed = magic.allowedDomains;
+                // Missing allowedDomains while magic on = all domains selected (friendly default)
+                domainChecks = domains.length
+                    ? domains.map((d) => {
+                        let checked = true;
+                        if (Array.isArray(allowed)) {
+                            checked = allowed.indexOf(d.id) !== -1;
+                        }
+                        return `<label style="display:block;margin:0.25em 0;">
+                            <input type="checkbox" data-domain-id="${UI.escapeHtml(d.id)}" ${checked ? 'checked' : ''} ${d.disabled ? 'disabled' : ''}>
+                            ${UI.escapeHtml(d.name)} <code style="opacity:0.7;">${UI.escapeHtml(d.id)}</code>
+                        </label>`;
+                    }).join('')
+                    : '<p style="color: var(--text-muted);">No domains in Magic CMS yet. Open Admin → Magic → Seed Defaults.</p>';
+            } else {
+                domainChecks = `<p style="color: var(--error);">Could not load domains: ${UI.escapeHtml(domainsRes.error || 'unknown')}</p>`;
+            }
+        } catch (e) {
+            domainChecks = `<p style="color: var(--error);">Could not load domains: ${UI.escapeHtml(e.message)}</p>`;
+        }
+
+        const aliasLines = Object.keys(magic.domainAliases || {}).map((k) =>
+            k + '=' + magic.domainAliases[k]
+        ).join('\n');
+
         let html = `
             <form id="universe-rules-form" style="display: flex; flex-direction: column; gap: var(--space-md);">
                 <div class="panel" style="padding: var(--space-md);">
@@ -10170,17 +10220,45 @@ try {
                         <label for="universe-character-limit">Character Limit (0 = unlimited)</label>
                         <input type="number" id="universe-character-limit" value="${universe?.characterLimit !== undefined ? universe.characterLimit : 0}" min="0" style="width: 100%; padding: var(--space-xs);">
                     </div>
+                </div>
+                <div class="panel" style="padding: var(--space-md);">
+                    <h3>Magic</h3>
                     <div class="form-group">
                         <label>
-                            <input type="checkbox" id="universe-mana-enabled" ${universe?.manaEnabled !== false ? 'checked' : ''}>
-                            Mana Enabled
+                            <input type="checkbox" id="universe-magic-enabled" ${magic.enabled ? 'checked' : ''}>
+                            Magic enabled in this universe
                         </label>
+                        <small style="display:block;color:var(--text-muted);">Synced with legacy <code>manaEnabled</code>. When off, characters cannot enable <code>has_mana</code>.</small>
+                    </div>
+                    <!-- Keep id for older save paths / scrapers -->
+                    <input type="checkbox" id="universe-mana-enabled" ${magic.enabled ? 'checked' : ''} style="display:none;">
+                    <div class="form-group" id="universe-magic-domains">
+                        <label>Allowed domains</label>
+                        <div style="max-height: 220px; overflow: auto; border: 1px solid var(--border-color, #444); padding: var(--space-sm); border-radius: 4px;">
+                            ${domainChecks}
+                        </div>
+                        <small style="display:block;color:var(--text-muted);margin-top:0.35em;">
+                            Empty selection while magic is on = no domains castable. Leave all checked for an open academy pack.
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="universe-magic-aliases">Domain display aliases (optional)</label>
+                        <textarea id="universe-magic-aliases" rows="4" placeholder="divine=Theurgy&#10;elemental=Elemental Arts" style="width:100%;padding:var(--space-xs);">${UI.escapeHtml(aliasLines)}</textarea>
+                        <small style="color:var(--text-muted);">One per line: <code>domainId=Display Name</code></small>
                     </div>
                 </div>
             </form>
         `;
-        
+
         container.innerHTML = html;
+
+        const syncHiddenMana = () => {
+            const src = document.getElementById('universe-magic-enabled');
+            const dst = document.getElementById('universe-mana-enabled');
+            if (src && dst) dst.checked = src.checked;
+        };
+        document.getElementById('universe-magic-enabled')?.addEventListener('change', syncHiddenMana);
+        syncHiddenMana();
     },
     
     /**
@@ -10304,7 +10382,9 @@ try {
                     if (!el) return parseInt(String(u.characterLimit !== undefined ? u.characterLimit : 0), 10) || 0;
                     return parseInt(el.value, 10) || 0;
                 })(),
-                manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false)
+                ...(typeof this.collectUniverseMagicFromForm === 'function'
+                    ? this.collectUniverseMagicFromForm(u)
+                    : { manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false) })
             };
             
             if (universeId !== 'default') {
@@ -10415,7 +10495,9 @@ try {
                     if (!el) return parseInt(String(u.characterLimit !== undefined ? u.characterLimit : 0), 10) || 0;
                     return parseInt(el.value, 10) || 0;
                 })(),
-                manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false),
+                ...(typeof this.collectUniverseMagicFromForm === 'function'
+                    ? this.collectUniverseMagicFromForm(u)
+                    : { manaEnabled: pick('universe-mana-enabled', u.manaEnabled !== false) }),
                 allowedGenders: allowedGendersNormalized,
                 allowedSpecies: allowedSpecies,
                 allowedClasses: allowedClasses,
@@ -12805,9 +12887,12 @@ window.onSpeciesSelected = async function(speciesId) {
     
     // For new characters, check if mana is available and let user choose
     if (App.state.isNewCharacter) {
-        // Get universe to check if mana is enabled
+        // Get universe to check if mana/magic is enabled
         const universe = App.state.currentUniverse;
-        const universeManaEnabled = universe?.manaEnabled || false;
+        const magic = (typeof API !== 'undefined' && API.resolveUniverseMagic)
+            ? API.resolveUniverseMagic(universe)
+            : { enabled: universe?.manaEnabled !== false };
+        const universeManaEnabled = !!magic.enabled;
         
         // Check if this species can use magic (universe allows mana AND species has mana pool > 0)
         const speciesManaPool = species.mana || 0;

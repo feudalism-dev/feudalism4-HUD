@@ -508,6 +508,7 @@
                         <!-- Vocations admin removed: redundant with classes; re-enable if vocation grouping/bonuses are implemented -->
                         <!-- <button class="admin-btn" data-admin="vocations">📜 Vocations</button> -->
                         <button class="admin-btn" data-admin="consumables">🧪 Consumables</button>
+                        <button class="admin-btn" data-admin="magic">✨ Magic</button>
                         <button class="admin-btn" data-admin="giveitem">📦 Give Items</button>
                         <button class="admin-btn" data-admin="givecoins">💰 Give Coins</button>
                         <button class="admin-btn" data-admin="migrate-universe" data-sys-admin-only="1">🌌 Move Character Universe</button>
@@ -616,7 +617,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.3.16';
+            window.HUD_BUILD_LABEL = '4.3.17';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
@@ -645,12 +646,14 @@
                             hudLoadScript('js/moap-dialogs.js', 'moap-dialogs.js', function () {
                                 hudLoadScript('js/ui.js', 'ui.js', function () {
                                     hudLoadScript('js/app.js', 'app.js', function () {
-                                        window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
-                                        if (typeof App !== 'undefined' && typeof App.init === 'function') {
-                                            App.init().catch(function (err) {
-                                                window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
-                                            });
-                                        }
+                                        hudLoadScript('js/magic-admin.js', 'magic-admin.js', function () {
+                                            window.simpleDebug('Checking App after load: ' + typeof App, 'debug');
+                                            if (typeof App !== 'undefined' && typeof App.init === 'function') {
+                                                App.init().catch(function (err) {
+                                                    window.simpleDebug('App.init() ERROR: ' + err.message, 'error');
+                                                });
+                                            }
+                                        });
                                     });
                                 });
                             });
