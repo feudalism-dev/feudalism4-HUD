@@ -855,6 +855,32 @@ const API = {
     },
     
     // =========================== CHARACTER CRUD =============================
+
+    /**
+     * Character identity/gameplay is Experience KVP only (via HUD HTTP-IN bridge).
+     * Firestore holds templates/universes/users — never mint character docs there.
+     */
+    experienceUnavailableError() {
+        return 'Unable to Connect to Second Life Experience Database. Unable to manage character at this time. If this problem persists, please contact Feudalism Support.';
+    },
+
+    experienceUnavailableResult() {
+        return { success: false, error: this.experienceUnavailableError() };
+    },
+
+    async requireExperienceBridge(timeoutMs) {
+        const ms = timeoutMs || 12000;
+        if (typeof F4BridgeHud === 'undefined' || !F4BridgeHud.waitForBridgeReady) {
+            return this.experienceUnavailableResult();
+        }
+        try {
+            await F4BridgeHud.waitForBridgeReady(ms);
+            return { success: true };
+        } catch (error) {
+            console.error('[requireExperienceBridge]', error);
+            return this.experienceUnavailableResult();
+        }
+    },
     
     /**
      * List all characters for current user
@@ -870,136 +896,27 @@ const API = {
             return { success: true, data: { characters: this._dedupeCharactersById(this._listCharactersCache) }, cached: true };
         }
 
-        // Bridge mode: never use stale sessionStorage roster (legacy Firestore / admin index).
-        if (!forceRefresh && this.uuid && !this.shouldDiscardFirestoreGameplay()) {
-            try {
-                var rosterRaw = sessionStorage.getItem('f4_roster_' + this.uuid);
-                if (rosterRaw) {
-                    var rosterParsed = JSON.parse(rosterRaw);
-                    if (rosterParsed && rosterParsed.characters && rosterParsed.characters.length) {
-                        this._listCharactersCache = this._dedupeCharactersById(rosterParsed.characters);
-                        this._listCharactersCacheTs = Date.now();
-                        console.log('[listCharacters] session cache:', this._listCharactersCache.length, '(0 reads)');
-                        return { success: true, data: { characters: this._listCharactersCache }, cached: true };
-                    }
-                }
-            } catch (e) { /* ignore */ }
-        } else if (this.shouldDiscardFirestoreGameplay() && this.uuid) {
+        // Never hydrate roster from sessionStorage when not in bridge mode — that can
+        // resurrect Firestore orphans as if they were KVP characters.
+        if (this.uuid) {
             try {
                 sessionStorage.removeItem('f4_roster_' + this.uuid);
             } catch (e) { /* ignore */ }
         }
 
-        if (this.shouldDiscardFirestoreGameplay()) {
-            try {
-                await F4BridgeHud.waitForBridgeReady(10000);
-                const res = await F4Bridge.listCharacters();
-                if (!res || !res.ok) {
-                    return { success: false, error: (res && res.error) || 'list_failed' };
-                }
-                const ownerUuid = this.uuid;
-                const characters = (res.characters || []).map(function (c) {
-                    return API.sanitizeRosterCharacter(Object.assign({ owner_uuid: ownerUuid }, c));
-                });
-                const deduped = this._dedupeCharactersById(characters);
-                this._listCharactersCache = deduped;
-                this._listCharactersCacheTs = Date.now();
-                if (this.uuid) {
-                    try {
-                        sessionStorage.setItem('f4_roster_' + this.uuid, JSON.stringify({ characters: deduped }));
-                    } catch (e) { /* ignore */ }
-                }
-                console.log('[listCharacters] bridge roster:', deduped.length);
-                return { success: true, data: { characters: deduped } };
-            } catch (error) {
-                console.error('[listCharacters] bridge error:', error);
-                return { success: false, error: error.message || String(error) };
-            }
+        const bridgeGate = await this.requireExperienceBridge(10000);
+        if (!bridgeGate.success) {
+            return bridgeGate;
         }
-        
         try {
-            // SECURITY: Always filter by owner_uuid to ensure users can only access their own characters
-            // Try with orderBy first, but fallback to simple query if index doesn't exist
-            let snapshot;
-            let usedOrderBy = false;
-            
-            try {
-                snapshot = await db.collection('characters')
-                    .where('owner_uuid', '==', this.uuid)
-                    .orderBy('created_at', 'desc')
-                    .get();
-                usedOrderBy = true;
-                console.log('[listCharacters] Query with orderBy succeeded');
-            } catch (orderByError) {
-                // If orderBy fails (likely missing index), try without it
-                // Check error code or message for index-related errors
-                const errorMessage = orderByError.message || String(orderByError);
-                const isIndexError = orderByError.code === 'failed-precondition' || 
-                                    errorMessage.includes('index') || 
-                                    errorMessage.includes('Index') ||
-                                    errorMessage.includes('requires an index');
-                
-                if (isIndexError) {
-                    console.warn('[listCharacters] orderBy failed (missing index), trying without orderBy. Error:', errorMessage);
-                    try {
-                        snapshot = await db.collection('characters')
-                            .where('owner_uuid', '==', this.uuid)
-                            .get();
-                        usedOrderBy = false;
-                        console.log('[listCharacters] Fallback query without orderBy succeeded');
-                    } catch (fallbackError) {
-                        console.error('[listCharacters] Fallback query also failed:', fallbackError);
-                        throw fallbackError;
-                    }
-                } else {
-                    // Some other error, re-throw it
-                    console.error('[listCharacters] orderBy failed with non-index error:', orderByError);
-                    throw orderByError;
-                }
+            const res = await F4Bridge.listCharacters();
+            if (!res || !res.ok) {
+                return { success: false, error: (res && res.error) || this.experienceUnavailableError() };
             }
-            
-            const characters = [];
-            const seenIds = {};
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                // SECURITY: Double-check ownership
-                if (data.owner_uuid === this.uuid && !seenIds[doc.id]) {
-                    seenIds[doc.id] = true;
-                    characters.push(this.sanitizeRosterCharacter({ ...data, id: doc.id }));
-                }
+            const ownerUuid = this.uuid;
+            const characters = (res.characters || []).map(function (c) {
+                return API.sanitizeRosterCharacter(Object.assign({ owner_uuid: ownerUuid }, c));
             });
-            
-            // Sort manually if we didn't use orderBy
-            if (!usedOrderBy && characters.length > 1) {
-                characters.sort((a, b) => {
-                    // Handle Firestore Timestamp objects
-                    let aTime = 0;
-                    let bTime = 0;
-                    
-                    if (a.created_at) {
-                        if (a.created_at.toMillis) {
-                            aTime = a.created_at.toMillis();
-                        } else if (a.created_at.seconds) {
-                            aTime = a.created_at.seconds * 1000;
-                        } else if (typeof a.created_at === 'number') {
-                            aTime = a.created_at;
-                        }
-                    }
-                    
-                    if (b.created_at) {
-                        if (b.created_at.toMillis) {
-                            bTime = b.created_at.toMillis();
-                        } else if (b.created_at.seconds) {
-                            bTime = b.created_at.seconds * 1000;
-                        } else if (typeof b.created_at === 'number') {
-                            bTime = b.created_at;
-                        }
-                    }
-                    
-                    return bTime - aTime; // Descending order (newest first)
-                });
-            }
-            
             const deduped = this._dedupeCharactersById(characters);
             this._listCharactersCache = deduped;
             this._listCharactersCacheTs = Date.now();
@@ -1008,11 +925,11 @@ const API = {
                     sessionStorage.setItem('f4_roster_' + this.uuid, JSON.stringify({ characters: deduped }));
                 } catch (e) { /* ignore */ }
             }
-            console.log(`[listCharacters] Found ${deduped.length} character(s) for UUID: ${this.uuid}`);
+            console.log('[listCharacters] bridge roster:', deduped.length);
             return { success: true, data: { characters: deduped } };
         } catch (error) {
-            console.error('[listCharacters] Error:', error);
-            return { success: false, error: error.message };
+            console.error('[listCharacters] bridge error:', error);
+            return this.experienceUnavailableResult();
         }
     },
     
@@ -1024,115 +941,76 @@ const API = {
             return { success: false, error: 'No UUID - access denied' };
         }
 
-        if (this.shouldDiscardFirestoreGameplay()) {
-            let fromCache = null;
-            if (this._listCharactersCache) {
-                for (let i = 0; i < this._listCharactersCache.length; i++) {
-                    if (this._listCharactersCache[i].id === characterId) {
-                        fromCache = this._listCharactersCache[i];
+        let fromCache = null;
+        if (this._listCharactersCache) {
+            for (let i = 0; i < this._listCharactersCache.length; i++) {
+                if (this._listCharactersCache[i].id === characterId) {
+                    fromCache = this._listCharactersCache[i];
+                    break;
+                }
+            }
+        }
+        if (!fromCache) {
+            const listed = await this.listCharacters(true);
+            if (!listed.success) {
+                return listed;
+            }
+            if (listed.data && listed.data.characters) {
+                for (let j = 0; j < listed.data.characters.length; j++) {
+                    if (listed.data.characters[j].id === characterId) {
+                        fromCache = listed.data.characters[j];
                         break;
                     }
                 }
             }
-            if (!fromCache) {
-                const listed = await this.listCharacters(true);
-                if (listed.success && listed.data && listed.data.characters) {
-                    for (let j = 0; j < listed.data.characters.length; j++) {
-                        if (listed.data.characters[j].id === characterId) {
-                            fromCache = listed.data.characters[j];
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!fromCache) {
-                return { success: false, error: 'Character not found' };
-            }
-            return {
-                success: true,
-                data: { character: this.sanitizeRosterCharacter(Object.assign({ owner_uuid: this.uuid }, fromCache)) }
-            };
         }
-        
-        try {
-            const doc = await db.collection('characters').doc(characterId).get();
-            
-            if (!doc.exists) {
-                return { success: false, error: 'Character not found' };
-            }
-            
-            const character = this.sanitizeRosterCharacter({ id: doc.id, ...doc.data() });
-            
-            // SECURITY: Verify ownership
-            if (character.owner_uuid !== this.uuid) {
-                return { success: false, error: 'Access denied: Character ownership mismatch' };
-            }
-            
-            return { success: true, data: { character } };
-        } catch (error) {
-            console.error('getCharacterById error:', error);
-            return { success: false, error: error.message };
+        if (!fromCache) {
+            return { success: false, error: 'Character not found' };
         }
+        return {
+            success: true,
+            data: { character: this.sanitizeRosterCharacter(Object.assign({ owner_uuid: this.uuid }, fromCache)) }
+        };
     },
     
     /**
-     * Get character for current user (first character, for backward compatibility)
+     * Get character for current user (first / active from Experience roster)
      */
     async getCharacter() {
         if (!this.uuid) {
             return { success: false, error: 'No UUID - access denied' };
         }
-        
-        try {
-            // SECURITY: Always filter by owner_uuid to ensure users can only access their own character
-            const snapshot = await db.collection('characters')
-                .where('owner_uuid', '==', this.uuid)
-                .limit(1)
-                .get();
-            
-            if (snapshot.empty) {
-                return { success: false, error: 'No character found' };
-            }
-            
-            const doc = snapshot.docs[0];
-            let character = { id: doc.id, ...doc.data() };
-            
-            // SECURITY: Double-check that the character belongs to this user
-            if (character.owner_uuid !== this.uuid) {
-                console.error('SECURITY VIOLATION: Character owner_uuid does not match current user UUID');
-                return { success: false, error: 'Access denied - character ownership mismatch' };
-            }
-            
-            // Migration: Ensure character has universe_id (set to 'default' if missing)
-            if (!character.universe_id) {
-                try {
-                    await doc.ref.update({
-                        universe_id: 'default',
-                        updated_at: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    character.universe_id = 'default';
-                    console.log(`[Migration] Set universe_id='default' for character ${doc.id}`);
-                } catch (migrationError) {
-                    console.error('Failed to migrate character universe_id:', migrationError);
-                    // Continue anyway - character will work with default universe_id logic
-                    character.universe_id = 'default';
-                }
-            }
-            
-            return {
-                success: true,
-                data: {
-                    character: character
-                }
-            };
-        } catch (error) {
-            console.error('getCharacter error:', error);
-            return { success: false, error: error.message };
+
+        const listed = await this.listCharacters(false);
+        if (!listed.success) {
+            return listed;
         }
+        const characters = (listed.data && listed.data.characters) ? listed.data.characters : [];
+        if (!characters.length) {
+            return { success: false, error: 'No character found' };
+        }
+        let character = characters[0];
+        const preferId = this.activeCharacterId
+            || (this.user && this.user.activeCharacter)
+            || '';
+        if (preferId) {
+            for (let i = 0; i < characters.length; i++) {
+                if (characters[i].id === preferId) {
+                    character = characters[i];
+                    break;
+                }
+            }
+        }
+        return {
+            success: true,
+            data: {
+                character: this.sanitizeRosterCharacter(Object.assign({ owner_uuid: this.uuid }, character))
+            }
+        };
     },
     
     /**
-     * Create a new character
+     * Create a new character (Experience KVP via HUD bridge only — never Firestore)
      */
     async createCharacter(charData) {
         if (!this.uuid || this.uuid.trim() === '') {
@@ -1153,99 +1031,21 @@ const API = {
     },
 
     async _createCharacterImpl(charData) {
-        if (this.shouldDiscardFirestoreGameplay()) {
-            try {
-                await F4BridgeHud.waitForBridgeReady(12000);
-                const res = await F4Bridge.createCharacter(charData || {});
-                if (!res || !res.ok || !res.character) {
-                    return { success: false, error: (res && res.error) || 'create_failed' };
-                }
-                const createdCharacter = this.sanitizeRosterCharacter(
-                    Object.assign({ owner_uuid: this.uuid }, res.character)
-                );
-                if (!this._listCharactersCache) {
-                    this._listCharactersCache = [];
-                }
-                this._listCharactersCache.unshift(createdCharacter);
-                this._listCharactersCache = this._dedupeCharactersById(this._listCharactersCache);
-                this._listCharactersCacheTs = Date.now();
-                if (this.uuid) {
-                    try {
-                        sessionStorage.setItem(
-                            'f4_roster_' + this.uuid,
-                            JSON.stringify({ characters: this._listCharactersCache })
-                        );
-                    } catch (e) { /* quota */ }
-                }
-                this.activeCharacterId = createdCharacter.id;
-                if (this.user) {
-                    this.user.activeCharacter = createdCharacter.id;
-                }
-                this._saveUserSession();
-                console.log('[createCharacter] bridge created:', createdCharacter.id);
-                return {
-                    success: true,
-                    data: {
-                        character: createdCharacter,
-                        message: 'Character created!'
-                    }
-                };
-            } catch (error) {
-                console.error('createCharacter bridge error:', error);
-                return { success: false, error: error.message || String(error) };
-            }
+        const bridgeGate = await this.requireExperienceBridge(12000);
+        if (!bridgeGate.success) {
+            return bridgeGate;
         }
-
         try {
-            // Multi-character: per-universe limits are enforced in saveCharacter via validateCharacterLimit.
-            // SECURITY: Always set owner_uuid to current user's UUID - cannot be overridden
-            // Remove any attempt to set owner_uuid from charData
-            if (charData.owner_uuid) {
-                delete charData.owner_uuid;
+            const res = await F4Bridge.createCharacter(charData || {});
+            if (!res || !res.ok || !res.character) {
+                return {
+                    success: false,
+                    error: (res && res.error) || this.experienceUnavailableError()
+                };
             }
-            
-            const character = {
-                owner_uuid: this.uuid,  // Force to current user's UUID
-                universe_id: charData.universe_id || 'default',  // Default to default universe
-                name: charData.name || 'Unnamed',
-                title: charData.title || '',
-                gender: charData.gender || 'other',
-                species_id: charData.species_id || 'human',
-                
-                // Resource pools (object structure: {current, base, max})
-                health: charData.health || { current: 100, base: 100, max: 100 },
-                stamina: charData.stamina || { current: 100, base: 100, max: 100 },
-                // Mana: use provided value (calculated in app.js based on has_mana and stats)
-                // If has_mana is true, mana should be calculated from stats
-                // If has_mana is false, mana should be { current: 0, base: 0, max: 0 }
-                mana: charData.mana !== undefined ? charData.mana : (charData.has_mana ? { current: 50, base: 50, max: 50 } : { current: 0, base: 0, max: 0 }),
-                has_mana: charData.has_mana !== undefined ? charData.has_mana : false,
-                
-                // Action slots for readied items/spells/buffs
-                action_slots: charData.action_slots || [],
-                
-                // Mode (roleplay, tournament, ooc, afk)
-                mode: charData.mode || 'roleplay',
-                
-                currency: 50,
-                
-                // Career history: array of { class_id, started_at, ended_at, maxed, stats_gained, abandoned }
-                career_history: [],
-                
-                // Auto-provisioned starter — player can customize in Setup HUD
-                provisional: charData.provisional === true,
-                setup_complete: charData.setup_complete === true ? true : false,
-                
-                created_at: firebase.firestore.FieldValue.serverTimestamp(),
-                updated_at: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            if (charData.class_id) {
-                character.class_id = charData.class_id;
-            }
-            
-            const docRef = await db.collection('characters').add(character);
-
-            const createdCharacter = this.sanitizeRosterCharacter({ id: docRef.id, ...character });
+            const createdCharacter = this.sanitizeRosterCharacter(
+                Object.assign({ owner_uuid: this.uuid }, res.character)
+            );
             if (!this._listCharactersCache) {
                 this._listCharactersCache = [];
             }
@@ -1260,7 +1060,12 @@ const API = {
                     );
                 } catch (e) { /* quota */ }
             }
-
+            this.activeCharacterId = createdCharacter.id;
+            if (this.user) {
+                this.user.activeCharacter = createdCharacter.id;
+            }
+            this._saveUserSession();
+            console.log('[createCharacter] bridge created:', createdCharacter.id);
             return {
                 success: true,
                 data: {
@@ -1269,13 +1074,13 @@ const API = {
                 }
             };
         } catch (error) {
-            console.error('createCharacter error:', error);
-            return { success: false, error: error.message };
+            console.error('createCharacter bridge error:', error);
+            return this.experienceUnavailableResult();
         }
     },
     
     /**
-     * Delete current character
+     * Delete character (Experience KVP via HUD bridge only)
      */
     async deleteCharacter(characterId) {
         if (!this.uuid) {
@@ -1286,67 +1091,40 @@ const API = {
             return { success: false, error: 'No character ID provided' };
         }
 
-        if (this.shouldDiscardFirestoreGameplay()) {
-            try {
-                await F4BridgeHud.waitForBridgeReady(10000);
-                const res = await F4Bridge.deleteCharacter(characterId);
-                if (!res || !res.ok) {
-                    return { success: false, error: (res && res.error) || 'delete_failed' };
-                }
-                if (this._listCharactersCache) {
-                    this._listCharactersCache = this._listCharactersCache.filter(function (c) {
-                        return c.id !== characterId;
-                    });
-                }
-                this._listCharactersCacheTs = Date.now();
-                if (this.uuid) {
-                    try {
-                        sessionStorage.setItem(
-                            'f4_roster_' + this.uuid,
-                            JSON.stringify({ characters: this._listCharactersCache || [] })
-                        );
-                    } catch (e) { /* ignore */ }
-                }
-                if (this.activeCharacterId === characterId) {
-                    this.activeCharacterId = null;
-                    if (this.user) {
-                        this.user.activeCharacter = null;
-                    }
-                    this._saveUserSession();
-                }
-                console.log('[deleteCharacter] bridge deleted:', characterId);
-                return {
-                    success: true,
-                    data: {
-                        message: 'Character deleted successfully',
-                        characterId: characterId
-                    }
-                };
-            } catch (error) {
-                console.error('deleteCharacter bridge error:', error);
-                return { success: false, error: error.message || String(error) };
-            }
+        const bridgeGate = await this.requireExperienceBridge(10000);
+        if (!bridgeGate.success) {
+            return bridgeGate;
         }
-        
         try {
-            // Get character by ID
-            const docRef = db.collection('characters').doc(characterId);
-            const doc = await docRef.get();
-            
-            if (!doc.exists) {
-                return { success: false, error: 'Character not found' };
+            const res = await F4Bridge.deleteCharacter(characterId);
+            if (!res || !res.ok) {
+                return {
+                    success: false,
+                    error: (res && res.error) || this.experienceUnavailableError()
+                };
             }
-            
-            // Verify ownership - SECURITY CHECK
-            const character = doc.data();
-            if (character.owner_uuid !== this.uuid) {
-                return { success: false, error: 'Access denied - not your character' };
+            if (this._listCharactersCache) {
+                this._listCharactersCache = this._listCharactersCache.filter(function (c) {
+                    return c.id !== characterId;
+                });
             }
-            
-            await docRef.delete();
-            this._listCharactersCache = null;
-            this._listCharactersCacheTs = 0;
-
+            this._listCharactersCacheTs = Date.now();
+            if (this.uuid) {
+                try {
+                    sessionStorage.setItem(
+                        'f4_roster_' + this.uuid,
+                        JSON.stringify({ characters: this._listCharactersCache || [] })
+                    );
+                } catch (e) { /* ignore */ }
+            }
+            if (this.activeCharacterId === characterId) {
+                this.activeCharacterId = null;
+                if (this.user) {
+                    this.user.activeCharacter = null;
+                }
+                this._saveUserSession();
+            }
+            console.log('[deleteCharacter] bridge deleted:', characterId);
             return {
                 success: true,
                 data: {
@@ -1355,16 +1133,11 @@ const API = {
                 }
             };
         } catch (error) {
-            console.error('deleteCharacter error:', error);
-            return { success: false, error: error.message };
+            console.error('deleteCharacter bridge error:', error);
+            return this.experienceUnavailableResult();
         }
     },
     
-    /**
-     * Update character by document ID (required for multi-character accounts).
-     * @param {object} charData - Fields to update
-     * @param {string} [characterId] - Firestore character doc id (falls back to charData.id)
-     */
     /**
      * Bridge updateIdent rewrites the whole f4char_ blob. Partial patches
      * (has_mana / mode / class only) must merge onto the cached character or
@@ -1421,86 +1194,39 @@ const API = {
             return { success: false, error: 'No character ID specified' };
         }
 
-        if (this.shouldDiscardFirestoreGameplay()) {
-            try {
-                await F4BridgeHud.waitForBridgeReady(10000);
-                const existing = this.findCachedCharacter(targetId);
-                const payload = this.mergeCharacterForBridgeUpdate(existing, charData, targetId);
-                const res = await F4Bridge.updateCharacter(payload, targetId);
-                if (!res || !res.ok || !res.character) {
-                    return { success: false, error: (res && res.error) || 'update_failed' };
-                }
-                // Prefer merged payload over wire reply for fields the bridge may omit.
-                const updatedCharacter = this.sanitizeRosterCharacter(
-                    Object.assign({ owner_uuid: this.uuid }, payload, res.character, { id: targetId })
-                );
-                if (this._listCharactersCache) {
-                    this._listCharactersCache = this._listCharactersCache.map(function (c) {
-                        return c.id === targetId ? updatedCharacter : c;
-                    });
-                } else {
-                    this._listCharactersCache = [updatedCharacter];
-                }
-                if (this.uuid) {
-                    try {
-                        sessionStorage.setItem(
-                            'f4_roster_' + this.uuid,
-                            JSON.stringify({ characters: this._listCharactersCache || [updatedCharacter] })
-                        );
-                    } catch (e) { /* ignore */ }
-                }
-                console.log('[updateCharacter] bridge updated:', targetId);
-                return {
-                    success: true,
-                    data: {
-                        character: updatedCharacter,
-                        message: 'Character saved!'
-                    }
-                };
-            } catch (error) {
-                console.error('updateCharacter bridge error:', error);
-                return { success: false, error: error.message || String(error) };
-            }
+        const bridgeGate = await this.requireExperienceBridge(10000);
+        if (!bridgeGate.success) {
+            return bridgeGate;
         }
-        
         try {
-            const docRef = db.collection('characters').doc(targetId);
-            let existing = this.findCachedCharacter(targetId);
-
-            if (!existing) {
-                const doc = await docRef.get();
-                if (!doc.exists) {
-                    return { success: false, error: 'Character not found' };
-                }
-                existing = { id: doc.id, ...doc.data() };
+            const existing = this.findCachedCharacter(targetId);
+            const payload = this.mergeCharacterForBridgeUpdate(existing, charData, targetId);
+            const res = await F4Bridge.updateCharacter(payload, targetId);
+            if (!res || !res.ok || !res.character) {
+                return {
+                    success: false,
+                    error: (res && res.error) || this.experienceUnavailableError()
+                };
             }
-
-            if (existing.owner_uuid !== this.uuid) {
-                return { success: false, error: 'Access denied - not your character' };
-            }
-
-            const updateData = {
-                ...charData,
-                updated_at: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            delete updateData.owner_uuid;
-            delete updateData.id;
-            Object.keys(updateData).forEach(function (key) {
-                if (updateData[key] === null || updateData[key] === undefined) {
-                    delete updateData[key];
-                }
-            });
-
-            await docRef.update(updateData);
-
-            const updatedCharacter = this.sanitizeRosterCharacter({ ...existing, ...charData, id: targetId });
+            const updatedCharacter = this.sanitizeRosterCharacter(
+                Object.assign({ owner_uuid: this.uuid }, payload, res.character, { id: targetId })
+            );
             if (this._listCharactersCache) {
                 this._listCharactersCache = this._listCharactersCache.map(function (c) {
                     return c.id === targetId ? updatedCharacter : c;
                 });
+            } else {
+                this._listCharactersCache = [updatedCharacter];
             }
-
+            if (this.uuid) {
+                try {
+                    sessionStorage.setItem(
+                        'f4_roster_' + this.uuid,
+                        JSON.stringify({ characters: this._listCharactersCache || [updatedCharacter] })
+                    );
+                } catch (e) { /* ignore */ }
+            }
+            console.log('[updateCharacter] bridge updated:', targetId);
             return {
                 success: true,
                 data: {
@@ -1509,11 +1235,13 @@ const API = {
                 }
             };
         } catch (error) {
-            console.error('updateCharacter error:', error);
-            return { success: false, error: error.message };
+            console.error('updateCharacter bridge error:', error);
+            return this.experienceUnavailableResult();
         }
     },
     
+    /**
+     * Change character's class with career history tracking
     /**
      * Change character's class with career history tracking
      * @param {string} newClassId - The class to change to

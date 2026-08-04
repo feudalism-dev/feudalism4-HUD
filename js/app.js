@@ -652,7 +652,9 @@ try {
     },
 
     /**
-     * Build a browser-usable Setup HUD URL (uuid + session params). No window.open.
+     * Build a browser-usable Setup HUD URL (uuid + session params + live HUD bridge).
+     * Must include f4_bridge/sl_cap/sl_token so Chrome uses Experience KVP via the worn HUD.
+     * Keep Setup open in SL — releasing Setup drops the HTTP-IN capacity.
      */
     buildBrowserSetupUrl() {
         if (!API.uuid || String(API.uuid).trim() === '') {
@@ -673,7 +675,8 @@ try {
         }
         const carryKeys = [
             'active_char', 'xp_lifetime', 'xp_total', 'xp_spent', 'ap_balance',
-            'health_pipe', 'stamina_pipe', 'mana_pipe', 'moap_tab'
+            'health_pipe', 'stamina_pipe', 'mana_pipe', 'moap_tab',
+            'f4_bridge', 'sl_cap', 'sl_token', 'sl_hud'
         ];
         carryKeys.forEach((key) => {
             const v = current.get(key);
@@ -681,6 +684,10 @@ try {
                 params.set(key, v);
             }
         });
+        // Force bridge mode when we already have a live capacity from MOAP.
+        if (current.get('sl_cap')) {
+            params.set('f4_bridge', '1');
+        }
         if (!params.has('active_char')) {
             const charId = this.state.selectedCharacterId
                 || (this.state.character && this.state.character.id)
@@ -729,14 +736,25 @@ try {
             UI.showToast('Not ready yet — wait for login, then try again.', 'warning');
             return;
         }
+        const hasBridge = /[?&]sl_cap=/.test(url);
+        if (!hasBridge) {
+            UI.showToast(
+                'Setup bridge is not ready yet. Keep Setup open and try again in a few seconds.',
+                'warning',
+                5000
+            );
+            return;
+        }
         UI.showModal(`
             <div class="modal-content">
                 <h2 class="modal-title" style="margin-top: 0;">Open Setup in a Web Browser</h2>
                 <p style="line-height: 1.5; color: var(--text-secondary);">
-                    You may access the setup HUD via a web browser, but you
-                    <strong>MUST</strong> keep the setup HUD open in Second Life while you do so.
-                    If not, changes you make will not be saved. Click
-                    <strong>COPY URL to Clipboard</strong>, then open a web browser and
+                    You may use an external browser, but you
+                    <strong>MUST</strong> keep the Setup HUD open in Second Life the whole time.
+                    Character saves go through your worn HUD’s connection to the Experience database —
+                    if you close Setup (or the bridge drops), saves will fail with an error instead of
+                    creating orphan characters. Click
+                    <strong>COPY URL to Clipboard</strong>, then open a browser and
                     <strong>PASTE</strong> the URL in the address bar.
                 </p>
                 <div class="form-group" style="margin: var(--space-md) 0;">
