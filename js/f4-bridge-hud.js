@@ -28,24 +28,33 @@
     }
 
     function isEnabled() {
-        return !!(global.F4Bridge && F4Bridge.isBridgeMode && F4Bridge.isBridgeMode() && F4Bridge.getApiBase());
+        // HUD cap preferred; avatar uuid alone is enough for Setup Relay fallback.
+        return !!(global.F4Bridge && F4Bridge.isBridgeMode && F4Bridge.isBridgeMode());
     }
 
     function waitForBridgeReady(maxMs) {
         var deadline = Date.now() + (maxMs || 8000);
         function attempt() {
-            if (isEnabled()) {
-                return F4Bridge.ping().then(function (res) {
-                    if (res && res.ok) {
-                        return true;
-                    }
-                    throw new Error("ping_failed");
-                });
+            if (!isEnabled()) {
+                if (Date.now() >= deadline) {
+                    return Promise.reject(new Error("bridge_timeout"));
+                }
+                return sleep(300).then(attempt);
             }
-            if (Date.now() >= deadline) {
-                return Promise.reject(new Error("bridge_timeout"));
-            }
-            return sleep(300).then(attempt);
+            return F4Bridge.ping().then(function (res) {
+                if (res && res.ok) {
+                    return true;
+                }
+                if (Date.now() >= deadline) {
+                    return Promise.reject(new Error("ping_failed"));
+                }
+                return sleep(400).then(attempt);
+            }).catch(function (err) {
+                if (Date.now() >= deadline) {
+                    return Promise.reject(err || new Error("bridge_timeout"));
+                }
+                return sleep(400).then(attempt);
+            });
         }
         return attempt();
     }
