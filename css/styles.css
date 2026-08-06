@@ -820,7 +820,96 @@ input::placeholder {
     width: 100%;
 }
 
-/* Inventory container - table-like layout */
+.inventory-tab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
+}
+
+.inventory-tab-header h2 {
+    margin: 0;
+}
+
+.inventory-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-md);
+    margin-top: var(--space-md);
+}
+
+.inventory-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 96px;
+}
+
+.inventory-card--consumable {
+    border-color: rgba(201, 162, 39, 0.35);
+    background: linear-gradient(160deg, rgba(201, 162, 39, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+.inventory-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.inventory-card-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.25;
+    text-transform: capitalize;
+}
+
+.inventory-card-qty {
+    flex-shrink: 0;
+    font-weight: 700;
+    color: var(--gold-light, #e0c36a);
+    font-size: 1.05em;
+}
+
+.inventory-card-badge {
+    align-self: flex-start;
+    font-size: 0.72em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+}
+
+.inventory-card-badge--mute {
+    opacity: 0.65;
+}
+
+.inventory-card-effects {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+
+.inventory-card-desc,
+.inventory-card-slug {
+    font-size: 0.78em;
+    color: var(--text-muted, #888);
+    line-height: 1.3;
+}
+
+.inventory-paging {
+    margin-top: var(--space-lg);
+    text-align: center;
+}
+
+/* Legacy table layout (kept for compatibility) */
 .inventory-container {
     width: 100%;
     display: flex;

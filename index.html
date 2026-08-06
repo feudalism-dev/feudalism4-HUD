@@ -116,19 +116,17 @@
                 </div>
             </section>
 
-            <!-- Inventory Tab (in-world only — Experience KVP, not Firestore) -->
+            <!-- Inventory Tab (Experience KVP via HUD bridge / Setup Relay) -->
             <section id="tab-inventory" class="tab-content">
-                <div class="panel" style="text-align: center; padding: var(--space-xl);">
-                    <h2>Inventory</h2>
-                    <p class="info-text" style="font-size: 1.1em; margin: var(--space-lg) 0;">
-                        Personal inventory is managed on your <strong>Players HUD</strong>, not in this Setup screen.
-                    </p>
-                    <p class="info-text" style="font-size: 1.2em; margin-bottom: var(--space-md);">
-                        Click the <strong>I</strong> button on your HUD to open inventory.
-                    </p>
-                    <p class="field-hint" style="margin-top: var(--space-md);">
-                        Use the <strong>$</strong> button on the HUD for currency (when enabled).
-                    </p>
+                <div class="panel">
+                    <div class="inventory-tab-header">
+                        <h2>Inventory</h2>
+                        <button type="button" class="btn btn-secondary" id="btn-inventory-refresh">Refresh</button>
+                    </div>
+                    <p class="field-hint" id="inventory-status">Personal bag for the active character (read-only).</p>
+                    <div id="inventory-grid" class="inventory-grid">
+                        <p class="placeholder-text">Open this tab to load inventory…</p>
+                    </div>
                 </div>
             </section>
 

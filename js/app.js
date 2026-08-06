@@ -163,7 +163,8 @@ try {
         currentSpecies: null,
         currentClass: null,
         currentVocation: null,
-        inventoryPagination: null,  // { cursor: '', hasMore: false, items: [] }
+        inventoryPagination: null,  // { cursor: '', hasMore: false, items: [], source: '' }
+        consumablesById: null,
         currentUniverse: null,
         selectedUniverseId: 'default',
         selectedCharacterId: null,
@@ -4418,6 +4419,10 @@ try {
         
         // Refresh button
         UI.elements.btnRefresh?.addEventListener('click', () => this.loadData());
+
+        document.getElementById('btn-inventory-refresh')?.addEventListener('click', () => {
+            this.loadSetupInventory();
+        });
         
         UI.elements.btnAddActionSlot?.addEventListener('click', () => {
             // Find first empty slot
@@ -5423,6 +5428,176 @@ try {
 
     isBridgeHudMode() {
         return typeof F4BridgeHud !== 'undefined' && F4BridgeHud.isEnabled();
+    },
+
+    /**
+     * Prettify inventory slug for display when no consumable name exists.
+     */
+    prettyInventorySlug(slug) {
+        return String(slug || '')
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    },
+
+    async ensureConsumablesMap() {
+        if (this.state.consumablesById) {
+            return this.state.consumablesById;
+        }
+        const map = Object.create(null);
+        try {
+            if (typeof API !== 'undefined' && API.getConsumables) {
+                const result = await API.getConsumables();
+                const list = (result && result.success && result.data) ? result.data : [];
+                list.forEach((c) => {
+                    if (c && c.id) {
+                        map[String(c.id).toLowerCase()] = c;
+                    }
+                });
+            }
+        } catch (e) {
+            console.warn('[ensureConsumablesMap]', e);
+        }
+        this.state.consumablesById = map;
+        return map;
+    },
+
+    enrichInventoryItems(rawItems) {
+        const map = this.state.consumablesById || Object.create(null);
+        return (rawItems || []).map((item) => {
+            const slug = String(item.name || item.id || '').toLowerCase();
+            const qty = item.qty != null ? Number(item.qty) : 0;
+            const cons = map[slug];
+            if (!cons) {
+                return {
+                    name: slug,
+                    qty: qty,
+                    displayName: this.prettyInventorySlug(slug),
+                    isConsumable: false
+                };
+            }
+            let effectsSummary = '';
+            try {
+                effectsSummary = API.formatConsumableEffectsSummary(cons) || '';
+            } catch (e) {
+                effectsSummary = '';
+            }
+            return {
+                name: slug,
+                qty: qty,
+                displayName: cons.name || this.prettyInventorySlug(slug),
+                description: cons.description || '',
+                category: cons.effect_category || '',
+                effectsSummary: effectsSummary,
+                isConsumable: true
+            };
+        });
+    },
+
+    /**
+     * Load personal inventory for Setup Inventory tab (HUD bridge, relay fallback).
+     */
+    async loadSetupInventory(options) {
+        const opts = options || {};
+        const append = !!opts.append;
+        const statusEl = document.getElementById('inventory-status');
+        if (!UI.elements.inventoryGrid) {
+            UI.elements.inventoryGrid = document.getElementById('inventory-grid');
+        }
+        if (!this.isBridgeHudMode() && !(typeof F4Bridge !== 'undefined' && F4Bridge.getInventoryPage)) {
+            UI.renderInventory([], { error: 'Inventory requires the in-world Setup HUD (Experience bridge).' });
+            return;
+        }
+        if (typeof F4Bridge === 'undefined' || !F4Bridge.getInventoryPage) {
+            UI.renderInventory([], { error: 'Inventory bridge is not available on this page.' });
+            return;
+        }
+        const characterId = (this.state.character && this.state.character.id) || '';
+        if (!characterId) {
+            UI.renderInventory([], { error: 'Select or create a character first.' });
+            return;
+        }
+        if (statusEl && !append) {
+            statusEl.textContent = 'Loading inventory…';
+        }
+        if (UI.elements.inventoryGrid && !append) {
+            UI.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Loading inventory…</p>';
+        }
+
+        await this.ensureConsumablesMap();
+
+        let cursor = '';
+        let items = [];
+        if (append && this.state.inventoryPagination && Array.isArray(this.state.inventoryPagination.items)) {
+            items = this.state.inventoryPagination.items.slice();
+            cursor = this.state.inventoryPagination.cursor || '';
+        }
+
+        const maxPages = append ? 1 : 12;
+        let hasMore = false;
+        let source = '';
+        let lastError = '';
+        let reqSeq = Date.now();
+
+        for (let page = 0; page < maxPages; page++) {
+            try {
+                const res = await F4Bridge.getInventoryPage({
+                    characterId: characterId,
+                    cursor: cursor,
+                    pageSize: 30,
+                    filter: 'all',
+                    reqSeq: reqSeq++
+                });
+                if (!res || res.ok === false) {
+                    lastError = (res && res.error) ? String(res.error) : 'inv_read_fail';
+                    break;
+                }
+                const pageItems = Array.isArray(res.items) ? res.items : [];
+                items = items.concat(pageItems);
+                hasMore = !!res.hasMore;
+                cursor = res.cursor != null ? String(res.cursor) : '';
+                if (res.relay) {
+                    source = 'Experience (relay)';
+                } else if (!source) {
+                    source = 'HUD';
+                }
+                if (!hasMore) {
+                    break;
+                }
+                if (append) {
+                    break;
+                }
+            } catch (e) {
+                lastError = e && e.message ? e.message : 'inv_read_fail';
+                break;
+            }
+        }
+
+        if (lastError && items.length === 0) {
+            this.state.inventoryPagination = null;
+            UI.renderInventory([], { error: 'Could not load inventory (' + lastError + ').' });
+            return;
+        }
+
+        const enriched = this.enrichInventoryItems(items);
+        this.state.inventoryPagination = {
+            cursor: cursor,
+            hasMore: hasMore,
+            items: enriched,
+            source: source
+        };
+        UI.renderInventory(enriched, {
+            hasMore: hasMore,
+            truncated: hasMore && !append,
+            source: source
+        });
+    },
+
+    async loadInventoryNextPage() {
+        if (!this.state.inventoryPagination || !this.state.inventoryPagination.hasMore) {
+            return;
+        }
+        await this.loadSetupInventory({ append: true });
     },
 
     snapshotGameplayFromCharacter(char) {

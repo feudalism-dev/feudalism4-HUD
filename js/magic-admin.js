@@ -182,14 +182,16 @@
             this._magicCache[collectionName] = items;
 
             let rows = '';
+            const isRunes = collectionName === 'runes';
             if (!items.length) {
-                rows = `<tr><td colspan="5" style="text-align:center;padding:var(--space-lg);color:var(--text-muted);">No ${esc(catalogTitle(collectionName))} yet. Seed defaults or create one.</td></tr>`;
+                rows = `<tr><td colspan="${isRunes ? 6 : 5}" style="text-align:center;padding:var(--space-lg);color:var(--text-muted);">No ${esc(catalogTitle(collectionName))} yet. Seed defaults or create one.</td></tr>`;
             } else {
                 items.forEach((item) => {
                     rows += `
                         <tr>
                             <td><code>${esc(item.id)}</code></td>
                             <td>${esc(item.name)}</td>
+                            ${isRunes ? `<td>${esc(item.purpose || '')}</td>` : ''}
                             <td>${esc(item.sortOrder != null ? item.sortOrder : '')}</td>
                             <td>${item.disabled ? '<span style="color:var(--error);">Disabled</span>' : '<span style="color:var(--success);">Active</span>'}</td>
                             <td>
@@ -215,7 +217,7 @@
                 </div>
                 <div class="admin-table-container" style="overflow-x:auto;">
                     <table class="admin-table" style="width:100%;border-collapse:collapse;">
-                        <thead><tr><th>ID</th><th>Name</th><th>Sort</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>ID</th><th>Name</th>${isRunes ? '<th>Purpose</th>' : ''}<th>Sort</th><th>Status</th><th>Actions</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>`;
@@ -356,7 +358,12 @@
                 extra = `<div class="form-group"><label>Menu group</label><input id="magic-menu-group" value="${esc(data.menuGroup || '')}"></div>`;
             } else if (collectionName === 'runes') {
                 extra = `
+                    <div class="form-group"><label>Purpose</label><input id="magic-purpose" value="${esc(data.purpose || '')}" placeholder="fire; separate part split; detection"></div>
                     <div class="form-group"><label>Meaning</label><input id="magic-meaning" value="${esc(data.meaning || '')}"></div>
+                    <div class="form-group"><label>Category id</label><input id="magic-category" value="${esc(data.categoryId || '')}" placeholder="elemental|force|structural|octave|trigger|conceptual|high_imperial"></div>
+                    <div class="form-group"><label>Construction roles (comma-separated)</label><input id="magic-roles" value="${esc((data.constructionRoles || []).join(', '))}" placeholder="concept, force, structure, framework, octave, trigger, link, amplify"></div>
+                    <div class="form-group"><label>Octave tie</label><input id="magic-octave" value="${esc(data.octaveTie || '')}" placeholder="1–6 or all"></div>
+                    <div class="form-group"><label>Symbol cue</label><input id="magic-symbol" value="${esc(data.symbolCue || '')}"></div>
                     <div class="form-group"><label>Texture UUID</label><input id="magic-texture" value="${esc(data.textureUuid || '')}"></div>
                     <div class="form-group"><label>Tags (comma-separated)</label><input id="magic-tags" value="${esc((data.tags || []).join(', '))}"></div>
                     <div class="form-group"><label>Domain notes (JSON object)</label><textarea id="magic-domain-notes" rows="3">${esc(JSON.stringify(data.domainNotes || {}, null, 2))}</textarea></div>`;
@@ -410,7 +417,13 @@
                 } else if (collectionName === 'kinds') {
                     payload.menuGroup = document.getElementById('magic-menu-group')?.value || '';
                 } else if (collectionName === 'runes') {
+                    payload.purpose = document.getElementById('magic-purpose')?.value || '';
                     payload.meaning = document.getElementById('magic-meaning')?.value || '';
+                    payload.categoryId = document.getElementById('magic-category')?.value || '';
+                    payload.constructionRoles = String(document.getElementById('magic-roles')?.value || '')
+                        .split(',').map((s) => s.trim()).filter(Boolean);
+                    payload.octaveTie = document.getElementById('magic-octave')?.value || '';
+                    payload.symbolCue = document.getElementById('magic-symbol')?.value || '';
                     payload.textureUuid = document.getElementById('magic-texture')?.value || '';
                     payload.tags = String(document.getElementById('magic-tags')?.value || '')
                         .split(',').map((s) => s.trim()).filter(Boolean);
@@ -688,7 +701,7 @@
             let headers = ['id', 'name', 'description', 'sortOrder', 'disabled'];
             if (collectionName === 'domains') headers = headers.concat(['color', 'icon', 'aliases']);
             if (collectionName === 'kinds') headers = headers.concat(['menuGroup']);
-            if (collectionName === 'runes') headers = headers.concat(['meaning', 'textureUuid', 'tags', 'domainNotes']);
+            if (collectionName === 'runes') headers = headers.concat(['purpose', 'meaning', 'textureUuid', 'tags', 'domainNotes', 'categoryId', 'constructionRoles', 'octaveTie', 'symbolCue']);
             if (collectionName === 'visualEffects') headers = headers.concat(['emitter', 'durationSec', 'followAvatar', 'notes']);
             if (collectionName === 'damageTypes') headers = headers.concat(['resistedBy', 'dotDefaultVfxId']);
 
@@ -703,10 +716,15 @@
                     icon: item.icon || '',
                     aliases: Array.isArray(item.aliases) ? item.aliases.join('|') : '',
                     menuGroup: item.menuGroup || '',
+                    purpose: item.purpose || '',
                     meaning: item.meaning || '',
                     textureUuid: item.textureUuid || '',
                     tags: Array.isArray(item.tags) ? item.tags.join('|') : '',
                     domainNotes: JSON.stringify(item.domainNotes || {}),
+                    categoryId: item.categoryId || '',
+                    constructionRoles: Array.isArray(item.constructionRoles) ? item.constructionRoles.join('|') : '',
+                    octaveTie: item.octaveTie || '',
+                    symbolCue: item.symbolCue || '',
                     emitter: item.emitter || '',
                     durationSec: item.durationSec != null ? item.durationSec : 0,
                     followAvatar: item.followAvatar !== false ? 'true' : 'false',
@@ -746,10 +764,15 @@
                     } else if (collectionName === 'kinds') {
                         payload.menuGroup = row.menuGroup || '';
                     } else if (collectionName === 'runes') {
+                        payload.purpose = row.purpose || '';
                         payload.meaning = row.meaning || '';
                         payload.textureUuid = row.textureUuid || '';
                         payload.tags = String(row.tags || '').split('|').map((s) => s.trim()).filter(Boolean);
                         try { payload.domainNotes = JSON.parse(row.domainNotes || '{}'); } catch (e) { payload.domainNotes = {}; }
+                        payload.categoryId = row.categoryId || '';
+                        payload.constructionRoles = String(row.constructionRoles || '').split('|').map((s) => s.trim()).filter(Boolean);
+                        payload.octaveTie = row.octaveTie != null ? String(row.octaveTie) : '';
+                        payload.symbolCue = row.symbolCue || '';
                     } else if (collectionName === 'visualEffects') {
                         payload.emitter = row.emitter || 'effect_prim';
                         payload.durationSec = parseFloat(row.durationSec) || 0;

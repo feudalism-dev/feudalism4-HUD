@@ -286,8 +286,11 @@ const UI = {
             content.classList.toggle('active', content.id === `tab-${tabId}`);
         });
         
-        // Inventory tab is static HTML — no Firestore load
+        // Inventory tab loads from HUD bridge / Setup Relay (App.loadSetupInventory)
         if (tabId === 'inventory') {
+            if (typeof App !== 'undefined' && typeof App.loadSetupInventory === 'function') {
+                App.loadSetupInventory();
+            }
             return;
         }
         
@@ -1915,90 +1918,99 @@ const UI = {
     // =========================== INVENTORY DISPLAY ========================
     
     /**
-     * Render inventory list (read-only)
-     * @param {Object} inventory - Inventory object {itemName: quantity}
+     * Render read-only personal inventory (Setup HUD).
+     * Items may include consumable enrich fields: displayName, category, effectsSummary, description.
      */
-    renderInventory(items, hasMore = false) {
+    renderInventory(items, options = {}) {
         if (!this.elements.inventoryGrid) {
             console.warn('[renderInventory] Inventory grid element not found');
             return;
         }
-        
-        console.log('[renderInventory] Received items:', items);
-        console.log('[renderInventory] Items is array?', Array.isArray(items));
-        console.log('[renderInventory] Items length:', items ? items.length : 0);
-        console.log('[renderInventory] hasMore:', hasMore);
-        
-        // Handle empty inventory
-        if (!items || !Array.isArray(items) || items.length === 0) {
-            console.log('[renderInventory] Inventory is empty');
-            this.elements.inventoryGrid.innerHTML = '<p class="placeholder-text">Your inventory is empty...</p>';
+
+        const statusEl = document.getElementById('inventory-status');
+        const hasMore = !!options.hasMore;
+        const truncated = !!options.truncated;
+        const source = options.source || '';
+        const error = options.error || '';
+
+        if (statusEl) {
+            if (error) {
+                statusEl.textContent = error;
+            } else if (!items || !items.length) {
+                statusEl.textContent = 'Bag is empty for this character.';
+            } else {
+                let status = items.length + ' item' + (items.length === 1 ? '' : 's');
+                if (source) status += ' · ' + source;
+                if (truncated) status += ' · showing first pages only';
+                statusEl.textContent = status + ' (read-only)';
+            }
+        }
+
+        if (error) {
+            this.elements.inventoryGrid.innerHTML =
+                '<p class="placeholder-text">' + this.escapeHtml(error) + '</p>';
             return;
         }
-        
-        // Sort items alphabetically by id (Inventory v2 uses 'id' property)
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            this.elements.inventoryGrid.innerHTML =
+                '<p class="placeholder-text">Your inventory is empty…</p>';
+            return;
+        }
+
         const sortedItems = items.slice().sort((a, b) => {
-            const idA = a.id || a.name || '';
-            const idB = b.id || b.name || '';
+            const idA = (a.displayName || a.name || a.id || '').toLowerCase();
+            const idB = (b.displayName || b.name || b.id || '').toLowerCase();
             return idA.localeCompare(idB);
         });
-        
-        // Build attractive inventory list HTML
-        let html = '<div class="inventory-container">';
-        
-        // Header row
-        html += '<div class="inventory-header">';
-        html += '<div class="inventory-item-name">Item Name</div>';
-        html += '<div class="inventory-quantity">Quantity</div>';
-        html += '<div class="inventory-actions">Actions</div>';
-        html += '</div>';
-        
-        // Item rows
-        sortedItems.forEach((item, index) => {
-            const rowClass = index % 2 === 0 ? 'inventory-row' : 'inventory-row inventory-row-alt';
-            const itemId = item.id || item.name || '';
-            const itemQty = item.qty || 0;
-            const itemType = item.type || '';
-            const isConsumable = itemType === 'consumable' && itemQty > 0;
-            
-            html += `<div class="${rowClass}" data-item-id="${this.escapeHtml(itemId)}" data-item-type="${this.escapeHtml(itemType)}">`;
-            html += `<div class="inventory-item-name">${this.escapeHtml(itemId)}</div>`;
-            html += `<div class="inventory-quantity">${itemQty}</div>`;
-            html += '<div class="inventory-actions">';
-            if (isConsumable) {
-                html += `<button class="btn btn-sm btn-primary btn-consume" data-item-id="${this.escapeHtml(itemId)}">Consume</button>`;
+
+        let html = '<div class="inventory-cards">';
+        sortedItems.forEach((item) => {
+            const slug = item.name || item.id || '';
+            const title = item.displayName || slug;
+            const qty = item.qty != null ? item.qty : 0;
+            const category = (item.category || item.effect_category || '').toLowerCase();
+            const effects = item.effectsSummary || '';
+            const desc = item.description || '';
+            const isConsumable = !!item.isConsumable || !!category;
+            const cardClass = isConsumable
+                ? 'inventory-card inventory-card--consumable'
+                : 'inventory-card';
+
+            html += `<div class="${cardClass}" data-item-id="${this.escapeHtml(slug)}">`;
+            html += '<div class="inventory-card-top">';
+            html += `<div class="inventory-card-title">${this.escapeHtml(title)}</div>`;
+            html += `<div class="inventory-card-qty">×${this.escapeHtml(String(qty))}</div>`;
+            html += '</div>';
+            if (category) {
+                html += `<span class="inventory-card-badge">${this.escapeHtml(category)}</span>`;
+            } else {
+                html += '<span class="inventory-card-badge inventory-card-badge--mute">item</span>';
+            }
+            if (effects) {
+                html += `<div class="inventory-card-effects">${this.escapeHtml(effects)}</div>`;
+            }
+            if (desc) {
+                html += `<div class="inventory-card-desc">${this.escapeHtml(desc)}</div>`;
+            } else if (slug && title.toLowerCase() !== slug.toLowerCase()) {
+                html += `<div class="inventory-card-slug">${this.escapeHtml(slug)}</div>`;
             }
             html += '</div>';
-            html += '</div>';
         });
-        
         html += '</div>';
-        
-        // Add "Next Page" button if there are more items
+
         if (hasMore) {
-            html += '<div style="margin-top: 15px; text-align: center;">';
-            html += '<button id="btn-inventory-next-page" class="btn btn-secondary" style="padding: 8px 20px;">Next Page</button>';
+            html += '<div class="inventory-paging">';
+            html += '<button type="button" id="btn-inventory-next-page" class="btn btn-secondary">Load more</button>';
             html += '</div>';
         }
-        
+
         this.elements.inventoryGrid.innerHTML = html;
-        
-        // Attach event listeners to Consume buttons
-        document.querySelectorAll('.btn-consume').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const itemId = e.target.dataset.itemId;
-                if (itemId && window.App && window.App.requestConsumeItem) {
-                    await window.App.requestConsumeItem(itemId);
-                }
-            });
-        });
-        
-        // Attach event listener to "Next Page" button
+
         if (hasMore) {
             const nextPageBtn = document.getElementById('btn-inventory-next-page');
             if (nextPageBtn) {
-                const self = this;
-                nextPageBtn.addEventListener('click', function() {
+                nextPageBtn.addEventListener('click', () => {
                     if (window.App && window.App.loadInventoryNextPage) {
                         window.App.loadInventoryNextPage();
                     }

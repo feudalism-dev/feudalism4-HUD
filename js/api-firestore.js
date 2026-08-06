@@ -3992,9 +3992,14 @@ const API = {
         if (collectionName === 'runes') {
             return Object.assign(base, {
                 meaning: d.meaning || '',
+                purpose: d.purpose || '',
                 textureUuid: d.textureUuid || '',
                 tags: Array.isArray(d.tags) ? d.tags : [],
-                domainNotes: (d.domainNotes && typeof d.domainNotes === 'object') ? d.domainNotes : {}
+                domainNotes: (d.domainNotes && typeof d.domainNotes === 'object') ? d.domainNotes : {},
+                categoryId: d.categoryId || '',
+                constructionRoles: Array.isArray(d.constructionRoles) ? d.constructionRoles : [],
+                octaveTie: d.octaveTie != null ? String(d.octaveTie) : '',
+                symbolCue: d.symbolCue || ''
             });
         }
         if (collectionName === 'visualEffects') {
@@ -4036,11 +4041,16 @@ const API = {
             doc.menuGroup = data.menuGroup || '';
         } else if (collectionName === 'runes') {
             doc.meaning = data.meaning || '';
+            doc.purpose = data.purpose || '';
             doc.textureUuid = data.textureUuid || '';
             doc.tags = Array.isArray(data.tags) ? data.tags : [];
             doc.domainNotes = (data.domainNotes && typeof data.domainNotes === 'object')
                 ? data.domainNotes
                 : {};
+            doc.categoryId = data.categoryId || '';
+            doc.constructionRoles = Array.isArray(data.constructionRoles) ? data.constructionRoles : [];
+            doc.octaveTie = data.octaveTie != null ? String(data.octaveTie) : '';
+            doc.symbolCue = data.symbolCue || '';
         } else if (collectionName === 'visualEffects') {
             doc.emitter = data.emitter || 'effect_prim';
             doc.durationSec = data.durationSec != null ? Number(data.durationSec) : 0;
@@ -4385,9 +4395,59 @@ const API = {
             { id: 'PARTICLE_MAGE_LIGHT', name: 'Mage Light', emitter: 'world', durationSec: 0, notes: 'Hovering light object FX' }
         ];
         const runes = [
-            { id: 'eos', name: 'Eos', meaning: 'Light', tags: ['light', 'reveal'], domainNotes: { elemental: 'Photomantic focus', divine: 'Revelation' } },
-            { id: 'bela', name: 'Bela', meaning: 'Binding', tags: ['bind', 'enchant'], domainNotes: { enchantment: 'Matrix anchor' } },
-            { id: 'selan', name: 'Selan', meaning: 'Release', tags: ['release', 'dispel'], domainNotes: { universal: 'Unweave' } }
+            { id: 'ignis', purpose: 'fire', name: 'Ignis', meaning: 'Fire — heat, combustion, ignition', description: 'Elemental fire glyph. Core of thermic and ignition patterns.', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '3', symbolCue: 'Angular flame-shaped glyph', tags: ['fire', 'heat', 'ignition', 'elemental'], domainNotes: { elemental: 'Primary fire concept', war: 'Explosive / thermic payloads' }, sortOrder: 10 },
+            { id: 'aqua', purpose: 'water', name: 'Aqua', meaning: 'Water — flow, cohesion, dissolution', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '2', tags: ['water', 'flow', 'dissolution', 'elemental'], domainNotes: { elemental: 'Primary water concept' }, sortOrder: 20 },
+            { id: 'ventus', purpose: 'air', name: 'Ventus', meaning: 'Air — movement, pressure, levitation', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '3', tags: ['air', 'motion', 'levitation', 'elemental'], domainNotes: { elemental: 'Primary air concept' }, sortOrder: 30 },
+            { id: 'terra', purpose: 'earth', name: 'Terra', meaning: 'Earth — solidity, stability, mass', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '2', tags: ['earth', 'solidity', 'mass', 'elemental'], domainNotes: { elemental: 'Primary earth concept' }, sortOrder: 40 },
+            { id: 'lux', purpose: 'light', name: 'Lux', meaning: 'Light — illumination, radiance', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '4', symbolCue: 'Radiant star or lamp glyph', tags: ['light', 'reveal', 'illumination', 'elemental'], domainNotes: { elemental: 'Photomantic focus', divine: 'Revelation / purity' }, sortOrder: 50 },
+            { id: 'umbra', purpose: 'shadow', name: 'Umbra', meaning: 'Shadow — concealment, darkness', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '4', tags: ['shadow', 'conceal', 'darkness', 'elemental'], domainNotes: { elemental: 'Concealment', shadow: 'Primary shadow concept' }, sortOrder: 60 },
+            { id: 'fulmen', purpose: 'lightning', name: 'Fulmen', meaning: 'Lightning — sudden force, disruption', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '3', tags: ['lightning', 'disruption', 'elemental'], domainNotes: { elemental: 'Sudden force', war: 'Disruptive strike' }, sortOrder: 70 },
+            { id: 'gelus', purpose: 'cold', name: 'Gelus', meaning: 'Cold — freezing, slowing, preservation', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '2', tags: ['cold', 'freeze', 'slow', 'elemental'], domainNotes: { elemental: 'Cryic patterns' }, sortOrder: 80 },
+            { id: 'impello', purpose: 'push', name: 'Impello', meaning: 'Push — force outward', categoryId: 'force', constructionRoles: ['force'], octaveTie: '3', symbolCue: 'Arrow with force lines', tags: ['push', 'kinetic', 'force'], domainNotes: { war: 'Telekinetic blast' }, sortOrder: 100 },
+            { id: 'traho', purpose: 'pull', name: 'Traho', meaning: 'Pull — force inward', categoryId: 'force', constructionRoles: ['force'], octaveTie: '3', tags: ['pull', 'kinetic', 'force'], domainNotes: {}, sortOrder: 110 },
+            { id: 'levo', purpose: 'lift', name: 'Levo', meaning: 'Lift — upward motion', categoryId: 'force', constructionRoles: ['force'], octaveTie: '3', tags: ['lift', 'levitation', 'force'], domainNotes: {}, sortOrder: 120 },
+            { id: 'moto', purpose: 'move', name: 'Moto', meaning: 'Move — directional motion', categoryId: 'force', constructionRoles: ['force'], octaveTie: '3', tags: ['move', 'motion', 'force'], domainNotes: {}, sortOrder: 130 },
+            { id: 'accelero', purpose: 'accelerate', name: 'Accelero', meaning: 'Accelerate — increase speed', categoryId: 'force', constructionRoles: ['force'], octaveTie: '3', tags: ['accelerate', 'speed', 'force'], domainNotes: {}, sortOrder: 140 },
+            { id: 'vincio', purpose: 'bind hold', name: 'Vincio', meaning: 'Bind — hold in place (kinetic)', categoryId: 'force', constructionRoles: ['force'], octaveTie: '2', tags: ['bind', 'hold', 'force'], domainNotes: { war: 'Kinetic restraint' }, sortOrder: 150 },
+            { id: 'repello', purpose: 'repel', name: 'Repello', meaning: 'Repel — push away', categoryId: 'force', constructionRoles: ['force'], octaveTie: '3', tags: ['repel', 'push', 'force'], domainNotes: { war: 'Force ward assist' }, sortOrder: 160 },
+            { id: 'stabilo', purpose: 'stabilize', name: 'Stabilo', meaning: 'Stabilize — prevent movement', categoryId: 'force', constructionRoles: ['force'], octaveTie: '2', tags: ['stabilize', 'steady', 'force'], domainNotes: {}, sortOrder: 170 },
+            { id: 'sigillum', purpose: 'seal contain', name: 'Sigillum', meaning: 'Seal — containment', categoryId: 'structural', constructionRoles: ['structure', 'framework'], octaveTie: '2', symbolCue: 'Closed loop with three anchors', tags: ['seal', 'contain', 'shield', 'structural'], domainNotes: { enchantment: 'Spell container', war: 'Shield lattice' }, sortOrder: 200 },
+            { id: 'nexus', purpose: 'connect link', name: 'Nexus', meaning: 'Connection — link runes together', categoryId: 'structural', constructionRoles: ['link', 'structure'], octaveTie: '2', tags: ['link', 'connect', 'structural'], domainNotes: { enchantment: 'Circuit join' }, sortOrder: 210 },
+            { id: 'forma', purpose: 'shape', name: 'Forma', meaning: 'Shape — define spell structure', categoryId: 'structural', constructionRoles: ['structure'], octaveTie: '2', tags: ['shape', 'structure', 'structural'], domainNotes: {}, sortOrder: 220 },
+            { id: 'durus', purpose: 'duration endure', name: 'Durus', meaning: 'Endure — duration, persistence', categoryId: 'structural', constructionRoles: ['structure'], octaveTie: '2', tags: ['duration', 'persist', 'structural'], domainNotes: {}, sortOrder: 230 },
+            { id: 'circuitus', purpose: 'circuit pathway', name: 'Circuitus', meaning: 'Circuit — magical pathways', categoryId: 'structural', constructionRoles: ['structure', 'framework'], octaveTie: '2', tags: ['circuit', 'pathway', 'structural'], domainNotes: { enchantment: 'Focus wiring' }, sortOrder: 240 },
+            { id: 'matrix', purpose: 'framework', name: 'Matrix', meaning: 'Matrix — spell framework', categoryId: 'structural', constructionRoles: ['framework'], octaveTie: '2', symbolCue: 'Grid-like pattern', tags: ['framework', 'matrix', 'structural'], domainNotes: { enchantment: 'Multi-rune scaffold' }, sortOrder: 250 },
+            { id: 'ancor', purpose: 'anchor', name: 'Ancor', meaning: 'Anchor — bind spell to object', categoryId: 'structural', constructionRoles: ['link', 'structure'], octaveTie: '2', tags: ['anchor', 'bind', 'enchant', 'structural'], domainNotes: { enchantment: 'Matrix anchor' }, sortOrder: 260 },
+            { id: 'arath', purpose: 'separate part split', name: 'Arath', meaning: 'Division — separation, parting', description: 'Division and separation. Parts wholes or severs links.', categoryId: 'structural', constructionRoles: ['structure', 'link'], octaveTie: '2', symbolCue: 'Cleaving stroke / parted circle', tags: ['division', 'separation', 'sever', 'structural'], domainNotes: { enchantment: 'Sever matrix', mental: 'Cut sympathy' }, sortOrder: 270 },
+            { id: 'octavus', purpose: 'octave tune', name: 'Octavus', meaning: 'Octave — tune to a specific octave', categoryId: 'octave', constructionRoles: ['octave'], octaveTie: 'all', tags: ['octave', 'tune', 'harmonic'], domainNotes: {}, sortOrder: 300 },
+            { id: 'transitus', purpose: 'octave shift', name: 'Transitus', meaning: 'Shift — move energy between octaves', categoryId: 'octave', constructionRoles: ['octave'], octaveTie: 'all', symbolCue: 'Split line with ascending and descending arcs', tags: ['octave', 'shift', 'harmonic'], domainNotes: {}, sortOrder: 310 },
+            { id: 'harmonia', purpose: 'harmony', name: 'Harmonia', meaning: 'Harmony — stabilize octave resonance', categoryId: 'octave', constructionRoles: ['octave'], octaveTie: '5', tags: ['harmony', 'stabilize', 'octave'], domainNotes: {}, sortOrder: 320 },
+            { id: 'resono', purpose: 'resonate', name: 'Resono', meaning: 'Resonate — amplify octave effects', categoryId: 'octave', constructionRoles: ['octave', 'amplify'], octaveTie: '5', tags: ['resonate', 'amplify', 'octave'], domainNotes: {}, sortOrder: 330 },
+            { id: 'fractus', purpose: 'break octave', name: 'Fractus', meaning: 'Break — disrupt octave alignment', categoryId: 'octave', constructionRoles: ['octave'], octaveTie: 'all', tags: ['break', 'disrupt', 'octave'], domainNotes: { war: 'Counter-harmonic' }, sortOrder: 340 },
+            { id: 'actus', purpose: 'activate release', name: 'Actus', meaning: 'Activate — release spell', categoryId: 'trigger', constructionRoles: ['trigger'], octaveTie: '1', symbolCue: 'Chevron pointing outward', tags: ['activate', 'trigger', 'release'], domainNotes: { universal: 'Spell release', enchantment: 'Wand trigger' }, sortOrder: 400 },
+            { id: 'focus', purpose: 'target', name: 'Focus', meaning: 'Target — define target', categoryId: 'trigger', constructionRoles: ['trigger'], octaveTie: '1', tags: ['target', 'aim', 'trigger'], domainNotes: {}, sortOrder: 410 },
+            { id: 'tempus', purpose: 'timing delay', name: 'Tempus', meaning: 'Timing — delay or schedule activation', categoryId: 'trigger', constructionRoles: ['trigger'], octaveTie: '1', tags: ['timing', 'delay', 'trigger'], domainNotes: {}, sortOrder: 420 },
+            { id: 'voluntas', purpose: 'intent will', name: 'Voluntas', meaning: 'Intent — bind to caster will', categoryId: 'trigger', constructionRoles: ['trigger'], octaveTie: '1', tags: ['intent', 'will', 'trigger'], domainNotes: {}, sortOrder: 430 },
+            { id: 'sensor', purpose: 'detection', name: 'Sensor', meaning: 'Detect — activate on condition', categoryId: 'trigger', constructionRoles: ['trigger'], octaveTie: '1', tags: ['detect', 'condition', 'trigger'], domainNotes: { enchantment: 'Trap arming' }, sortOrder: 440 },
+            { id: 'vita', purpose: 'life heal', name: 'Vita', meaning: 'Life — healing, growth', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '5', tags: ['life', 'heal', 'growth', 'conceptual'], domainNotes: { divine: 'Restorative', green: 'Growth' }, sortOrder: 500 },
+            { id: 'mors', purpose: 'death decay', name: 'Mors', meaning: 'Death — decay, entropy', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '5', tags: ['death', 'decay', 'entropy', 'conceptual'], domainNotes: { shadow: 'Entropy' }, sortOrder: 510 },
+            { id: 'mens', purpose: 'mind', name: 'Mens', meaning: 'Mind — thought, mental contact', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '6', symbolCue: 'Spiral inside a circle', tags: ['mind', 'thought', 'mental', 'conceptual'], domainNotes: { mental: 'Primary mind concept' }, sortOrder: 520 },
+            { id: 'memoria', purpose: 'memory', name: 'Memoria', meaning: 'Memory — imprinting patterns', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '6', tags: ['memory', 'imprint', 'conceptual'], domainNotes: { mental: 'Pattern store', enchantment: 'Spell imprint' }, sortOrder: 530 },
+            { id: 'identitas', purpose: 'identity', name: 'Identitas', meaning: 'Identity — bind to person or object', categoryId: 'conceptual', constructionRoles: ['concept', 'link'], octaveTie: '6', tags: ['identity', 'bind', 'person', 'conceptual'], domainNotes: { enchantment: 'Owner lock', mental: 'True name assist' }, sortOrder: 540 },
+            { id: 'sympathia', purpose: 'sympathy link', name: 'Sympathia', meaning: 'Sympathy — resonance, magical linkage', categoryId: 'conceptual', constructionRoles: ['concept', 'link'], octaveTie: '5', symbolCue: 'Two mirrored spirals touching at center', tags: ['sympathy', 'link', 'resonance', 'conceptual'], domainNotes: { mental: 'Sympathetic weave', enchantment: 'Linked wards' }, sortOrder: 550 },
+            { id: 'ordo', purpose: 'order', name: 'Ordo', meaning: 'Order — structure, stability of pattern', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '2', tags: ['order', 'structure', 'conceptual'], domainNotes: {}, sortOrder: 560 },
+            { id: 'chaos', purpose: 'chaos', name: 'Chaos', meaning: 'Chaos — randomness, uncontrolled change', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '5', tags: ['chaos', 'random', 'conceptual'], domainNotes: {}, sortOrder: 570 },
+            { id: 'mutatio', purpose: 'change transform', name: 'Mutatio', meaning: 'Change — transformation', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '5', tags: ['change', 'transform', 'conceptual'], domainNotes: {}, sortOrder: 580 },
+            { id: 'illusio', purpose: 'illusion', name: 'Illusio', meaning: 'Illusion — perception manipulation', categoryId: 'conceptual', constructionRoles: ['concept'], octaveTie: '6', tags: ['illusion', 'perception', 'conceptual'], domainNotes: { mental: 'Glamour' }, sortOrder: 590 },
+            { id: 'magus', purpose: 'amplify', name: 'Magus', meaning: 'Power — amplify spell magnitude', categoryId: 'high_imperial', constructionRoles: ['amplify'], octaveTie: 'all', tags: ['power', 'amplify', 'high'], domainNotes: {}, sortOrder: 600 },
+            { id: 'architectus', purpose: 'construct', name: 'Architectus', meaning: 'Construct — magical architecture', categoryId: 'high_imperial', constructionRoles: ['framework', 'structure'], octaveTie: 'all', tags: ['construct', 'architecture', 'high'], domainNotes: { enchantment: 'Magolith frame' }, sortOrder: 610 },
+            { id: 'dominus', purpose: 'control', name: 'Dominus', meaning: 'Control — command magical systems', categoryId: 'high_imperial', constructionRoles: ['amplify', 'link'], octaveTie: 'all', tags: ['control', 'command', 'high'], domainNotes: { enchantment: 'Magolith control' }, sortOrder: 620 },
+            { id: 'aeternum', purpose: 'permanence', name: 'Aeternum', meaning: 'Eternal — permanence', categoryId: 'high_imperial', constructionRoles: ['structure'], octaveTie: 'all', tags: ['permanent', 'eternal', 'high'], domainNotes: { enchantment: 'Lasting bind' }, sortOrder: 630 },
+            { id: 'regulus', purpose: 'rule govern', name: 'Regulus', meaning: 'Rule — govern magical behavior', categoryId: 'high_imperial', constructionRoles: ['structure'], octaveTie: 'all', tags: ['rule', 'govern', 'high'], domainNotes: {}, sortOrder: 640 },
+            { id: 'collectus', purpose: 'gather energy', name: 'Collectus', meaning: 'Gather — mass energy collection', categoryId: 'high_imperial', constructionRoles: ['amplify'], octaveTie: 'all', tags: ['gather', 'energy', 'high'], domainNotes: {}, sortOrder: 650 },
+            { id: 'eos', purpose: 'light (legacy)', name: 'Eos', meaning: 'Light (legacy alias of lux)', description: 'Legacy stub — prefer lux.', categoryId: 'elemental', constructionRoles: ['concept'], octaveTie: '4', tags: ['light', 'reveal', 'legacy'], domainNotes: { elemental: 'Photomantic focus', divine: 'Revelation' }, disabled: true, sortOrder: 900 },
+            { id: 'bela', purpose: 'binding (legacy)', name: 'Bela', meaning: 'Binding (legacy alias)', description: 'Legacy stub — prefer ancor or nexus.', categoryId: 'structural', constructionRoles: ['link', 'structure'], octaveTie: '2', tags: ['bind', 'enchant', 'legacy'], domainNotes: { enchantment: 'Matrix anchor' }, disabled: true, sortOrder: 910 },
+            { id: 'selan', purpose: 'release (legacy)', name: 'Selan', meaning: 'Release (legacy alias of actus)', description: 'Legacy stub — prefer actus.', categoryId: 'trigger', constructionRoles: ['trigger'], octaveTie: '1', tags: ['release', 'dispel', 'legacy'], domainNotes: { universal: 'Unweave' }, disabled: true, sortOrder: 920 }
         ];
         const spells = [
             {
@@ -4407,7 +4467,7 @@ const API = {
                     impactVfxId: '',
                     projectileVfxId: '',
                     audio: { castSound: '', impactSound: '', loopSound: '' },
-                    runeIds: ['eos'],
+                    runeIds: ['forma', 'lux', 'actus'],
                     runeDisplay: true
                 },
                 binding: { wand: true, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
@@ -4560,7 +4620,7 @@ const API = {
                     impactVfxId: 'PARTICLE_FLAME_WRAP',
                     projectileVfxId: '',
                     audio: { castSound: '', impactSound: '', loopSound: '' },
-                    runeIds: ['eos'],
+                    runeIds: ['forma', 'ignis', 'actus'],
                     runeDisplay: true
                 },
                 binding: { wand: true, staff: true, scroll: true, objectEnchant: false, armor: false, weapon: false },
@@ -4641,7 +4701,7 @@ const API = {
                     impactVfxId: 'PARTICLE_FLAME_WRAP',
                     projectileVfxId: '',
                     audio: { castSound: '', impactSound: '', loopSound: '' },
-                    runeIds: ['bela', 'eos'],
+                    runeIds: ['ancor', 'ignis', 'sensor', 'actus'],
                     runeDisplay: true
                 },
                 binding: { wand: false, staff: false, scroll: false, objectEnchant: true, armor: false, weapon: false },

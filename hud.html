@@ -403,19 +403,17 @@
                 </div>
             </section>
 
-            <!-- Inventory Tab (in-world only — Experience KVP, not Firestore) -->
+            <!-- Inventory Tab (Experience KVP via HUD bridge / Setup Relay) -->
             <section id="tab-inventory" class="tab-content">
-                <div class="panel" style="text-align: center; padding: var(--space-xl);">
-                    <h2>Inventory</h2>
-                    <p class="info-text" style="font-size: 1.1em; margin: var(--space-lg) 0;">
-                        Personal inventory is managed on your <strong>Players HUD</strong>, not in this Setup screen.
-                    </p>
-                    <p class="info-text" style="font-size: 1.2em; margin-bottom: var(--space-md);">
-                        Click the <strong>I</strong> button on your HUD to open inventory.
-                    </p>
-                    <p class="field-hint" style="margin-top: var(--space-md);">
-                        Use the <strong>$</strong> button on the HUD for currency (when enabled).
-                    </p>
+                <div class="panel">
+                    <div class="inventory-tab-header">
+                        <h2>Inventory</h2>
+                        <button type="button" class="btn btn-secondary" id="btn-inventory-refresh">Refresh</button>
+                    </div>
+                    <p class="field-hint" id="inventory-status">Personal bag for the active character (read-only).</p>
+                    <div id="inventory-grid" class="inventory-grid">
+                        <p class="placeholder-text">Open this tab to load inventory…</p>
+                    </div>
                 </div>
             </section>
 
@@ -485,7 +483,7 @@
                         <li><strong>Character</strong>: Overview and management of your character</li>
                         <li><strong>Stats</strong>: Detailed view and editing of your 20 attribute stats</li>
                         <li><strong>Classes</strong>: Browse and select your character's class</li>
-                        <li><strong>Inventory</strong>: Use the HUD <strong>I</strong> button in-world (not managed in this Setup screen)</li>
+                        <li><strong>Inventory</strong>: Browse your personal bag on the Inventory tab (read-only). Use the HUD <strong>I</strong> button for in-world actions.</li>
                         <li><strong>Options</strong>: Game mode settings and quick actions</li>
                         <li><strong>Help</strong>: This page</li>
                     </ul>
@@ -617,7 +615,7 @@
     <!-- App Scripts (cache bust: SL passes ?t= on hud.html; reuse for JS) -->
     <script>
         (function () {
-            window.HUD_BUILD_LABEL = '4.3.19';
+            window.HUD_BUILD_LABEL = '4.3.20-inv';
             var m = /[?&]t=(\d+)/.exec(window.location.search || '');
             window.HUD_CACHE_BUST = window.HUD_BUILD_LABEL + '-' + (m ? m[1] : String(Date.now()));
             var badge = document.getElementById('hud-build-badge');
