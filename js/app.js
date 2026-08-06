@@ -5512,7 +5512,29 @@ try {
             UI.renderInventory([], { error: 'Inventory bridge is not available on this page.' });
             return;
         }
-        const characterId = (this.state.character && this.state.character.id) || '';
+        // Dropdown / session can mark a selection before state.character is hydrated.
+        let characterId = '';
+        if (typeof this._getCharacterDocId === 'function') {
+            characterId = this._getCharacterDocId(this.state.character) || '';
+        } else if (this.state.character && this.state.character.id) {
+            characterId = String(this.state.character.id);
+        }
+        if (!characterId && this.state.selectedCharacterId
+            && this.isPlausibleCharacterId(this.state.selectedCharacterId)) {
+            characterId = this.state.selectedCharacterId;
+        }
+        if (!characterId && typeof API !== 'undefined' && API.activeCharacterId
+            && this.isPlausibleCharacterId(API.activeCharacterId)) {
+            characterId = API.activeCharacterId;
+        }
+        if (!characterId) {
+            const sel = document.getElementById('character-selector');
+            const selVal = sel && sel.value ? String(sel.value) : '';
+            if (selVal && selVal !== '__create_new__' && selVal !== '__temp__'
+                && this.isPlausibleCharacterId(selVal)) {
+                characterId = selVal;
+            }
+        }
         if (!characterId) {
             UI.renderInventory([], { error: 'Select or create a character first.' });
             return;
