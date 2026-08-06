@@ -798,6 +798,15 @@
 
             return jsonp(base, apiParams(params), timeoutMs).then(function (data) {
 
+                // Old HUD/relay builds return ok:false unknown_action for new verbs —
+                // treat as transport miss and try the next candidate (usually relay).
+                if (data && data.ok === false && data.error === "unknown_action"
+                    && useRelays && index + 1 < bases.length) {
+
+                    return tryBases(bases, index + 1);
+
+                }
+
                 markEndpoint(base, isHud);
 
                 return data;
