@@ -18,7 +18,7 @@
 
 
 
-    var BRIDGE_BUILD = "f4-bridge-v8.3-relay";
+    var BRIDGE_BUILD = "f4-bridge-v8.4-migrate";
 
 
 
@@ -768,11 +768,33 @@
 
         }
 
+        var relayOnly = !!params._relayOnly;
+
+        if (relayOnly) {
+
+            var cleaned = {};
+
+            var ck;
+
+            for (ck in params) {
+
+                if (Object.prototype.hasOwnProperty.call(params, ck) && ck !== "_relayOnly") {
+
+                    cleaned[ck] = params[ck];
+
+                }
+
+            }
+
+            params = cleaned;
+
+        }
+
         var action = params.action || "";
 
         var useRelays = canUseRelays() && actionAllowsRelay(action);
 
-        var preferRelaysOnly = forceRelay || !hudCap;
+        var preferRelaysOnly = forceRelay || !hudCap || relayOnly;
 
 
 
@@ -1327,9 +1349,63 @@
 
 
 
+    function listCharactersForOwner(ownerUuid) {
+
+        ownerUuid = String(ownerUuid || "").trim().toLowerCase();
+
+        return callJsonp({
+
+            action: "list_characters",
+
+            uuid: ownerUuid,
+
+            _relayOnly: true
+
+        }, 25000);
+
+    }
+
+
+
+    function migrateCharacterIdentity(ownerUuid, characterId, patch) {
+
+        ownerUuid = String(ownerUuid || "").trim().toLowerCase();
+
+        characterId = String(characterId || "").trim();
+
+        patch = patch || {};
+
+        return callJsonp({
+
+            action: "migrate_character",
+
+            uuid: ownerUuid,
+
+            character_id: characterId,
+
+            universe_id: patch.universe_id != null ? String(patch.universe_id) : "",
+
+            gender: patch.gender != null ? String(patch.gender) : "",
+
+            species_id: patch.species_id != null ? String(patch.species_id) : "",
+
+            class_id: patch.class_id != null ? String(patch.class_id) : "",
+
+            _relayOnly: true
+
+        }, 30000);
+
+    }
+
+
+
     global.F4Bridge = {
 
         BRIDGE_BUILD: BRIDGE_BUILD,
+
+        listCharactersForOwner: listCharactersForOwner,
+
+        migrateCharacterIdentity: migrateCharacterIdentity,
 
         initFromMoapUrl: initFromMoapUrl,
 

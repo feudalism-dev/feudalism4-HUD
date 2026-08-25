@@ -8246,6 +8246,7 @@ try {
     /**
      * Sys Admin / Super Admin — emergency move of a character to another universe.
      * Rematch gender/species/class only when incompatible with destination allowlists.
+     * Character identity is Experience KVP only (Setup Relay); universe allowlists are Firestore meta.
      */
     async showUniverseMigrateAdmin() {
         const adminContent = UI.elements.adminContent;
@@ -8268,29 +8269,31 @@ try {
             this._migrateUniversesCache = universes;
             this._migratePlan = null;
             this._migrateCharacter = null;
+            this._migrateOwnerUuid = null;
 
             adminContent.innerHTML = `
                 <div class="admin-header" style="margin-bottom: var(--space-md);">
                     <h3 style="margin: 0;">Move Character Universe</h3>
                     <p style="color: var(--text-muted); font-size: 0.9rem; margin: var(--space-xs) 0 0;">
-                        Sys Admin emergency tool. Rematches gender / species / class only when the
-                        destination universe does not allow the current values. Writes Firestore, then
-                        you must paste the KVP line into Character Admin (Experience is authoritative).
+                        Sys Admin emergency tool. Loads characters from <strong>Experience KVP</strong>
+                        (Setup Relay) — not Firestore. Rematches gender / species / class only when the
+                        destination universe does not allow the current values. Writes KVP identity + roster.
+                        Any orphan Firestore character doc for that id is deleted after a successful move.
                     </p>
                 </div>
                 <div class="panel" style="padding: var(--space-md); margin-bottom: var(--space-md);">
                     <div class="form-group">
-                        <label for="migrate-owner-uuid">Owner avatar UUID</label>
+                        <label for="migrate-owner-uuid">Owner avatar UUID (required)</label>
                         <input type="text" id="migrate-owner-uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                                style="width: 100%; padding: var(--space-sm); box-sizing: border-box; background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
                     </div>
                     <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md);">
-                        <button type="button" class="btn btn-primary" id="btn-migrate-load-owner">Load characters</button>
+                        <button type="button" class="btn btn-primary" id="btn-migrate-load-owner">Load KVP characters</button>
                     </div>
                     <div class="form-group">
-                        <label for="migrate-char-id">Or character document ID</label>
+                        <label for="migrate-char-id">Or character ID (still needs owner UUID above)</label>
                         <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap;">
-                            <input type="text" id="migrate-char-id" placeholder="Firestore character id"
+                            <input type="text" id="migrate-char-id" placeholder="Experience character id"
                                    style="flex: 1; min-width: 180px; padding: var(--space-sm); box-sizing: border-box; background: var(--bg-medium); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
                             <button type="button" class="btn btn-secondary" id="btn-migrate-load-char">Load by ID</button>
                         </div>
@@ -8315,15 +8318,16 @@ try {
         const owner = (document.getElementById('migrate-owner-uuid')?.value || '').trim();
         const listEl = document.getElementById('migrate-char-list');
         if (!listEl) return;
-        listEl.innerHTML = '<p style="color: var(--text-muted);">Loading…</p>';
+        listEl.innerHTML = '<p style="color: var(--text-muted);">Loading Experience KVP…</p>';
         const result = await API.adminListCharactersByOwner(owner);
         if (!result.success) {
             listEl.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(result.error) + '</p>';
             return;
         }
+        this._migrateOwnerUuid = result.data.ownerUuid || owner.toLowerCase();
         const chars = result.data.characters || [];
         if (!chars.length) {
-            listEl.innerHTML = '<p style="color: var(--warning);">No Firestore character docs for that owner. Use Character Admin for KVP-only characters, or enter a character ID.</p>';
+            listEl.innerHTML = '<p style="color: var(--warning);">No Experience KVP characters for that owner. Confirm the UUID and that Setup Relays are up.</p>';
             return;
         }
         listEl.innerHTML = chars.map(c => `
@@ -8344,6 +8348,12 @@ try {
 
     async migrateLoadByCharId() {
         const id = (document.getElementById('migrate-char-id')?.value || '').trim();
+        const owner = (document.getElementById('migrate-owner-uuid')?.value || '').trim();
+        if (!owner) {
+            UI.showToast('Enter the owner avatar UUID first', 'warning');
+            return;
+        }
+        this._migrateOwnerUuid = owner.toLowerCase();
         await this.migrateSelectCharacter(id);
     },
 
@@ -8354,9 +8364,16 @@ try {
             UI.showToast('Enter or pick a character ID', 'warning');
             return;
         }
+        const owner = this._migrateOwnerUuid
+            || (document.getElementById('migrate-owner-uuid')?.value || '').trim().toLowerCase();
+        if (!owner) {
+            UI.showToast('Enter the owner avatar UUID first', 'warning');
+            return;
+        }
+        this._migrateOwnerUuid = owner;
         workspace.style.display = 'block';
-        workspace.innerHTML = '<p style="color: var(--text-muted);">Loading character…</p>';
-        const got = await API.adminGetCharacterById(characterId);
+        workspace.innerHTML = '<p style="color: var(--text-muted);">Loading character from KVP…</p>';
+        const got = await API.adminGetCharacterById(characterId, owner);
         if (!got.success) {
             workspace.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(got.error) + '</p>';
             return;
@@ -8369,7 +8386,7 @@ try {
                 <h4 style="margin-top: 0;">${this.escapeHtml(this._migrateCharacter.name || '(unnamed)')}</h4>
                 <p style="font-size: 0.85rem; color: var(--text-secondary); word-break: break-all;">
                     ID: ${this.escapeHtml(this._migrateCharacter.id)}<br>
-                    Owner: ${this.escapeHtml(this._migrateCharacter.owner_uuid || '')}<br>
+                    Owner: ${this.escapeHtml(this._migrateCharacter.owner_uuid || owner)}<br>
                     Current universe: <strong>${this.escapeHtml(curUni || '(none)')}</strong><br>
                     Gender: <strong>${this.escapeHtml(this._migrateCharacter.gender || '')}</strong> ·
                     Species: <strong>${this.escapeHtml(this._migrateCharacter.species_id || '')}</strong> ·
@@ -8400,7 +8417,9 @@ try {
             return;
         }
         rematchEl.innerHTML = '<p style="color: var(--text-muted);">Checking…</p>';
-        const plan = await API.adminPlanUniverseMigrate(this._migrateCharacter.id, dest);
+        const plan = await API.adminPlanUniverseMigrate(
+            this._migrateCharacter.id, dest, this._migrateOwnerUuid
+        );
         if (!plan.success) {
             rematchEl.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(plan.error) + '</p>';
             return;
@@ -8460,7 +8479,7 @@ try {
 
         html += `</div>
             <div style="margin-top: var(--space-md); display: flex; gap: var(--space-sm); flex-wrap: wrap;">
-                <button type="button" class="btn btn-primary" id="btn-migrate-apply">Apply migrate</button>
+                <button type="button" class="btn btn-primary" id="btn-migrate-apply">Apply migrate (KVP)</button>
             </div>
             <div id="migrate-result" style="margin-top: var(--space-md);"></div>`;
 
@@ -8503,16 +8522,18 @@ try {
         const confirmed = await UI.showConfirmDialog({
             title: 'Confirm universe migrate?',
             message: 'Move "' + (this._migrateCharacter.name || this._migrateCharacter.id)
-                + '" to universe "' + dest + '"? This is an emergency admin action.',
+                + '" to universe "' + dest + '" in Experience KVP? This is an emergency admin action.',
             confirmLabel: 'Migrate',
             danger: true
         });
         if (!confirmed) return;
 
         const resultDiv = document.getElementById('migrate-result');
-        if (resultDiv) resultDiv.innerHTML = '<p style="color: var(--text-muted);">Saving…</p>';
+        if (resultDiv) resultDiv.innerHTML = '<p style="color: var(--text-muted);">Saving to Experience KVP…</p>';
 
-        const result = await API.adminMigrateCharacterUniverse(this._migrateCharacter.id, patch);
+        const result = await API.adminMigrateCharacterUniverse(
+            this._migrateCharacter.id, patch, this._migrateOwnerUuid
+        );
         if (!result.success) {
             if (resultDiv) {
                 resultDiv.innerHTML = '<p style="color: var(--error);">' + this.escapeHtml(result.error) + '</p>';
@@ -8521,27 +8542,18 @@ try {
             return;
         }
 
-        const paste = result.data.kvpPaste || '';
         if (resultDiv) {
+            const orphanNote = result.data.orphanDeleted
+                ? '<p style="font-size: 0.85rem; color: var(--text-muted);">Also removed an orphan Firestore character document.</p>'
+                : '';
             resultDiv.innerHTML = `
                 <div style="background: var(--bg-dark); padding: var(--space-md); border-radius: 4px; border: 1px solid var(--success);">
-                    <p style="color: var(--success); margin-top: 0;"><strong>Firestore updated.</strong></p>
-                    <p style="font-size: 0.9rem;">Experience KVP is authoritative. In the <strong>Character Admin Tool</strong>, load this owner, open the character, then <strong>KVP Identity → Paste Migrate</strong> and paste:</p>
-                    <code id="migrate-kvp-paste" style="display: block; word-break: break-all; padding: var(--space-sm); background: var(--bg-medium);">${this.escapeHtml(paste)}</code>
-                    <button type="button" class="btn btn-secondary" id="btn-copy-migrate-paste" style="margin-top: var(--space-sm);">Copy paste line</button>
-                    <p style="font-size: 0.8rem; color: var(--text-muted);">Player should rewear HUD / reopen Setup after KVP apply.</p>
+                    <p style="color: var(--success); margin-top: 0;"><strong>Experience KVP updated.</strong></p>
+                    <p style="font-size: 0.9rem;">Player should rewear HUD / reopen Setup so the new universe loads.</p>
+                    ${orphanNote}
                 </div>`;
-            document.getElementById('btn-copy-migrate-paste')?.addEventListener('click', () => {
-                const text = paste;
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(text).then(() => UI.showToast('Copied', 'success'))
-                        .catch(() => UI.showToast('Copy failed — select the line manually', 'warning'));
-                } else {
-                    UI.showToast('Select and copy the line manually', 'warning');
-                }
-            });
         }
-        UI.showToast('Firestore migrate saved', 'success');
+        UI.showToast('KVP migrate saved', 'success');
     },
     
     /**

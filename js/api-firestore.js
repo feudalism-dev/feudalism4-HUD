@@ -3111,8 +3111,8 @@ const API = {
     },
 
     /**
-     * List Firestore character docs for an owner (Sys Admin / Super Admin).
-     * Note: KVP is gameplay authority; this uses Firestore checkpoints for admin tooling.
+     * List Experience KVP roster characters for an owner (Sys Admin / Super Admin).
+     * Uses Setup Relay only — never Firestore characters collection.
      */
     async adminListCharactersByOwner(ownerUuid) {
         try {
@@ -3123,19 +3123,22 @@ const API = {
             if (!ownerUuid || ownerUuid.length !== 36) {
                 return { success: false, error: 'Enter a valid owner avatar UUID' };
             }
-            const snapshot = await db.collection('characters')
-                .where('owner_uuid', '==', ownerUuid)
-                .get();
-            const characters = [];
-            snapshot.forEach(doc => {
-                characters.push(Object.assign({ id: doc.id }, doc.data()));
+            if (typeof F4Bridge === 'undefined' || !F4Bridge.listCharactersForOwner) {
+                return { success: false, error: 'Setup bridge unavailable — reopen Setup HUD / check Setup Relays' };
+            }
+            const res = await F4Bridge.listCharactersForOwner(ownerUuid);
+            if (!res || res.ok === false) {
+                return { success: false, error: (res && res.error) || 'Failed to list KVP characters' };
+            }
+            const characters = (res.characters || []).map(function (c) {
+                return Object.assign({}, c, { owner_uuid: ownerUuid, id: c.id });
             });
-            characters.sort((a, b) => {
+            characters.sort(function (a, b) {
                 const na = (a.name || a.id || '').toLowerCase();
                 const nb = (b.name || b.id || '').toLowerCase();
                 return na.localeCompare(nb);
             });
-            return { success: true, data: { characters, ownerUuid } };
+            return { success: true, data: { characters: characters, ownerUuid: ownerUuid } };
         } catch (error) {
             console.error('adminListCharactersByOwner error:', error);
             return { success: false, error: error.message };
@@ -3143,22 +3146,32 @@ const API = {
     },
 
     /**
-     * Load any character doc by id (Sys Admin / Super Admin).
+     * Load a KVP roster character by id for a known owner (Sys Admin / Super Admin).
      */
-    async adminGetCharacterById(characterId) {
+    async adminGetCharacterById(characterId, ownerUuid) {
         try {
             if (!this.canMigrateCharacterUniverse()) {
                 return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
             characterId = String(characterId || '').trim();
+            ownerUuid = String(ownerUuid || '').trim().toLowerCase();
             if (!characterId) {
                 return { success: false, error: 'Character ID required' };
             }
-            const doc = await db.collection('characters').doc(characterId).get();
-            if (!doc.exists) {
-                return { success: false, error: 'Character not found in Firestore (KVP-only chars need Character Admin Tool)' };
+            if (!ownerUuid || ownerUuid.length !== 36) {
+                return { success: false, error: 'Owner avatar UUID required to load from Experience KVP' };
             }
-            return { success: true, data: { character: Object.assign({ id: doc.id }, doc.data()) } };
+            const listed = await this.adminListCharactersByOwner(ownerUuid);
+            if (!listed.success) {
+                return listed;
+            }
+            const found = (listed.data.characters || []).find(function (c) {
+                return c && c.id === characterId;
+            });
+            if (!found) {
+                return { success: false, error: 'Character not found in Experience KVP roster for that owner' };
+            }
+            return { success: true, data: { character: found } };
         } catch (error) {
             console.error('adminGetCharacterById error:', error);
             return { success: false, error: error.message };
@@ -3166,14 +3179,15 @@ const API = {
     },
 
     /**
-     * Build rematch plan for moving a character into a destination universe.
+     * Build rematch plan for moving a KVP character into a destination universe.
+     * Universe allowlists come from Firestore meta; character comes from KVP.
      */
-    async adminPlanUniverseMigrate(characterId, newUniverseId) {
+    async adminPlanUniverseMigrate(characterId, newUniverseId, ownerUuid) {
         try {
             if (!this.canMigrateCharacterUniverse()) {
                 return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
-            const charResult = await this.adminGetCharacterById(characterId);
+            const charResult = await this.adminGetCharacterById(characterId, ownerUuid);
             if (!charResult.success) {
                 return charResult;
             }
@@ -3209,7 +3223,7 @@ const API = {
                 if (classOk) {
                     const cfg = await this.getUniverseClassConfiguration(newUniverseId);
                     if (cfg.success) {
-                        const eff = (cfg.data.classes || []).find(c => c.id === classId);
+                        const eff = (cfg.data.classes || []).find(function (c) { return c.id === classId; });
                         classOk = !!(eff && eff.enabled !== false);
                     }
                 }
@@ -3217,19 +3231,17 @@ const API = {
 
             let limit = null;
             try {
-                const destUniverse = universe;
-                const lim = parseInt(String(destUniverse.characterLimit != null ? destUniverse.characterLimit : 0), 10) || 0;
+                const lim = parseInt(String(universe.characterLimit != null ? universe.characterLimit : 0), 10) || 0;
                 if (lim > 0 && character.owner_uuid) {
-                    const sameUni = await db.collection('characters')
-                        .where('owner_uuid', '==', character.owner_uuid)
-                        .where('universe_id', '==', newUniverseId)
-                        .get();
+                    const listed = await this.adminListCharactersByOwner(character.owner_uuid);
                     let count = 0;
-                    sameUni.forEach(function (doc) {
-                        if (doc.id !== character.id) {
-                            count++;
-                        }
-                    });
+                    if (listed.success) {
+                        (listed.data.characters || []).forEach(function (c) {
+                            if (c && c.id !== character.id && c.universe_id === newUniverseId) {
+                                count++;
+                            }
+                        });
+                    }
                     limit = {
                         allowed: count < lim,
                         currentCount: count,
@@ -3243,8 +3255,8 @@ const API = {
             return {
                 success: true,
                 data: {
-                    character,
-                    universe,
+                    character: character,
+                    universe: universe,
                     current: {
                         universe_id: character.universe_id || '',
                         gender: genderId,
@@ -3287,22 +3299,26 @@ const API = {
     },
 
     /**
-     * Apply emergency universe migrate (Super Admin). Writes Firestore checkpoint.
-     * Returns kvpPaste line for Character Admin Tool Experience sync.
+     * Apply emergency universe migrate via Experience KVP (Setup Relay).
+     * Does not write Firestore character docs. Deletes orphan FS character docs if present.
      */
-    async adminMigrateCharacterUniverse(characterId, patch) {
+    async adminMigrateCharacterUniverse(characterId, patch, ownerUuid) {
         try {
             if (!this.canMigrateCharacterUniverse()) {
                 return { success: false, error: 'Unauthorized: Sys Admin or Super Admin only' };
             }
             characterId = String(characterId || '').trim();
+            ownerUuid = String(ownerUuid || '').trim().toLowerCase();
             patch = patch || {};
             const newUniverseId = String(patch.universe_id || '').trim();
-            if (!characterId || !newUniverseId) {
-                return { success: false, error: 'Character ID and destination universe are required' };
+            if (!characterId || !newUniverseId || !ownerUuid) {
+                return { success: false, error: 'Character ID, owner UUID, and destination universe are required' };
+            }
+            if (typeof F4Bridge === 'undefined' || !F4Bridge.migrateCharacterIdentity) {
+                return { success: false, error: 'Setup bridge unavailable — reopen Setup HUD / check Setup Relays' };
             }
 
-            const plan = await this.adminPlanUniverseMigrate(characterId, newUniverseId);
+            const plan = await this.adminPlanUniverseMigrate(characterId, newUniverseId, ownerUuid);
             if (!plan.success) {
                 return plan;
             }
@@ -3338,38 +3354,46 @@ const API = {
                 };
             }
 
-            const updateData = {
+            const res = await F4Bridge.migrateCharacterIdentity(ownerUuid, characterId, {
                 universe_id: newUniverseId,
                 gender: gender,
                 species_id: speciesId,
-                class_id: classId || character.class_id || '',
-                updated_at: firebase.firestore.FieldValue.serverTimestamp(),
-                admin_universe_migrate: {
-                    by: this.uuid,
-                    at: firebase.firestore.FieldValue.serverTimestamp(),
-                    from: character.universe_id || '',
-                    to: newUniverseId
+                class_id: classId
+            });
+            if (!res || res.ok === false) {
+                return { success: false, error: (res && res.error) || 'KVP migrate failed' };
+            }
+
+            let orphanDeleted = false;
+            try {
+                const orphan = await db.collection('characters').doc(characterId).get();
+                if (orphan.exists) {
+                    await db.collection('characters').doc(characterId).delete();
+                    orphanDeleted = true;
+                    console.log('[adminMigrate] deleted orphan Firestore character doc', characterId);
                 }
-            };
+            } catch (orphanErr) {
+                console.warn('[adminMigrate] orphan FS cleanup skipped:', orphanErr);
+            }
 
-            await db.collection('characters').doc(characterId).update(updateData);
-
-            const kvpPaste = [
-                newUniverseId,
-                gender || '',
-                speciesId || '',
-                classId || ''
-            ].join('|');
+            const updatedChar = (res.character)
+                ? Object.assign({ id: characterId, owner_uuid: ownerUuid }, res.character)
+                : Object.assign({}, character, {
+                    universe_id: newUniverseId,
+                    gender: gender,
+                    species_id: speciesId,
+                    class_id: classId
+                });
 
             return {
                 success: true,
                 data: {
-                    characterId,
-                    owner_uuid: character.owner_uuid || '',
-                    name: character.name || '',
-                    updated: updateData,
-                    kvpPaste,
-                    message: 'Firestore character updated. Apply the same values in Character Admin → KVP Identity → Paste Migrate (Experience KVP is authoritative).'
+                    characterId: characterId,
+                    owner_uuid: ownerUuid,
+                    name: updatedChar.name || character.name || '',
+                    character: updatedChar,
+                    orphanDeleted: orphanDeleted,
+                    message: 'Experience KVP identity updated' + (orphanDeleted ? ' (removed orphan Firestore character doc)' : '')
                 }
             };
         } catch (error) {
@@ -3377,7 +3401,6 @@ const API = {
             return { success: false, error: error.message };
         }
     },
-    
     /**
      * Get filtered identity options for a universe
      */
