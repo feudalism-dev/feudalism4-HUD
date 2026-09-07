@@ -7423,6 +7423,42 @@ try {
         }, 600);
     },
 
+    /**
+     * After identity save: push name/title into Players HUD LSD + meter.
+     * Bridge mode skips pushCharacterToPlayersHUD by default — without this the
+     * meter kept stale LSD until a KVP reload (and Firestore could overwrite).
+     */
+    async pushIdentityToMeterAfterSave(char) {
+        if (!char || !char.id) {
+            return;
+        }
+        try {
+            const currentUrl = new URL(window.location.href);
+            if (char.name) {
+                currentUrl.searchParams.set('char_name', String(char.name));
+            }
+            if (char.title != null) {
+                currentUrl.searchParams.set('char_title', String(char.title));
+            }
+            this.safeHistoryReplaceState(currentUrl.toString());
+        } catch (urlErr) { /* ignore */ }
+        if (!this.isBridgeHudMode()) {
+            await this.pushCharacterToPlayersHUD(char.id, { forceHudPush: true });
+            return;
+        }
+        try {
+            this._hudSlotSyncedCharId = null;
+            await this.ensureHudCharacterSlotSynced(char.id);
+        } catch (syncErr) {
+            console.warn('[saveCharacter] identity→HUD/meter sync failed:', syncErr);
+        }
+        try {
+            await this.sendToLSLViaBridge('SYNC_METER');
+        } catch (meterErr) {
+            console.warn('[saveCharacter] SYNC_METER failed:', meterErr);
+        }
+    },
+
     async saveCharacter(options) {
         if (options === undefined) {
             options = {};
@@ -7704,6 +7740,7 @@ try {
                     await this.pushCharacterToPlayersHUD(result.data.character.id);
                     this.grantStartingXpToHud(createdChar, { forceStarter: true });
                 }
+                await this.pushIdentityToMeterAfterSave(this.state.character);
                 await this.refreshAfterCharacterSave(result.data.character);
                 return true;
             } else {
@@ -7857,6 +7894,9 @@ try {
                 await this.cacheHudStatsForPlayers(this.state.character, {
                     syncStats: shouldSyncStats && !this.isBridgeHudMode()
                 });
+                if (!draft) {
+                    await this.pushIdentityToMeterAfterSave(this.state.character);
+                }
                 // Defer lsl_cmd cleanup — immediate cleanMoapUrlParams erased LOAD_CHARACTER before LSL poll.
                 setTimeout(function () {
                     if (typeof UI !== 'undefined' && UI.cleanMoapUrlParams) {
