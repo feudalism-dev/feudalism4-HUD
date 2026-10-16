@@ -220,11 +220,136 @@ const UI = {
     /**
      * Bind event listeners
      */
+    /**
+     * Build a compact Setup URL for the system browser (cap or force-relay).
+     */
+    buildExternalBrowserUrl() {
+        var params = new URLSearchParams(window.location.search || '');
+        var uuid = params.get('uuid') || params.get('sl_avatar') || '';
+        var username = params.get('username') || '';
+        var displayname = params.get('displayname') || params.get('sl_name') || '';
+        var channel = params.get('channel') || '';
+        var activeChar = params.get('active_char') || '';
+        var cap = params.get('sl_cap') || '';
+        var token = params.get('sl_token') || '';
+        var base = window.location.origin + window.location.pathname;
+        var out = new URLSearchParams();
+
+        if (!uuid && typeof API !== 'undefined' && API.uuid) {
+            uuid = API.uuid;
+        }
+        if (!uuid && typeof F4Bridge !== 'undefined' && F4Bridge.getSession) {
+            var sess = F4Bridge.getSession();
+            if (sess && sess.avatar) {
+                uuid = sess.avatar;
+            }
+        }
+
+        if (uuid) out.set('uuid', uuid);
+        if (username) out.set('username', username);
+        if (displayname) out.set('displayname', displayname);
+        if (channel) out.set('channel', channel);
+        if (activeChar) out.set('active_char', activeChar);
+        out.set('t', String(Math.floor(Date.now() / 1000)));
+        out.set('f4_bridge', '1');
+        out.set('f4_external', '1');
+        if (cap) {
+            out.set('sl_cap', cap);
+            if (token) out.set('sl_token', token);
+        } else {
+            out.set('f4_force_relay', '1');
+        }
+        return base + '?' + out.toString();
+    },
+
+    /**
+     * Open Setup in the system browser (Experience via HUD cap or Setup Relay).
+     */
+    openInBrowser() {
+        var self = this;
+        var url = this.buildExternalBrowserUrl();
+        var params = new URLSearchParams(window.location.search || '');
+        var uuid = params.get('uuid') || (typeof API !== 'undefined' ? API.uuid : '') || '';
+
+        if (!uuid) {
+            this.showToast('Cannot open browser Setup — avatar UUID missing. Re-open Setup from the HUD.', 'error');
+            return;
+        }
+
+        // Already in an external browser: ensure relay/cap mode and stay here.
+        if (!window.IS_SL_BROWSER) {
+            if (!params.get('sl_cap') && params.get('f4_force_relay') !== '1') {
+                try {
+                    window.location.replace(url);
+                    return;
+                } catch (e) { /* fall through */ }
+            }
+            this.showToast('You are already in the web browser Setup.', 'info');
+            return;
+        }
+
+        var showCopyFallback = function () {
+            var opened = null;
+            try {
+                opened = window.open(url, '_blank');
+            } catch (e) {
+                opened = null;
+            }
+            var msg = 'Copy this URL into Chrome or Firefox to manage your character '
+                + '(uses your HUD connection or a Setup Relay):\n\n' + url;
+            if (typeof MoapDialogs !== 'undefined' && MoapDialogs.showAlert) {
+                MoapDialogs.showAlert({
+                    title: 'Open in Browser',
+                    message: msg,
+                    okLabel: 'Copy URL'
+                }).then(function () {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(url).then(function () {
+                            self.showToast('Setup URL copied.', 'success');
+                        }).catch(function () {
+                            self.showToast('Copy failed — select the URL from the dialog.', 'warning');
+                        });
+                    }
+                });
+            } else {
+                self.showToast('Open Setup URL from the debug console if needed.', 'info');
+            }
+            if (!opened && typeof console !== 'undefined') {
+                console.log('[Open in Browser]', url);
+            }
+        };
+
+        // Preferred: HUD → llLoadURL (SL dialog). Needs live HTTP-IN session.
+        if (typeof F4Bridge !== 'undefined' && typeof F4Bridge.sendCommand === 'function'
+            && params.get('sl_cap')) {
+            F4Bridge.sendCommand('OPEN_IN_BROWSER').then(function (res) {
+                if (res && res.ok) {
+                    self.showToast('Check for a Second Life dialog to open Setup in your browser.', 'info');
+                    return;
+                }
+                showCopyFallback();
+            }).catch(function () {
+                showCopyFallback();
+            });
+            return;
+        }
+
+        showCopyFallback();
+    },
+
     bindEvents() {
         // Tab navigation
         this.elements.tabBtns.forEach(btn => {
             btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
         });
+
+        var openBrowserBtn = document.getElementById('btn-open-in-browser');
+        if (openBrowserBtn) {
+            openBrowserBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.openInBrowser();
+            });
+        }
         
         // Gender selection
         this.elements.genderBtns.forEach(btn => {
