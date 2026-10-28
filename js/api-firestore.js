@@ -3596,12 +3596,18 @@ const API = {
       else if (legacyType === 'mana') effect_mana = v;
     }
     const poison_id = (raw.poison_id || (category === 'poison' ? id : '') || '').toLowerCase();
+    const dotCategory = category === 'poison' || category === 'antidote';
     return {
       ...raw,
       effect_category: category,
       effect_health: this.normalizeEffectExpr(effect_health ?? 0),
       effect_stamina: this.normalizeEffectExpr(effect_stamina ?? 0),
       effect_mana: this.normalizeEffectExpr(effect_mana ?? 0),
+      tick_health: this.normalizeEffectExpr(dotCategory ? (raw.tick_health ?? 0) : 0),
+      tick_stamina: this.normalizeEffectExpr(dotCategory ? (raw.tick_stamina ?? 0) : 0),
+      tick_mana: this.normalizeEffectExpr(dotCategory ? (raw.tick_mana ?? 0) : 0),
+      tick_interval_seconds: dotCategory ? Math.max(0, parseInt(raw.tick_interval_seconds, 10) || 0) : 0,
+      antidote_id: category === 'poison' ? String(raw.antidote_id || '').trim().toLowerCase() : '',
       poison_id,
       cures_poison: this.normalizeCuresPoison(raw.cures_poison),
       delay_seconds: this.isInstantConsumableCategory(category) ? 0 : (raw.delay_seconds ?? 0),
@@ -3626,11 +3632,25 @@ const API = {
     if (m) parts.push(`MP ${m}`);
     const amounts = parts.length ? parts.join(', ') : 'none';
     const cat = (c.effect_category || '').toLowerCase();
-    if (cat === 'antidote' && c.cures_poison) {
-      return `antidote — cures ${c.cures_poison}${amounts !== 'none' ? '; ' + amounts : ''}`;
+    const tickParts = [];
+    const th = fmt(c.tick_health);
+    const ts = fmt(c.tick_stamina);
+    const tm = fmt(c.tick_mana);
+    if (th) tickParts.push(`HP ${th}`);
+    if (ts) tickParts.push(`STA ${ts}`);
+    if (tm) tickParts.push(`MP ${tm}`);
+    const tickAmounts = tickParts.join(', ');
+    const tickEvery = parseInt(c.tick_interval_seconds, 10) || 0;
+    const tickNote = tickEvery > 0 && tickAmounts
+      ? `; every ${tickEvery}s: ${tickAmounts}`
+      : '';
+    if (cat === 'antidote') {
+      const cures = c.cures_poison ? `cures ${c.cures_poison}` : 'no poison ids';
+      return `antidote — ${cures}${amounts !== 'none' ? '; once ' + amounts : ''}${tickNote}`;
     }
-    if (cat === 'poison' && c.poison_id) {
-      return `poison (${c.poison_id}) — ${amounts}`;
+    if (cat === 'poison') {
+      const stop = c.antidote_id ? `; until ${c.antidote_id}` : '';
+      return `poison (${c.poison_id || 'id'}) — once ${amounts}${tickNote}${stop}`;
     }
     if (cat === 'food' || cat === 'beverage') {
       return `${cat} — ${amounts} (instant, every use)`;
@@ -3651,6 +3671,13 @@ const API = {
       effect_health: this.normalizeEffectExpr(consumableData.effect_health ?? '0'),
       effect_stamina: this.normalizeEffectExpr(consumableData.effect_stamina ?? '0'),
       effect_mana: this.normalizeEffectExpr(consumableData.effect_mana ?? '0'),
+      tick_health: this.normalizeEffectExpr(consumableData.tick_health ?? '0'),
+      tick_stamina: this.normalizeEffectExpr(consumableData.tick_stamina ?? '0'),
+      tick_mana: this.normalizeEffectExpr(consumableData.tick_mana ?? '0'),
+      tick_interval_seconds: Math.max(0, parseInt(consumableData.tick_interval_seconds, 10) || 0),
+      antidote_id: category === 'poison'
+        ? String(consumableData.antidote_id || '').trim().toLowerCase()
+        : '',
       poison_id: category === 'poison'
         ? (consumableData.poison_id || slug || '').toLowerCase()
         : (consumableData.poison_id || ''),
@@ -3724,6 +3751,13 @@ const API = {
             if (consumableData.effect_health !== undefined) updateData.effect_health = this.normalizeEffectExpr(consumableData.effect_health);
             if (consumableData.effect_stamina !== undefined) updateData.effect_stamina = this.normalizeEffectExpr(consumableData.effect_stamina);
             if (consumableData.effect_mana !== undefined) updateData.effect_mana = this.normalizeEffectExpr(consumableData.effect_mana);
+            if (consumableData.tick_health !== undefined) updateData.tick_health = this.normalizeEffectExpr(consumableData.tick_health);
+            if (consumableData.tick_stamina !== undefined) updateData.tick_stamina = this.normalizeEffectExpr(consumableData.tick_stamina);
+            if (consumableData.tick_mana !== undefined) updateData.tick_mana = this.normalizeEffectExpr(consumableData.tick_mana);
+            if (consumableData.tick_interval_seconds !== undefined) {
+                updateData.tick_interval_seconds = Math.max(0, parseInt(consumableData.tick_interval_seconds, 10) || 0);
+            }
+            if (consumableData.antidote_id !== undefined) updateData.antidote_id = String(consumableData.antidote_id || '').trim().toLowerCase();
             if (consumableData.poison_id !== undefined) updateData.poison_id = (consumableData.poison_id || '').toLowerCase();
             if (consumableData.cures_poison !== undefined) updateData.cures_poison = this.normalizeCuresPoison(consumableData.cures_poison);
             if (consumableData.effect_type !== undefined) updateData.effect_type = consumableData.effect_type;
@@ -3746,6 +3780,11 @@ const API = {
                 || consumableData.effect_category === 'food' || consumableData.effect_category === 'beverage') {
                 updateData.delay_seconds = 0;
                 updateData.duration_seconds = 0;
+                updateData.tick_interval_seconds = 0;
+                updateData.tick_health = '0';
+                updateData.tick_stamina = '0';
+                updateData.tick_mana = '0';
+                updateData.antidote_id = '';
             }
             
             await db.collection('feud4').doc('consumables')
