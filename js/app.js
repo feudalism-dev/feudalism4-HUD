@@ -7828,8 +7828,16 @@ try {
             } else {
                 consumables.forEach(consumable => {
                     const effectDesc = API.formatConsumableEffectsSummary(consumable);
-                    const durationDesc = (consumable.delay_seconds ? `${consumable.delay_seconds}s delay → ` : '')
+                    let durationDesc = (consumable.delay_seconds ? `${consumable.delay_seconds}s delay → ` : '')
                         + (consumable.duration_seconds ? `${consumable.duration_seconds}s` : 'instant');
+                    const tickEvery = parseInt(consumable.tick_interval_seconds, 10) || 0;
+                    if (tickEvery > 0) {
+                        if (consumable.effect_category === 'poison' && consumable.antidote_id) {
+                            durationDesc += ` · every ${tickEvery}s until ${consumable.antidote_id}`;
+                        } else {
+                            durationDesc += ` · every ${tickEvery}s`;
+                        }
+                    }
                     html += `
                         <tr>
                             <td>${consumable.name || consumable.id}</td>
@@ -7981,15 +7989,20 @@ try {
                 <div class="form-group" id="poison-id-group" style="display: none;">
                     <label for="consumable-poison-id">Poison ID</label>
                     <input type="text" id="consumable-poison-id" value="${esc(consumable?.poison_id || slug)}" placeholder="nightshade">
-                    <small>Stable id for antidote matching. Defaults to slug if blank.</small>
+                    <small>Stable id antidotes match. Defaults to the slug if blank.</small>
+                </div>
+                <div class="form-group" id="antidote-id-group" style="display: none;">
+                    <label for="consumable-antidote-id">Antidote slug (optional)</label>
+                    <input type="text" id="consumable-antidote-id" value="${esc(consumable?.antidote_id || '')}" placeholder="milk_thistle">
+                    <small>If set, recurring damage continues until this item is used. Leave blank to stop recurring when Duration ends.</small>
                 </div>
                 <div class="form-group" id="cures-poison-group" style="display: none;">
                     <label for="consumable-cures-poison">Cures poison IDs</label>
                     <input type="text" id="consumable-cures-poison" value="${esc(consumable?.cures_poison || '')}" placeholder="nightshade, bad_ale">
-                    <small>Comma-separated poison_id values this antidote removes.</small>
+                    <small>Comma-separated poison_id values this antidote removes, including their recurring ticks.</small>
                 </div>
                 <fieldset id="consumable-resource-fieldset" style="border: 1px solid var(--border-color); padding: var(--space-md); margin-bottom: var(--space-md); border-radius: 4px;">
-                    <legend id="consumable-resource-legend" style="padding: 0 var(--space-xs);">Resource changes</legend>
+                    <legend id="consumable-resource-legend" style="padding: 0 var(--space-xs);">One-time resource changes</legend>
                     <div class="form-group">
                         <label for="consumable-effect-health">Health</label>
                         <input type="text" id="consumable-effect-health" value="${esc(consumable?.effect_health ?? consumable?.effect_value ?? '0')}" placeholder="0, 1D, 3D+5, +10">
@@ -8002,7 +8015,28 @@ try {
                         <label for="consumable-effect-mana">Mana</label>
                         <input type="text" id="consumable-effect-mana" value="${esc(consumable?.effect_mana ?? '0')}" placeholder="0, 1D">
                     </div>
-                    <small>Dice uses d20 per die. Plain number or +N is fixed. Examples: <code>1D</code>, <code>3D+5</code>, <code>-2D-5</code>, <code>+10</code>.</small>
+                    <small id="consumable-resource-help">Dice uses d20 per die. Plain number or +N is fixed. Examples: <code>1D</code>, <code>3D+5</code>, <code>-2D-5</code>, <code>+10</code>.</small>
+                </fieldset>
+                <fieldset id="consumable-tick-fieldset" style="display: none; border: 1px solid var(--border-color); padding: var(--space-md); margin-bottom: var(--space-md); border-radius: 4px;">
+                    <legend id="consumable-tick-legend" style="padding: 0 var(--space-xs);">Recurring effect (optional)</legend>
+                    <div class="form-group">
+                        <label for="consumable-tick-interval">Period (seconds)</label>
+                        <input type="number" id="consumable-tick-interval" value="${consumable?.tick_interval_seconds ?? 0}" min="0">
+                        <small>0 = no recurring effect. Otherwise health, stamina, and mana below are applied again on this period.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="consumable-tick-health">Recurring health</label>
+                        <input type="text" id="consumable-tick-health" value="${esc(consumable?.tick_health ?? '0')}" placeholder="0, -1D, -5">
+                    </div>
+                    <div class="form-group">
+                        <label for="consumable-tick-stamina">Recurring stamina</label>
+                        <input type="text" id="consumable-tick-stamina" value="${esc(consumable?.tick_stamina ?? '0')}" placeholder="0, -2">
+                    </div>
+                    <div class="form-group">
+                        <label for="consumable-tick-mana">Recurring mana</label>
+                        <input type="text" id="consumable-tick-mana" value="${esc(consumable?.tick_mana ?? '0')}" placeholder="0, +1D">
+                    </div>
+                    <small id="consumable-tick-help">Poison ticks should be negative. Antidote ticks should be positive recovery.</small>
                 </fieldset>
                 <div class="form-group" id="consumable-timing-group">
                     <label for="consumable-delay">Delay (seconds)</label>
@@ -8055,19 +8089,25 @@ try {
         const syncConsumableCategoryUI = () => {
             const category = document.getElementById('consumable-effect-category')?.value || 'healing';
             const isInstant = category === 'food' || category === 'beverage';
+            const isPoison = category === 'poison';
+            const isAntidote = category === 'antidote';
+            const isDot = isPoison || isAntidote;
             const timingGroup = document.getElementById('consumable-timing-group');
             const durationGroup = document.getElementById('consumable-duration-group');
             const stackableGroup = document.getElementById('consumable-stackable-group');
+            const tickFieldset = document.getElementById('consumable-tick-fieldset');
             const legend = document.getElementById('consumable-resource-legend');
             const categoryHelp = document.getElementById('consumable-category-help');
+            const durationHelp = document.getElementById('consumable-duration-help');
+            const delayHelp = document.getElementById('consumable-delay-help');
             const poisonGroup = document.getElementById('poison-id-group');
+            const antidoteGroup = document.getElementById('antidote-id-group');
             const curesGroup = document.getElementById('cures-poison-group');
-            if (poisonGroup) {
-                poisonGroup.style.display = category === 'poison' ? '' : 'none';
-            }
-            if (curesGroup) {
-                curesGroup.style.display = category === 'antidote' ? '' : 'none';
-            }
+            const antidoteId = (document.getElementById('consumable-antidote-id')?.value || '').trim();
+            if (poisonGroup) poisonGroup.style.display = isPoison ? '' : 'none';
+            if (antidoteGroup) antidoteGroup.style.display = isPoison ? '' : 'none';
+            if (curesGroup) curesGroup.style.display = isAntidote ? '' : 'none';
+            if (tickFieldset) tickFieldset.style.display = isDot ? '' : 'none';
             if (isInstant) {
                 if (timingGroup) timingGroup.style.display = 'none';
                 if (durationGroup) durationGroup.style.display = 'none';
@@ -8084,13 +8124,40 @@ try {
                 if (timingGroup) timingGroup.style.display = '';
                 if (durationGroup) durationGroup.style.display = '';
                 if (stackableGroup) stackableGroup.style.display = '';
-                if (legend) legend.textContent = 'Resource changes (rolled once after delay)';
+                if (legend) {
+                    legend.textContent = isPoison
+                        ? 'One-time damage (applied once)'
+                        : (isAntidote ? 'One-time recovery (applied once)' : 'Resource changes (rolled once after delay)');
+                }
+                if (delayHelp) {
+                    delayHelp.textContent = isDot
+                        ? 'Wait before the one-time change. Recurring ticks start after that, then repeat on the period.'
+                        : 'Time after drinking before health/stamina/mana change applies (0 = immediate).';
+                }
+                if (durationHelp) {
+                    if (isPoison && antidoteId) {
+                        durationHelp.textContent = 'Ignored while an antidote slug is set. Recurring damage stops only when that antidote is used.';
+                    } else if (isPoison) {
+                        durationHelp.textContent = 'How long recurring ticks continue. 0 = one-time damage only. A matching antidote can still end it early.';
+                    } else if (isAntidote) {
+                        durationHelp.textContent = 'How long recurring recovery continues after the one-time recovery. 0 = one-time only.';
+                    } else {
+                        durationHelp.textContent = 'How long the effect stays active on the buff bar after it applies (0 = instant, no buff icon).';
+                    }
+                }
                 if (categoryHelp) {
-                    categoryHelp.textContent = 'Alcohol/intoxicant apply impairment while active. Poison/antidote use meta fields above.';
+                    if (isPoison) {
+                        categoryHelp.textContent = 'One-time damage, plus optional repeating damage. Name an antidote if the ticks should continue until it is taken.';
+                    } else if (isAntidote) {
+                        categoryHelp.textContent = 'Removes matching poisons, then applies one-time recovery and optional repeating recovery.';
+                    } else {
+                        categoryHelp.textContent = 'Alcohol/intoxicant apply impairment while active.';
+                    }
                 }
             }
         };
         document.getElementById('consumable-effect-category')?.addEventListener('change', syncConsumableCategoryUI);
+        document.getElementById('consumable-antidote-id')?.addEventListener('input', syncConsumableCategoryUI);
         syncConsumableCategoryUI();
         
         // Back button
@@ -8118,14 +8185,34 @@ try {
             const effectStamina = document.getElementById('consumable-effect-stamina').value.trim() || '0';
             const effectMana = document.getElementById('consumable-effect-mana').value.trim() || '0';
             const poisonId = document.getElementById('consumable-poison-id').value.trim();
+            const antidoteId = document.getElementById('consumable-antidote-id').value.trim();
             const curesPoison = document.getElementById('consumable-cures-poison').value.trim();
+            const isDot = effectCategory === 'poison' || effectCategory === 'antidote';
+            let tickInterval = parseInt(document.getElementById('consumable-tick-interval').value, 10) || 0;
+            let tickHealth = document.getElementById('consumable-tick-health').value.trim() || '0';
+            let tickStamina = document.getElementById('consumable-tick-stamina').value.trim() || '0';
+            let tickMana = document.getElementById('consumable-tick-mana').value.trim() || '0';
+            if (!isDot) {
+                tickInterval = 0;
+                tickHealth = '0';
+                tickStamina = '0';
+                tickMana = '0';
+            }
             const stackable = document.getElementById('consumable-stackable').checked;
             const maxStack = stackable ? (parseInt(document.getElementById('consumable-max-stack').value, 10) || 1) : 1;
             const rpOnly = document.getElementById('consumable-rp-only').checked;
             const disabled = document.getElementById('consumable-disabled').checked;
             
-            if (!name || delaySeconds < 0 || duration < 0 || maxStack < 1) {
+            if (!name || delaySeconds < 0 || duration < 0 || maxStack < 1 || tickInterval < 0) {
                 UI.showToast('Please fill in all required fields correctly', 'warning');
+                return;
+            }
+            if (effectCategory === 'poison' && tickInterval > 0 && duration <= 0 && !antidoteId) {
+                UI.showToast('Recurring poison needs a Duration or an Antidote slug', 'warning');
+                return;
+            }
+            if (effectCategory === 'antidote' && tickInterval > 0 && duration <= 0) {
+                UI.showToast('Recurring antidote needs a Duration greater than 0', 'warning');
                 return;
             }
             
@@ -8138,7 +8225,12 @@ try {
                 effect_stamina: effectStamina,
                 effect_mana: effectMana,
                 poison_id: poisonId,
+                antidote_id: antidoteId,
                 cures_poison: curesPoison,
+                tick_interval_seconds: tickInterval,
+                tick_health: tickHealth,
+                tick_stamina: tickStamina,
+                tick_mana: tickMana,
                 delay_seconds: delaySeconds,
                 duration_seconds: duration,
                 effect_type: effectCategory,
@@ -8173,7 +8265,8 @@ try {
             const headers = [
                 'slug', 'name', 'description', 'icon', 'effect_category',
                 'effect_health', 'effect_stamina', 'effect_mana',
-                'poison_id', 'cures_poison',
+                'poison_id', 'antidote_id', 'cures_poison',
+                'tick_interval_seconds', 'tick_health', 'tick_stamina', 'tick_mana',
                 'delay_seconds', 'duration_seconds', 'stackable', 'max_stack', 'rp_only', 'disabled'
             ];
             const rows = (consumables || []).map(c => {
@@ -8187,7 +8280,12 @@ try {
                     c.effect_stamina ?? '0',
                     c.effect_mana ?? '0',
                     c.poison_id || '',
+                    c.antidote_id || '',
                     c.cures_poison || '',
+                    c.tick_interval_seconds ?? 0,
+                    c.tick_health ?? '0',
+                    c.tick_stamina ?? '0',
+                    c.tick_mana ?? '0',
                     c.delay_seconds ?? 0,
                     c.duration_seconds ?? 0,
                     c.stackable ? 'true' : 'false',
@@ -8288,7 +8386,12 @@ try {
                     effect_stamina: get('effect_stamina', '0'),
                     effect_mana: get('effect_mana', '0'),
                     poison_id: get('poison_id'),
+                    antidote_id: get('antidote_id'),
                     cures_poison: get('cures_poison'),
+                    tick_interval_seconds: parseInt(get('tick_interval_seconds', '0'), 10) || 0,
+                    tick_health: get('tick_health', '0'),
+                    tick_stamina: get('tick_stamina', '0'),
+                    tick_mana: get('tick_mana', '0'),
                     delay_seconds: parseInt(get('delay_seconds', '0'), 10) || 0,
                     duration_seconds: parseInt(get('duration_seconds', '0'), 10) || 0,
                     stackable: get('stackable', 'false').toLowerCase() === 'true',
